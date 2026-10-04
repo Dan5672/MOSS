@@ -128,6 +128,8 @@ export const models = pgTable(
     // Prices in USD per million tokens; editable by the user.
     inputPricePerMTok: numeric("input_price_per_mtok", { precision: 12, scale: 4 }).notNull().default("0"),
     outputPricePerMTok: numeric("output_price_per_mtok", { precision: 12, scale: 4 }).notNull().default("0"),
+    cacheReadPricePerMTok: numeric("cache_read_price_per_mtok", { precision: 12, scale: 4 }).notNull().default("0"),
+    cacheWritePricePerMTok: numeric("cache_write_price_per_mtok", { precision: 12, scale: 4 }).notNull().default("0"),
     contextWindow: integer("context_window"),
     enabled: boolean("enabled").notNull().default(true),
   },
@@ -242,6 +244,10 @@ export const tokenUsage = pgTable(
     modelId: uuid("model_id").notNull().references(() => models.id),
     inputTokens: bigint("input_tokens", { mode: "number" }).notNull(),
     outputTokens: bigint("output_tokens", { mode: "number" }).notNull(),
+    cacheReadTokens: bigint("cache_read_tokens", { mode: "number" }).notNull().default(0),
+    cacheWriteTokens: bigint("cache_write_tokens", { mode: "number" }).notNull().default(0),
+    /** Model that actually served the call (differs from modelId after a refusal fallback). */
+    servedModel: text("served_model"),
     costUsd: numeric("cost_usd", { precision: 14, scale: 6 }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

@@ -1,0 +1,30 @@
+# Lab network for end-to-end testing. Use with:
+#   docker compose -f deploy/docker-compose.yml -f deploy/lab/compose.lab.yml up -d
+# lab_allowed (172.30.10.0/24) is marked allowed by the seed script; lab_offlimits (172.30.66.0/24) is off-limits.
+services:
+  toolbox:
+    networks:
+      lab_allowed: { ipv4_address: 172.30.10.2 }
+      lab_offlimits: { ipv4_address: 172.30.66.2 }
+
+  lab-web:
+    image: nginx:alpine
+    networks:
+      lab_allowed: { ipv4_address: 172.30.10.10 }
+
+  lab-db:
+    image: redis:alpine
+    networks:
+      lab_allowed: { ipv4_address: 172.30.10.11 }
+
+  # Lives on the off-limits network: agents must never be able to touch it.
+  lab-forbidden:
+    image: nginx:alpine
+    networks:
+      lab_offlimits: { ipv4_address: 172.30.66.10 }
+
+networks:
+  lab_allowed:
+    ipam: { config: [{ subnet: 172.30.10.0/24 }] }
+  lab_offlimits:
+    ipam: { config: [{ subnet: 172.30.66.0/24 }] }
