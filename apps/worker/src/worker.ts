@@ -1,4 +1,4 @@
-// The worker: runs agent jobs from the queue and turns agent schedules into jobs.
+// The worker: runs agent jobs from the queue, turns agent schedules into jobs, and runs monitor checks.
 import {
   enqueueRun,
   ensureQueues,
@@ -12,11 +12,12 @@ import {
   type ProviderFactory,
   type RunInput,
 } from "@moss/agent";
-import { changeRef, dispatchEvents, incidentRef, type StoredEvent } from "@moss/core";
+import { changeRef, dispatchEvents, ensureBuiltInRoles, incidentRef, type StoredEvent } from "@moss/core";
 import { agents, agentSchedules, changeRequests, incidents, orgs, type Database } from "@moss/db";
 import { createProvider } from "@moss/llm";
 import { and, eq } from "drizzle-orm";
 import { PgBoss } from "pg-boss";
+import { handleMonitorEvent, pruneAllMonitorResults, runDueChecks, type MonitorChecker } from "./monitor-runner.js";
 
 export { enqueueRun, RUN_QUEUE, SCHEDULE_QUEUE };
 
@@ -26,7 +27,10 @@ export interface WorkerConfig {
   gate: GateClient;
   providerFor: ProviderFactory;
   libraryDir?: string;
+  /** Runs monitor checks through the gate. Monitoring is off without it. */
+  checkMonitor?: MonitorChecker;
   eventIntervalMs?: number;
+  monitorIntervalMs?: number;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
 }
 
@@ -96,6 +100,10 @@ export async function handleEvent(db: Database, boss: PgBoss, event: StoredEvent
       await enqueueRun(boss, { agentId: cr.requestedByAgentId, trigger: "event", triggerRef: cr.id, task });
       return;
     }
+    case "monitor.down":
+    case "monitor.up":
+    case "monitor.degraded":
+      return handleMonitorEvent(db, boss, event.type, p);
     default:
       return; // other events only drive notifications, which are written when the event happens
   }
@@ -104,6 +112,9 @@ export async function handleEvent(db: Database, boss: PgBoss, event: StoredEvent
 export async function startWorker(cfg: WorkerConfig) {
   const { db, boss } = cfg;
   const log = cfg.log ?? ((msg, extra) => console.log(JSON.stringify({ msg, ...extra })));
+
+  // Built-in roles are re-synced on every boot so upgrades can add permissions.
+  for (const org of await db.select({ id: orgs.id }).from(orgs)) await ensureBuiltInRoles(db, org.id);
 
   if (cfg.libraryDir) {
     const lib = await loadLibrary(cfg.libraryDir);
@@ -152,10 +163,32 @@ export async function startWorker(cfg: WorkerConfig) {
     }
   };
   const eventTimer = setInterval(dispatch, cfg.eventIntervalMs ?? 3_000);
+
+  let checking = false;
+  const checkMonitors = async () => {
+    if (checking || !cfg.checkMonitor) return;
+    checking = true;
+    try {
+      await runDueChecks(db, cfg.checkMonitor, { log });
+    } catch (err) {
+      log("monitor checks failed", { error: (err as Error).message });
+    } finally {
+      checking = false;
+    }
+  };
+  const monitorTimer = setInterval(checkMonitors, cfg.monitorIntervalMs ?? 10_000);
+  const prune = () =>
+    pruneAllMonitorResults(db).then(
+      (n) => n && log("monitor results pruned", { deleted: n }),
+      (err) => log("monitor prune failed", { error: (err as Error).message }),
+    );
+  const pruneTimer = setInterval(prune, 60 * 60_000);
   return {
     stop: async () => {
       clearInterval(timer);
       clearInterval(eventTimer);
+      clearInterval(monitorTimer);
+      clearInterval(pruneTimer);
       await boss.stop({ graceful: true });
     },
   };

@@ -9,7 +9,10 @@ export type DomainEvent =
   | { type: "change.submitted"; payload: { changeId: string } }
   | { type: "change.approved"; payload: { changeId: string } }
   | { type: "change.rejected"; payload: { changeId: string } }
-  | { type: "change.completed"; payload: { changeId: string; outcome: string } };
+  | { type: "change.completed"; payload: { changeId: string; outcome: string } }
+  | { type: "monitor.down"; payload: { monitorId: string } }
+  | { type: "monitor.degraded"; payload: { monitorId: string } }
+  | { type: "monitor.up"; payload: { monitorId: string; downSince: string } };
 
 /** Anything with insert(): the database or an open transaction. */
 type Writer = Pick<Database, "insert">;

@@ -1,6 +1,7 @@
 import { createDb } from "@moss/db";
 import { readFileSync } from "node:fs";
 import { PgBoss } from "pg-boss";
+import { httpMonitorChecker } from "./monitor-runner.js";
 import { gateProviderFactory, httpGate, startWorker } from "./worker.js";
 
 function secretFromEnv(name: string): string {
@@ -24,6 +25,7 @@ const worker = await startWorker({
   boss,
   gate: httpGate(gateUrl, gateToken),
   providerFor: gateProviderFactory(gateUrl, gateToken),
+  checkMonitor: httpMonitorChecker(gateUrl, gateToken),
   libraryDir: process.env.MOSS_LIBRARY_DIR ?? "/app/library",
 });
 

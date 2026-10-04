@@ -7,6 +7,7 @@ import { createSocket } from "node:dgram";
 import { promises as dns } from "node:dns";
 import { networkInterfaces } from "node:os";
 import { parseArpScan, parseNmapXml, parsePing } from "./parsers.js";
+import { httpProbe, tcpConnect, tlsInspect, type HttpProbeArgs } from "./probes.js";
 
 const NMAP_PROFILES: Record<string, string[]> = {
   ping: ["-sn"],
@@ -86,6 +87,11 @@ function assertTargets(targets: string[]) {
   for (const t of targets) if (!parseRange(t)) throw new ToolError(`Refusing non-IP target ${JSON.stringify(t)}`);
 }
 
+function assertHost(target: string) {
+  const range = parseRange(target);
+  if (!range || range.start !== range.end) throw new ToolError(`Refusing target ${JSON.stringify(target)}: must be a single IP`);
+}
+
 export async function runTool(
   name: string,
   rawArgs: unknown,
@@ -144,6 +150,20 @@ export async function runTool(
         if (code === "ENOTFOUND" || code === "ENODATA") return { name: nameArg, type, answers: [] };
         throw new ToolError(`DNS lookup failed: ${code ?? String(err)}`);
       }
+    }
+    case "tcp_connect": {
+      const target = args.target as string;
+      assertHost(target);
+      return tcpConnect(target, args.port as number, args.timeoutMs as number);
+    }
+    case "http_probe": {
+      assertHost(args.target as string);
+      return httpProbe(args as unknown as HttpProbeArgs);
+    }
+    case "tls_inspect": {
+      const target = args.target as string;
+      assertHost(target);
+      return tlsInspect(target, args.port as number, args.servername as string | undefined, args.timeoutMs as number);
     }
     default:
       throw new ToolError(`Tool ${name} has no runner`);

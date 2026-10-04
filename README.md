@@ -46,5 +46,14 @@ curl -X POST http://127.0.0.1:7080/v1/tool-calls \
 ```
 Scans of 172.30.10.0/24 run; anything touching 172.30.66.0/24 is denied by the gate.
 
+### Monitoring
+Monitoring (web UI → Monitoring) runs ping, TCP, HTTP(S), TLS-expiry and DNS checks from the toolbox,
+through the gate, so monitors follow the same network rules as agents. It also accepts alerts from
+Uptime Kuma, Beszel, Prometheus Alertmanager or any JSON sender (Monitoring → Webhook sources). When
+a monitor goes down, MOSS raises an incident and assigns it to the monitor's responder agent, which
+starts working it. Recovery is noted on the incident. Outages during an in-progress change on the
+monitored asset do not raise incidents. External senders must be able to reach the web UI, so set
+`MOSS_WEB_BIND` in `deploy/.env` if they run on another machine.
+
 ## License
 AGPL-3.0 open core; commercial license available for business features. Contributions require a CLA.

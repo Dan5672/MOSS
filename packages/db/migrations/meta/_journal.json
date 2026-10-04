@@ -29,6 +29,13 @@
       "when": 1791094077929,
       "tag": "0003_incidents_changes",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791112481560,
+      "tag": "0004_monitoring",
+      "breakpoints": true
     }
   ]
 }

@@ -29,7 +29,7 @@ export default async function DashboardPage() {
   return (
     <>
       <PageHeader title="Dashboard" description="What your IT department is doing, at a glance." />
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <Stat label="Open incidents" value={d.incidents.open} href="/incidents" sub={
           priorities.length ? (
             <span className="flex flex-wrap gap-1">
@@ -41,6 +41,12 @@ export default async function DashboardPage() {
             </span>
           ) : "Nothing open"
         } />
+        <Stat
+          label="Monitors down"
+          value={d.monitors.down}
+          href="/monitoring"
+          sub={d.monitors.total ? `${d.monitors.up} up${d.monitors.degraded ? ` · ${d.monitors.degraded} degraded` : ""}` : "No monitors yet"}
+        />
         <Stat label="Awaiting approval" value={d.pendingApprovals} href="/changes" sub="Change requests" />
         <Stat label="Assets" value={d.assets.total} href="/assets" sub={`${d.assets.newThisWeek} new this week`} />
         <Stat label="Agents" value={d.agents.active} href="/agents" sub={d.agents.paused ? `${d.agents.paused} paused` : "All active"} />

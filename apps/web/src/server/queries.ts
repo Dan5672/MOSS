@@ -1,13 +1,13 @@
 import "server-only";
 import { periodStart } from "@moss/core";
-import { agentRuns, agents, assets, auditLog, changeRequests, incidents, models, tokenUsage } from "@moss/db";
+import { agentRuns, agents, assets, auditLog, changeRequests, incidents, models, monitors, tokenUsage } from "@moss/db";
 import { and, count, desc, eq, gte, inArray, ne, sql, sum } from "drizzle-orm";
 import { db } from "./db";
 
 export async function dashboard(orgId: string) {
   const d = db();
   const weekAgo = new Date(Date.now() - 7 * 86_400_000);
-  const [assetCounts, incidentRows, pendingChanges, agentRows, spendToday, spendMonth, recentRuns, recentAudit] = await Promise.all([
+  const [assetCounts, incidentRows, pendingChanges, agentRows, spendToday, spendMonth, recentRuns, recentAudit, monitorRows] = await Promise.all([
     d
       .select({ total: count(), recent: sql<number>`count(*) filter (where ${assets.firstSeenAt} >= ${weekAgo.toISOString()}::timestamptz)` })
       .from(assets)
@@ -42,7 +42,13 @@ export async function dashboard(orgId: string) {
       .orderBy(desc(agentRuns.startedAt))
       .limit(8),
     d.select().from(auditLog).where(eq(auditLog.orgId, orgId)).orderBy(desc(auditLog.id)).limit(10),
+    d
+      .select({ state: monitors.state, n: count() })
+      .from(monitors)
+      .where(eq(monitors.orgId, orgId))
+      .groupBy(monitors.state),
   ]);
+  const monitorStates = Object.fromEntries(monitorRows.map((r) => [r.state, r.n])) as Record<string, number>;
   const byPriority = Object.fromEntries(incidentRows.map((r) => [r.priority, r.n])) as Record<string, number>;
   const byStatus = Object.fromEntries(agentRows.map((r) => [r.status, r.n])) as Record<string, number>;
   return {
@@ -53,6 +59,7 @@ export async function dashboard(orgId: string) {
     spend: { today: Number(spendToday[0]?.usd ?? 0), month: Number(spendMonth[0]?.usd ?? 0) },
     recentRuns,
     recentAudit,
+    monitors: { total: monitorRows.reduce((n, r) => n + r.n, 0), down: monitorStates.down ?? 0, degraded: monitorStates.degraded ?? 0, up: monitorStates.up ?? 0 },
   };
 }
 

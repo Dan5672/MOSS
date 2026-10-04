@@ -5,8 +5,8 @@ import { Textarea } from "@/components/ui/textarea";
 /** The control is nested inside its <label>, so it is labelled for screen readers without ids. */
 export function Field({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
   return (
-    <div className="grid gap-1.5">
-      <label className="grid gap-1.5 text-sm font-medium leading-none">
+    <div className="grid content-start gap-1.5">
+      <label className="grid content-start gap-1.5 text-sm font-medium leading-none">
         <span>{label}</span>
         {children}
       </label>
@@ -28,6 +28,18 @@ export function TextAreaField({ label, hint, ...props }: { label: string; hint?:
     <Field label={label} hint={hint}>
       <Textarea {...props} className="font-normal" />
     </Field>
+  );
+}
+
+export function CheckboxField({ label, hint, ...props }: { label: string; hint?: ReactNode } & ComponentProps<"input">) {
+  return (
+    <div className="grid gap-1">
+      <label className="flex items-center gap-2 text-sm font-medium">
+        <input type="checkbox" {...props} className="size-4 accent-primary" />
+        <span>{label}</span>
+      </label>
+      {hint && <p className="pl-6 text-xs text-muted-foreground">{hint}</p>}
+    </div>
   );
 }
 
