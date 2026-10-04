@@ -67,7 +67,11 @@ export interface ModelInfo {
   contextWindow?: number;
 }
 
-export type ProviderKind = "anthropic" | "openai" | "openrouter" | "ollama" | "openai_compatible";
+/**
+ * "claude_code" runs agents through the Claude Code CLI on the owner's Claude subscription.
+ * It has no completion adapter: the agent runtime drives the CLI itself.
+ */
+export type ProviderKind = "anthropic" | "openai" | "openrouter" | "ollama" | "openai_compatible" | "claude_code";
 
 export interface ProviderAdapter {
   readonly kind: ProviderKind;

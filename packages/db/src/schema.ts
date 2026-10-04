@@ -109,7 +109,7 @@ export const sessions = pgTable("sessions", {
 export const providers = pgTable("providers", {
   id: id(),
   ...tenancy(),
-  kind: text("kind", { enum: ["anthropic", "openai", "openrouter", "ollama", "openai_compatible"] }).notNull(),
+  kind: text("kind", { enum: ["anthropic", "openai", "openrouter", "ollama", "openai_compatible", "claude_code"] }).notNull(),
   name: text("name").notNull(),
   baseUrl: text("base_url"),
   apiKeySecretId: uuid("api_key_secret_id"),

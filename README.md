@@ -22,6 +22,7 @@ audited.
     still on the roadmap.
 - **Bring your own model.** Supports Anthropic, OpenAI, OpenRouter, Ollama and any
   OpenAI-compatible endpoint. A local model through Ollama keeps everything on your network.
+  Agents can also run on a **Claude Pro or Max subscription** instead of an API key (see below).
 - **Discovery and inventory.** Agents scan the networks you allow (nmap, ARP) and keep an asset
   inventory. You can lock an asset so agents can't change it.
 - **Incidents and change management.** Agents raise and work break/fix and security incidents.
@@ -114,6 +115,26 @@ When a monitor goes down, after a configurable number of failed checks:
 - When it recovers, the incident is updated, or resolved automatically if you prefer.
 - Outages during an approved change on the same asset (a planned restart, for example) don't open
   incidents.
+
+## Using a Claude subscription
+
+Agents can run on your Claude Pro or Max plan instead of an API key. MOSS drives them through the
+Claude Code CLI, locked down so it is only a model loop:
+
+- All of Claude Code's built-in tools are removed (shell, files, web), and user and project
+  settings are ignored. The agent's only tools are MOSS's, so every network action still goes
+  through the policy gate.
+- MOSS refuses the run if Claude Code ever reports a tool that isn't one of MOSS's.
+- The subscription token is stored encrypted in the gate and added to requests there. It never
+  reaches the worker where the agent runs.
+
+To set it up, run `claude setup-token` on any computer with Claude Code, then go to **Models** in
+MOSS. Add a provider of type **Claude subscription**, paste the token, and add a model such as
+`claude-sonnet-5-5`. Give these agents token budgets, since subscription use has no per-token price.
+
+Runs count against your plan's usage limits, and runs fail until a limit resets. Using a personal
+plan this way is your decision under Anthropic's terms for that plan. For guaranteed capacity, use
+an API key.
 
 ## Backups and upgrades
 

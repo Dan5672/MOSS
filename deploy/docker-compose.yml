@@ -70,6 +70,7 @@ services:
     secrets: [gate_token]
     networks: [backend]
     read_only: true
+    tmpfs: [/tmp] # scratch home for Claude Code runs
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     depends_on:

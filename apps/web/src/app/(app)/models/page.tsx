@@ -14,7 +14,8 @@ import { addModelAction, addProviderAction, toggleModelAction } from "./actions"
 export const metadata = { title: "Models" };
 
 const KINDS = [
-  { value: "anthropic", label: "Anthropic (Claude)" },
+  { value: "anthropic", label: "Anthropic API (Claude)" },
+  { value: "claude_code", label: "Claude subscription (Pro/Max, via Claude Code)" },
   { value: "openai", label: "OpenAI" },
   { value: "openrouter", label: "OpenRouter" },
   { value: "ollama", label: "Ollama (local)" },
@@ -29,6 +30,7 @@ export default async function ModelsPage() {
   ]);
   const canManage = user.permissions.has("models.manage");
   const providerName = (id: string) => providerRows.find((p) => p.id === id)?.name ?? "?";
+  const onSubscription = (providerId: string) => providerRows.find((p) => p.id === providerId)?.kind === "claude_code";
 
   return (
     <>
@@ -59,8 +61,16 @@ export default async function ModelsPage() {
                       <div className="font-mono text-xs text-muted-foreground">{m.modelId}</div>
                     </TableCell>
                     <TableCell className="text-sm">{providerName(m.providerId)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{Number(m.inputPricePerMTok).toFixed(2)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{Number(m.outputPricePerMTok).toFixed(2)}</TableCell>
+                    {onSubscription(m.providerId) ? (
+                      <TableCell colSpan={2} className="text-right text-sm text-muted-foreground">
+                        Subscription: tokens counted, no per-token cost
+                      </TableCell>
+                    ) : (
+                      <>
+                        <TableCell className="text-right tabular-nums">{Number(m.inputPricePerMTok).toFixed(2)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{Number(m.outputPricePerMTok).toFixed(2)}</TableCell>
+                      </>
+                    )}
                     <TableCell className="text-right">
                       {!m.enabled && <Pill className="mr-2">disabled</Pill>}
                       {canManage && (
@@ -86,7 +96,13 @@ export default async function ModelsPage() {
                   <SelectField label="Type" name="kind" options={KINDS} />
                   <TextField label="Name" name="name" placeholder="Claude" required />
                   <TextField label="Base URL (optional for hosted providers)" name="baseUrl" type="url" />
-                  <TextField label="API key" name="apiKey" type="password" autoComplete="off" hint="Not needed for Ollama." />
+                  <TextField
+                    label="API key or token"
+                    name="apiKey"
+                    type="password"
+                    autoComplete="off"
+                    hint="Not needed for Ollama. For a Claude subscription, paste the token from claude setup-token (see below)."
+                  />
                 </ActionForm>
               </CardContent>
             </Card>
@@ -119,6 +135,33 @@ export default async function ModelsPage() {
           </div>
         )}
 
+        <Section title="Using a Claude subscription">
+          <div className="space-y-3 rounded-lg border p-4 text-sm">
+            <p>
+              Agents can run on your Claude Pro or Max plan instead of an API key. MOSS runs them through Claude Code, locked down so its only
+              tools are MOSS&apos;s: every network action still goes through the policy gate, and agents get no shell, files or web access.
+            </p>
+            <ol className="list-decimal space-y-1 pl-5">
+              <li>
+                On any computer where Claude Code is installed, run <code className="rounded bg-muted px-1">claude setup-token</code> and sign in
+                with your Claude account. It prints a long-lived token.
+              </li>
+              <li>
+                Add a provider above with type <strong>Claude subscription</strong> and paste the token. It is encrypted by the gate and never
+                shown again, and the worker never sees it.
+              </li>
+              <li>
+                Add a model for it (for example <code className="rounded bg-muted px-1">claude-sonnet-5-5</code>) and choose it for an agent.
+              </li>
+              <li>Give those agents token budgets rather than dollar budgets, because subscription use has no per-token price.</li>
+            </ol>
+            <p className="text-muted-foreground">
+              Runs count against your plan&apos;s usage limits; when a limit is reached, runs fail until it resets. Using your personal plan this
+              way is your decision under Anthropic&apos;s terms for your plan. If you need guaranteed capacity, use an API key.
+            </p>
+          </div>
+        </Section>
+
         <Section title="Providers">
           {providerRows.length === 0 ? (
             <Empty>No providers yet.</Empty>
@@ -130,7 +173,9 @@ export default async function ModelsPage() {
                     <span className="font-medium">{p.name}</span> <span className="text-muted-foreground">({p.kind})</span>
                     {p.baseUrl && <span className="ml-2 font-mono text-xs text-muted-foreground">{p.baseUrl}</span>}
                   </span>
-                  <Pill tone={p.apiKeySecretId ? "green" : "gray"}>{p.apiKeySecretId ? "key stored" : "no key"}</Pill>
+                  <Pill tone={p.apiKeySecretId ? "green" : "gray"}>
+                    {p.apiKeySecretId ? (p.kind === "claude_code" ? "token stored" : "key stored") : "no key"}
+                  </Pill>
                 </li>
               ))}
             </ul>

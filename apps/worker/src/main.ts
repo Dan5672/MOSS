@@ -26,6 +26,8 @@ const worker = await startWorker({
   gate: httpGate(gateUrl, gateToken),
   providerFor: gateProviderFactory(gateUrl, gateToken),
   checkMonitor: httpMonitorChecker(gateUrl, gateToken),
+  // Claude subscription agents: the CLI talks to the gate's LLM proxy, which adds the subscription token.
+  claudeCode: { baseUrlFor: (providerId) => `${gateUrl.replace(/\/+$/, "")}/v1/llm/${providerId}`, apiKey: gateToken },
   libraryDir: process.env.MOSS_LIBRARY_DIR ?? "/app/library",
 });
 

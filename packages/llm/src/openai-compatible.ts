@@ -19,7 +19,7 @@ const DEFAULT_BASE_URLS: Partial<Record<ProviderKind, string>> = {
 };
 
 export interface OpenAICompatibleOptions {
-  kind: Exclude<ProviderKind, "anthropic">;
+  kind: Exclude<ProviderKind, "anthropic" | "claude_code">;
   apiKey?: string;
   baseURL?: string;
   fetch?: typeof fetch;

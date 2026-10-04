@@ -8,6 +8,7 @@ import {
   runAgent,
   SCHEDULE_QUEUE,
   syncBuiltInSkills,
+  type ClaudeCodeConfig,
   type GateClient,
   type ProviderFactory,
   type RunInput,
@@ -27,6 +28,8 @@ export interface WorkerConfig {
   gate: GateClient;
   providerFor: ProviderFactory;
   libraryDir?: string;
+  /** Runs agents whose model is on a Claude subscription (through the Claude Code CLI). */
+  claudeCode?: ClaudeCodeConfig;
   /** Runs monitor checks through the gate. Monitoring is off without it. */
   checkMonitor?: MonitorChecker;
   eventIntervalMs?: number;
@@ -127,7 +130,7 @@ export async function startWorker(cfg: WorkerConfig) {
   await boss.work<RunInput>(RUN_QUEUE, { localConcurrency: 4 }, async ([job]) => {
     if (!job) return;
     log("run started", { agentId: job.data.agentId, trigger: job.data.trigger });
-    const outcome = await runAgent({ db, gate: cfg.gate, providerFor: cfg.providerFor }, job.data);
+    const outcome = await runAgent({ db, gate: cfg.gate, providerFor: cfg.providerFor, claudeCode: cfg.claudeCode }, job.data);
     log("run finished", { agentId: job.data.agentId, runId: outcome.runId, status: outcome.status });
     return outcome;
   });

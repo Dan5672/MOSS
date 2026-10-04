@@ -12,12 +12,15 @@ import { storeSecret } from "@/server/services";
 
 const providerSchema = z
   .object({
-    kind: z.enum(["anthropic", "openai", "openrouter", "ollama", "openai_compatible"]),
+    kind: z.enum(["anthropic", "openai", "openrouter", "ollama", "openai_compatible", "claude_code"]),
     name: z.string().min(1).max(60),
     baseUrl: z.url("Enter a full URL, e.g. http://192.168.1.20:11434/v1").optional(),
     apiKey: z.string().min(8).max(500).optional(),
   })
-  .refine((p) => p.kind === "ollama" || p.kind === "openai_compatible" || p.apiKey, { message: "This provider needs an API key", path: ["apiKey"] })
+  .refine((p) => p.kind === "ollama" || p.kind === "openai_compatible" || p.apiKey, {
+    message: "This provider needs an API key (for a Claude subscription, the token from claude setup-token)",
+    path: ["apiKey"],
+  })
   .refine((p) => (p.kind !== "ollama" && p.kind !== "openai_compatible") || p.baseUrl, { message: "This provider needs a base URL", path: ["baseUrl"] });
 
 export async function addProviderAction(_: ActionState, form: FormData): Promise<ActionState> {
@@ -28,7 +31,8 @@ export async function addProviderAction(_: ActionState, form: FormData): Promise
     if (p.apiKey) {
       const slug = p.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || p.kind;
       // Stored via the gate: the web app never holds the encryption key, and the value is never read back.
-      apiKeySecretId = await storeSecret({ userId: user.id, name: `llm-${slug}-api-key`, type: "api_token", value: p.apiKey, description: `API key for ${p.name}` });
+      const what = p.kind === "claude_code" ? "Claude subscription token" : "API key";
+      apiKeySecretId = await storeSecret({ userId: user.id, name: `llm-${slug}-api-key`, type: "api_token", value: p.apiKey, description: `${what} for ${p.name}` });
     }
     const [row] = await db()
       .insert(providers)
@@ -53,8 +57,9 @@ export async function addModelAction(_: ActionState, form: FormData): Promise<Ac
     const m = modelSchema.parse(formObject(form));
     const [provider] = await db().select().from(providers).where(and(eq(providers.id, m.providerId), eq(providers.orgId, user.orgId)));
     if (!provider) throw new Error("Unknown provider");
-    const known = KNOWN_PRICING[m.modelId];
-    const price = (v: number | undefined, fallback: number | undefined) => String(v ?? fallback ?? 0);
+    // A subscription has no per-token price; usage is still counted in tokens.
+    const known = provider.kind === "claude_code" ? undefined : KNOWN_PRICING[m.modelId];
+    const price = (v: number | undefined, fallback: number | undefined) => String(provider.kind === "claude_code" ? 0 : (v ?? fallback ?? 0));
     const [row] = await db()
       .insert(models)
       .values({

@@ -63,6 +63,13 @@ test("models: add a local provider and a model", async () => {
   await page.getByRole("button", { name: "Add provider" }).click();
   await expect(page.getByText("Added Local Ollama.")).toBeVisible();
 
+  // A Claude subscription provider needs the token from `claude setup-token`.
+  await page.getByLabel("Type").selectOption("claude_code");
+  await page.getByLabel("Name", { exact: true }).fill("Claude Max");
+  await page.getByRole("button", { name: "Add provider" }).click();
+  await expect(page.getByText(/the token from claude setup-token/).first()).toBeVisible();
+  await expect(page.getByText("Using a Claude subscription")).toBeVisible();
+
   await page.getByLabel("Model ID").fill("qwen3:14b");
   await page.getByLabel("Display name").fill("Qwen3 14B");
   await page.getByRole("button", { name: "Add model" }).click();

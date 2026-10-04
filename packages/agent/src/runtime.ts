@@ -1,5 +1,10 @@
 // The agent loop. One run = one task: the agent works through tool calls until it finishes,
 // hits its step limit, or is stopped by budget, kill switch or pause. Every step is recorded.
+//
+// Two loops share the same run setup (tools, recording, safety checks):
+//   - API providers: MOSS drives the model turn by turn (runApiLoop, below).
+//   - Claude subscription: the Claude Code CLI drives the model, and calls MOSS's tools through a
+//     local MCP server that runs the same execute() path (see claude-code.ts).
 import { effectivePermissions, getBudgetStatus, getSetting, ingestDiscoveredHosts, writeAudit, type DiscoveredHost } from "@moss/core";
 import {
   agentRuns,
@@ -20,6 +25,7 @@ import {
   MeteredSession,
   type ModelPricing,
   type ProviderAdapter,
+  type UsageEntry,
   type ToolCallRequest,
   type ToolResult,
   type ToolSpec,
@@ -27,6 +33,7 @@ import {
 } from "@moss/llm";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+import { runClaudeCodeLoop, type ClaudeCodeConfig } from "./claude-code.js";
 import type { GateClient } from "./gate-client.js";
 import { PLATFORM_TOOL_MAP, platformToolSchema } from "./platform-tools.js";
 import { buildSystemPrompt, buildTaskMessage } from "./prompt.js";
@@ -46,6 +53,8 @@ export interface RunDeps {
   db: Database;
   gate: GateClient;
   providerFor: ProviderFactory;
+  /** How to run agents whose model is on a Claude subscription. Without it, those runs fail cleanly. */
+  claudeCode?: ClaudeCodeConfig;
   now?: () => Date;
 }
 
@@ -54,6 +63,29 @@ export interface RunOutcome {
   status: "succeeded" | "failed" | "aborted" | "skipped";
   summary: string;
   steps: number;
+}
+
+type FinalStatus = "succeeded" | "failed" | "aborted";
+type StepKind = typeof runSteps.$inferInsert.kind;
+
+/** Everything a loop needs for one run; built once by prepareRun. */
+export interface PreparedRun {
+  agent: typeof agents.$inferSelect;
+  model: typeof models.$inferSelect;
+  provider: typeof providers.$inferSelect;
+  runId: string;
+  system: string;
+  task: string;
+  toolSpecs: ToolSpec[];
+  maxSteps: number;
+  step(kind: StepKind, content: unknown): Promise<unknown>;
+  finish(status: FinalStatus, summary: string): Promise<RunOutcome>;
+  /** Runs one tool call: gate for network tools, in-process for platform tools. Throws LoopDetectedError. */
+  execute(call: ToolCallRequest): Promise<ToolResult>;
+  /** Re-checked before every model call and tool call: agent still active, kill switch off, under budget. */
+  check(): Promise<{ ok: true } | { ok: false; reason: string }>;
+  recordUsage(usage: UsageEntry[]): Promise<void>;
+  pricing(modelId: string): ModelPricing | undefined;
 }
 
 const MAX_RESULT_CHARS = 30_000;
@@ -75,7 +107,7 @@ function truncate(text: string): string {
   return text.length <= MAX_RESULT_CHARS ? text : `${text.slice(0, MAX_RESULT_CHARS)}\n…[truncated ${text.length - MAX_RESULT_CHARS} characters]`;
 }
 
-export async function runAgent(deps: RunDeps, input: RunInput): Promise<RunOutcome> {
+async function prepareRun(deps: RunDeps, input: RunInput): Promise<PreparedRun | RunOutcome> {
   const { db } = deps;
   const now = deps.now ?? (() => new Date());
 
@@ -130,6 +162,8 @@ export async function runAgent(deps: RunDeps, input: RunInput): Promise<RunOutco
         }
       : KNOWN_PRICING[id];
   };
+  // A subscription has no per-token price: usage is recorded in tokens, and cost stays 0.
+  const costPricing = provider.kind === "claude_code" ? () => undefined : pricing;
 
   const [run] = await db
     .insert(agentRuns)
@@ -137,60 +171,46 @@ export async function runAgent(deps: RunDeps, input: RunInput): Promise<RunOutco
     .returning({ id: agentRuns.id });
   const runId = run!.id;
   let seq = 0;
-  const step = (kind: typeof runSteps.$inferInsert.kind, content: unknown) =>
-    db.insert(runSteps).values({ runId, seq: seq++, kind, content: content as Record<string, unknown> });
+  const step = (kind: StepKind, content: unknown) => db.insert(runSteps).values({ runId, seq: seq++, kind, content: content as Record<string, unknown> });
 
-  const session = new MeteredSession(
-    deps.providerFor(provider).startSession({
-      model: model.modelId,
-      system: buildSystemPrompt(agent, skillRows),
-      tools: toolSpecs,
-      effort: agent.effort,
-    }),
-    {
-      // Re-checked before every model call, so pausing an agent or pulling the kill switch stops a running loop.
-      check: async () => {
-        const [current] = await db.select({ status: agents.status }).from(agents).where(eq(agents.id, agent.id));
-        if (current?.status !== "active") return { ok: false, reason: `agent is ${current?.status ?? "missing"}` };
-        if (await getSetting(db, orgId, "agents.kill_switch")) return { ok: false, reason: "kill switch is on" };
-        if ((await getBudgetStatus(db, orgId, agent.id, now())).overHard) {
-          // A hard limit pauses the agent until a human raises the budget or resumes it.
-          await db
-            .update(agents)
-            .set({ status: "paused", pausedReason: "Hard budget limit reached", updatedAt: now() })
-            .where(and(eq(agents.id, agent.id), eq(agents.status, "active")));
-          await writeAudit(db, { orgId, actorType: "system", action: "agent.pause", targetType: "agent", targetId: agent.id, details: { reason: "hard budget limit reached", runId } });
-          return { ok: false, reason: "hard budget limit reached; the agent has been paused" };
-        }
-        return { ok: true };
-      },
-    },
-    {
-      record: async ({ usage }) => {
-        if (usage.length === 0) return;
-        await db.insert(tokenUsage).values(
-          usage.map((u) => {
-            const p = pricing(u.model);
-            return {
-              orgId,
-              agentId: agent.id,
-              runId,
-              modelId: model.id,
-              servedModel: u.model,
-              inputTokens: u.inputTokens,
-              outputTokens: u.outputTokens,
-              cacheReadTokens: u.cacheReadTokens,
-              cacheWriteTokens: u.cacheWriteTokens,
-              costUsd: (p ? costOf(u, p) : 0).toFixed(6),
-            };
-          }),
-        );
-      },
-    },
-    pricing,
-  );
+  const check: PreparedRun["check"] = async () => {
+    const [current] = await db.select({ status: agents.status }).from(agents).where(eq(agents.id, agent.id));
+    if (current?.status !== "active") return { ok: false, reason: `agent is ${current?.status ?? "missing"}` };
+    if (await getSetting(db, orgId, "agents.kill_switch")) return { ok: false, reason: "kill switch is on" };
+    if ((await getBudgetStatus(db, orgId, agent.id, now())).overHard) {
+      // A hard limit pauses the agent until a human raises the budget or resumes it.
+      await db
+        .update(agents)
+        .set({ status: "paused", pausedReason: "Hard budget limit reached", updatedAt: now() })
+        .where(and(eq(agents.id, agent.id), eq(agents.status, "active")));
+      await writeAudit(db, { orgId, actorType: "system", action: "agent.pause", targetType: "agent", targetId: agent.id, details: { reason: "hard budget limit reached", runId } });
+      return { ok: false, reason: "hard budget limit reached; the agent has been paused" };
+    }
+    return { ok: true };
+  };
 
-  const finish = async (status: RunOutcome["status"] & ("succeeded" | "failed" | "aborted"), summary: string): Promise<RunOutcome> => {
+  const recordUsage = async (usage: UsageEntry[]) => {
+    if (usage.length === 0) return;
+    await db.insert(tokenUsage).values(
+      usage.map((u) => {
+        const p = costPricing(u.model);
+        return {
+          orgId,
+          agentId: agent.id,
+          runId,
+          modelId: model.id,
+          servedModel: u.model,
+          inputTokens: u.inputTokens,
+          outputTokens: u.outputTokens,
+          cacheReadTokens: u.cacheReadTokens,
+          cacheWriteTokens: u.cacheWriteTokens,
+          costUsd: (p ? costOf(u, p) : 0).toFixed(6),
+        };
+      }),
+    );
+  };
+
+  const finish = async (status: FinalStatus, summary: string): Promise<RunOutcome> => {
     await db.update(agentRuns).set({ status, summary: summary.slice(0, 4000), endedAt: now() }).where(eq(agentRuns.id, runId));
     return { runId, status, summary, steps: seq };
   };
@@ -246,29 +266,66 @@ export async function runAgent(deps: RunDeps, input: RunInput): Promise<RunOutco
     return { id: call.id, content: text, isError };
   }
 
-  let next: TurnInput = { text: buildTaskMessage(input.task, input.trigger, now()) };
-  let lastText = "";
-  try {
-    for (let turn = 0; turn < agent.maxStepsPerRun; turn++) {
-      const result = await session.send(next);
-      if (result.text) lastText = result.text;
-      await step("message", { text: result.text, toolCalls: result.toolCalls, stopReason: result.stopReason, servedModel: result.servedModel });
+  return {
+    agent,
+    model,
+    provider,
+    runId,
+    system: buildSystemPrompt(agent, skillRows),
+    task: buildTaskMessage(input.task, input.trigger, now()),
+    toolSpecs,
+    maxSteps: agent.maxStepsPerRun,
+    step,
+    finish,
+    execute,
+    check,
+    recordUsage,
+    pricing,
+  };
+}
 
-      if (result.stopReason === "refusal") return await finish("failed", `The model declined the task${result.stopDetail ? ` (${result.stopDetail})` : ""}.`);
-      if (result.toolCalls.length === 0) {
-        if (result.stopReason === "max_tokens") return await finish("failed", "The model's response was cut off (max tokens).");
-        return await finish("succeeded", lastText || "Done.");
-      }
-      const toolResults: ToolResult[] = [];
-      for (const call of result.toolCalls) toolResults.push(await execute(call));
-      next = { toolResults };
+export async function runAgent(deps: RunDeps, input: RunInput): Promise<RunOutcome> {
+  const run = await prepareRun(deps, input);
+  if (!("execute" in run)) return run; // skipped before a run was created
+  try {
+    if (run.provider.kind === "claude_code") {
+      if (!deps.claudeCode) return await run.finish("failed", "This MOSS worker is not set up to run Claude subscription agents.");
+      return await runClaudeCodeLoop(run, deps.claudeCode);
     }
-    return await finish("aborted", `Stopped after reaching the limit of ${agent.maxStepsPerRun} steps. ${lastText}`.trim());
+    return await runApiLoop(deps, run);
   } catch (err) {
-    await step("error", { message: (err as Error).message });
-    if (err instanceof BudgetExceededError || err instanceof LoopDetectedError) return await finish("aborted", (err as Error).message);
-    return await finish("failed", `Run failed: ${(err as Error).message}`);
+    await run.step("error", { message: (err as Error).message });
+    if (err instanceof BudgetExceededError || err instanceof LoopDetectedError) return await run.finish("aborted", (err as Error).message);
+    return await run.finish("failed", `Run failed: ${(err as Error).message}`);
   }
+}
+
+/** API providers: MOSS sends each turn to the model and executes the tool calls it returns. */
+async function runApiLoop(deps: RunDeps, run: PreparedRun): Promise<RunOutcome> {
+  const session = new MeteredSession(
+    deps.providerFor(run.provider).startSession({ model: run.model.modelId, system: run.system, tools: run.toolSpecs, effort: run.agent.effort }),
+    { check: run.check },
+    { record: ({ usage }) => run.recordUsage(usage) },
+    run.pricing,
+  );
+
+  let next: TurnInput = { text: run.task };
+  let lastText = "";
+  for (let turn = 0; turn < run.maxSteps; turn++) {
+    const result = await session.send(next);
+    if (result.text) lastText = result.text;
+    await run.step("message", { text: result.text, toolCalls: result.toolCalls, stopReason: result.stopReason, servedModel: result.servedModel });
+
+    if (result.stopReason === "refusal") return run.finish("failed", `The model declined the task${result.stopDetail ? ` (${result.stopDetail})` : ""}.`);
+    if (result.toolCalls.length === 0) {
+      if (result.stopReason === "max_tokens") return run.finish("failed", "The model's response was cut off (max tokens).");
+      return run.finish("succeeded", lastText || "Done.");
+    }
+    const toolResults: ToolResult[] = [];
+    for (const call of result.toolCalls) toolResults.push(await run.execute(call));
+    next = { toolResults };
+  }
+  return run.finish("aborted", `Stopped after reaching the limit of ${run.maxSteps} steps. ${lastText}`.trim());
 }
 
 export class LoopDetectedError extends Error {
