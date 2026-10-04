@@ -4,7 +4,7 @@ import type { ChatSession, ModelInfo, ProviderAdapter, SessionOptions, TurnInput
 export type ScriptedTurn = Partial<Omit<TurnResult, "usage">> & {
   usage?: { inputTokens: number; outputTokens: number };
   /** Optional assertion on what the agent sent for this turn. */
-  expect?: (input: TurnInput) => void;
+  expect?: (input: TurnInput) => void | Promise<void>;
 };
 
 export class MockAdapter implements ProviderAdapter {
@@ -21,7 +21,7 @@ export class MockAdapter implements ProviderAdapter {
         log.inputs.push(input);
         const turn = this.script.shift();
         if (!turn) throw new Error("MockAdapter script exhausted");
-        turn.expect?.(input);
+        await turn.expect?.(input);
         const toolCalls = turn.toolCalls ?? [];
         return {
           text: turn.text ?? "",

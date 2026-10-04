@@ -1,5 +1,5 @@
 {
-  "name": "@moss/gate",
+  "name": "@moss/worker",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,15 +11,11 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
+    "@moss/agent": "workspace:*",
     "@moss/core": "workspace:*",
     "@moss/db": "workspace:*",
-    "@moss/policy": "workspace:*",
-    "@moss/tools": "workspace:*",
-    "drizzle-orm": "^0.44.0",
-    "fastify": "^5.0.0"
-  },
-  "devDependencies": {
     "@moss/llm": "workspace:*",
-    "zod": "^4.6.5"
+    "drizzle-orm": "^0.44.0",
+    "pg-boss": "^12.36.0"
   }
 }

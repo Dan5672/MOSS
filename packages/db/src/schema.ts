@@ -153,6 +153,7 @@ export const agents = pgTable("agents", {
   reportsToAgentId: uuid("reports_to_agent_id"),
   reportsToUserId: uuid("reports_to_user_id").references(() => users.id),
   roleId: uuid("role_id").references(() => roles.id),
+  effort: text("effort", { enum: ["low", "medium", "high", "xhigh", "max"] }).notNull().default("medium"),
   maxStepsPerRun: integer("max_steps_per_run").notNull().default(25),
   pausedReason: text("paused_reason"),
   hiredAt: timestamp("hired_at", { withTimezone: true }).notNull().defaultNow(),
@@ -289,6 +290,8 @@ export const assets = pgTable(
     primaryMac: text("primary_mac"),
     networkId: uuid("network_id").references(() => networks.id),
     attributes: jsonb("attributes").$type<Record<string, unknown>>().notNull().default({}),
+    hostnames: jsonb("hostnames").$type<string[]>().notNull().default([]),
+    notes: text("notes"),
     source: text("source").notNull(), // user | agent:<id> | sensor | integration:<key>
     confidence: integer("confidence").notNull().default(50), // 0-100
     locked: boolean("locked").notNull().default(false), // user-locked: agents may not overwrite
@@ -300,16 +303,20 @@ export const assets = pgTable(
   (t) => [index("assets_org_ip_idx").on(t.orgId, t.primaryIp), index("assets_org_mac_idx").on(t.orgId, t.primaryMac)],
 );
 
-export const assetServices = pgTable("asset_services", {
-  id: id(),
-  assetId: uuid("asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
-  protocol: text("protocol", { enum: ["tcp", "udp"] }).notNull(),
-  port: integer("port").notNull(),
-  name: text("name"),
-  product: text("product"),
-  version: text("version"),
-  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const assetServices = pgTable(
+  "asset_services",
+  {
+    id: id(),
+    assetId: uuid("asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
+    protocol: text("protocol", { enum: ["tcp", "udp"] }).notNull(),
+    port: integer("port").notNull(),
+    name: text("name"),
+    product: text("product"),
+    version: text("version"),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("asset_services_port_idx").on(t.assetId, t.protocol, t.port)],
+);
 
 export const assetRelationships = pgTable("asset_relationships", {
   id: id(),

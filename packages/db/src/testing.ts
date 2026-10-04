@@ -30,11 +30,12 @@ async function ensureDatabase(baseUrl: string, suite: string): Promise<string> {
 
 export async function createTestDb(suite: string) {
   if (!TEST_DATABASE_URL) throw new Error("MOSS_TEST_DATABASE_URL is not set");
-  const client = postgres(await ensureDatabase(TEST_DATABASE_URL, suite), { max: 5, onnotice: () => {} });
+  const url = await ensureDatabase(TEST_DATABASE_URL, suite);
+  const client = postgres(url, { max: 5, onnotice: () => {} });
   const db = drizzle(client, { schema });
   await migrate(db, { migrationsFolder: fileURLToPath(new URL("../migrations", import.meta.url)) });
   const tables = await db.execute<{ tablename: string }>(sql`select tablename from pg_tables where schemaname = 'public'`);
   const names = tables.map((t) => `"${t.tablename}"`).join(", ");
   if (names) await db.execute(sql.raw(`truncate ${names} restart identity cascade`));
-  return { db, close: () => client.end() };
+  return { db, url, close: () => client.end() };
 }
