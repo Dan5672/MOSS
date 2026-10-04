@@ -1,4 +1,5 @@
-# MOSS stack. Services are added as they are built: web, api, worker, sensor are still to come.
+# MOSS stack. Open the web UI at http://localhost:3000. To reach it from other devices, set
+# MOSS_WEB_BIND=0.0.0.0 in .env; put it behind HTTPS and set MOSS_SECURE_COOKIES=true if you do.
 name: moss
 
 services:
@@ -43,7 +44,8 @@ services:
       GATE_TOKEN_FILE: /run/secrets/gate_token
       TOOLBOX_TOKEN_FILE: /run/secrets/toolbox_token
       TOOLBOX_URL: http://toolbox:7070
-    secrets: [master_key, gate_token, toolbox_token]
+      WEB_TOKEN_FILE: /run/secrets/web_token
+    secrets: [master_key, gate_token, toolbox_token, web_token]
     ports:
       - "127.0.0.1:7080:7080"
     networks: [backend, tools]
@@ -54,8 +56,52 @@ services:
       migrate: { condition: service_completed_successfully }
       toolbox: { condition: service_started }
 
+  # Agent runtime + scheduler. Holds no secrets: LLM calls go through the gate's proxy,
+  # which injects provider API keys, and tool calls go through the gate's policy checks.
+  worker:
+    image: moss-worker:${MOSS_VERSION:-dev}
+    build: { context: .., dockerfile: deploy/docker/worker.Dockerfile }
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-moss}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-moss}
+      GATE_URL: http://gate:7080
+      GATE_TOKEN_FILE: /run/secrets/gate_token
+      TZ: ${TZ:-UTC}
+    secrets: [gate_token]
+    networks: [backend]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      gate: { condition: service_started }
+
+  # Web UI and server actions. Talks to the database and, to write secrets, to the gate's
+  # write-only secrets API. Holds no master key.
+  web:
+    image: moss-web:${MOSS_VERSION:-dev}
+    build: { context: .., dockerfile: deploy/docker/web.Dockerfile }
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-moss}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-moss}
+      GATE_URL: http://gate:7080
+      WEB_TOKEN_FILE: /run/secrets/web_token
+      MOSS_APP_KEY_FILE: /run/secrets/app_key
+      MOSS_SECURE_COOKIES: ${MOSS_SECURE_COOKIES:-false}
+    secrets: [web_token, app_key]
+    ports:
+      - "${MOSS_WEB_BIND:-127.0.0.1}:3000:3000"
+    networks: [backend]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      gate: { condition: service_started }
+
   # Runs nmap/arp-scan/ping for the gate. Non-root; only the scanner binaries hold raw-socket caps.
-  # On a Linux host, use docker-compose.hostnet.yml so ARP/passive discovery can see your LAN.
+  # ARP discovery only sees networks the container is attached to; host networking for LANs is planned.
   toolbox:
     image: moss-toolbox:${MOSS_VERSION:-dev}
     build: { context: .., dockerfile: deploy/docker/toolbox.Dockerfile }
@@ -80,6 +126,8 @@ secrets:
   master_key: { file: ./secrets/master.key }
   gate_token: { file: ./secrets/gate.token }
   toolbox_token: { file: ./secrets/toolbox.token }
+  web_token: { file: ./secrets/web.token }
+  app_key: { file: ./secrets/app.key }
 
 volumes:
   pgdata:

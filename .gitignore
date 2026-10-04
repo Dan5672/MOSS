@@ -6,3 +6,6 @@ coverage/
 .env
 deploy/secrets/
 *.log
+deploy/backups/
+deploy/secrets.before-restore-*/
+deploy/.last-upgrade

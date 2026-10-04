@@ -13,8 +13,10 @@ RUN apt-get update \
  # Grant raw-socket capabilities to the scanners only, so the service itself runs unprivileged.
  && setcap cap_net_raw,cap_net_admin+eip /usr/bin/nmap \
  && setcap cap_net_raw+eip /usr/sbin/arp-scan \
- && apt-get purge -y libcap2-bin && apt-get autoremove -y \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ # Fail the build if any tool binary is missing. (Keep libcap2-bin: iputils-ping depends on it.)
+ # Existence checks only: nmap's NET_ADMIN file capability can't be exercised in the build sandbox.
+ && test -x /usr/bin/nmap && test -x /usr/sbin/arp-scan && test -x /bin/ping
 WORKDIR /app
 COPY --from=build /out /app
 USER node

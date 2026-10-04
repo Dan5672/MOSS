@@ -153,6 +153,7 @@ export const agents = pgTable("agents", {
   reportsToAgentId: uuid("reports_to_agent_id"),
   reportsToUserId: uuid("reports_to_user_id").references(() => users.id),
   roleId: uuid("role_id").references(() => roles.id),
+  effort: text("effort", { enum: ["low", "medium", "high", "xhigh", "max"] }).notNull().default("medium"),
   maxStepsPerRun: integer("max_steps_per_run").notNull().default(25),
   pausedReason: text("paused_reason"),
   hiredAt: timestamp("hired_at", { withTimezone: true }).notNull().defaultNow(),
@@ -289,6 +290,8 @@ export const assets = pgTable(
     primaryMac: text("primary_mac"),
     networkId: uuid("network_id").references(() => networks.id),
     attributes: jsonb("attributes").$type<Record<string, unknown>>().notNull().default({}),
+    hostnames: jsonb("hostnames").$type<string[]>().notNull().default([]),
+    notes: text("notes"),
     source: text("source").notNull(), // user | agent:<id> | sensor | integration:<key>
     confidence: integer("confidence").notNull().default(50), // 0-100
     locked: boolean("locked").notNull().default(false), // user-locked: agents may not overwrite
@@ -300,16 +303,20 @@ export const assets = pgTable(
   (t) => [index("assets_org_ip_idx").on(t.orgId, t.primaryIp), index("assets_org_mac_idx").on(t.orgId, t.primaryMac)],
 );
 
-export const assetServices = pgTable("asset_services", {
-  id: id(),
-  assetId: uuid("asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
-  protocol: text("protocol", { enum: ["tcp", "udp"] }).notNull(),
-  port: integer("port").notNull(),
-  name: text("name"),
-  product: text("product"),
-  version: text("version"),
-  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const assetServices = pgTable(
+  "asset_services",
+  {
+    id: id(),
+    assetId: uuid("asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
+    protocol: text("protocol", { enum: ["tcp", "udp"] }).notNull(),
+    port: integer("port").notNull(),
+    name: text("name"),
+    product: text("product"),
+    version: text("version"),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("asset_services_port_idx").on(t.assetId, t.protocol, t.port)],
+);
 
 export const assetRelationships = pgTable("asset_relationships", {
   id: id(),
@@ -392,6 +399,8 @@ export const changeRequests = pgTable("change_requests", {
   description: text("description").notNull(),
   risk: text("risk", { enum: ["low", "medium", "high"] }).notNull(),
   plannedCalls: jsonb("planned_calls").$type<PlannedToolCall[]>().notNull().default([]),
+  /** Tool calls that undo the change; executable while the change is in progress or verifying. */
+  rollbackCalls: jsonb("rollback_calls").$type<PlannedToolCall[]>().notNull().default([]),
   rollbackPlan: text("rollback_plan").notNull(),
   verificationPlan: text("verification_plan").notNull(),
   standardTemplateKey: text("standard_template_key"),
@@ -420,6 +429,187 @@ export const changeAssets = pgTable(
     assetId: uuid("asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
   },
   (t) => [primaryKey({ columns: [t.changeId, t.assetId] })],
+);
+
+/** Timeline of a change: comments, execution results and system transitions. */
+export const changeNotes = pgTable("change_notes", {
+  id: id(),
+  changeId: uuid("change_id").notNull().references(() => changeRequests.id, { onDelete: "cascade" }),
+  authorUserId: uuid("author_user_id").references(() => users.id),
+  authorAgentId: uuid("author_agent_id").references(() => agents.id),
+  kind: text("kind", { enum: ["comment", "execution", "system"] }).notNull(),
+  body: text("body").notNull(),
+  data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Pre-approved standard changes. Each call is a tool plus argument templates; "{param}"
+ * placeholders must match the regex in `params`. A change built from a template runs
+ * without waiting for an approver.
+ */
+export interface StandardChangeCall {
+  tool: string;
+  args: Record<string, unknown>;
+}
+
+export const standardChangeTemplates = pgTable(
+  "standard_change_templates",
+  {
+    id: id(),
+    ...tenancy(),
+    key: text("key").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    risk: text("risk", { enum: ["low", "medium", "high"] }).notNull().default("low"),
+    calls: jsonb("calls").$type<StandardChangeCall[]>().notNull(),
+    params: jsonb("params").$type<Record<string, string>>().notNull().default({}),
+    enabled: boolean("enabled").notNull().default(true),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("standard_change_templates_org_key_idx").on(t.orgId, t.key)],
+);
+
+// ---------------------------------------------------------------------------
+// Monitoring: built-in checks (run by the gate) and external monitors fed by webhooks.
+// ---------------------------------------------------------------------------
+export const monitorKind = pgEnum("monitor_kind", ["ping", "tcp", "http", "tls", "dns", "external"]);
+export const monitorState = pgEnum("monitor_state", ["pending", "up", "degraded", "down", "paused"]);
+
+/** Kind-specific check settings. Validated by the core service; the gate builds tool args from it. */
+export interface MonitorConfig {
+  port?: number;
+  scheme?: "http" | "https";
+  path?: string;
+  method?: "GET" | "HEAD";
+  expectStatus?: number[];
+  keyword?: string;
+  verifyTls?: boolean;
+  /** TLS: degraded when the certificate expires within this many days. */
+  warnDays?: number;
+  /** DNS: record type and an answer that must be present. */
+  recordType?: "A" | "AAAA" | "PTR";
+  expectAnswer?: string;
+  /** Degraded when latency is above this. */
+  degradedMs?: number;
+  /** Raise a (P4) incident when degraded, not only a notification. */
+  incidentOnDegraded?: boolean;
+}
+
+export interface MonitorResultSummary {
+  ok: boolean;
+  degraded?: boolean;
+  latencyMs?: number | null;
+  message: string;
+  at: string;
+  flapping?: boolean;
+  suppressed?: boolean;
+  /** The gate refused the check (target outside allowed networks). */
+  policyDenied?: boolean;
+}
+
+export const monitorSources = pgTable("monitor_sources", {
+  id: id(),
+  ...tenancy(),
+  name: text("name").notNull(),
+  kind: text("kind", { enum: ["uptime_kuma", "beszel", "alertmanager", "generic"] }).notNull(),
+  /** sha256 of the bearer token; the token itself is shown once on creation. */
+  tokenHash: text("token_hash").notNull(),
+  /** Applied to monitors this source creates; editable per monitor afterwards. */
+  defaultPriority: priority("default_priority").notNull().default("P3"),
+  defaultResponderAgentId: uuid("default_responder_agent_id").references(() => agents.id, { onDelete: "set null" }),
+  enabled: boolean("enabled").notNull().default(true),
+  lastReceivedAt: timestamp("last_received_at", { withTimezone: true }),
+  ...timestamps(),
+});
+
+export const monitors = pgTable(
+  "monitors",
+  {
+    id: id(),
+    ...tenancy(),
+    name: text("name").notNull(),
+    kind: monitorKind("kind").notNull(),
+    /** Hostname or IP for built-in checks; display only for external monitors. */
+    target: text("target").notNull().default(""),
+    config: jsonb("config").$type<MonitorConfig>().notNull().default({}),
+    assetId: uuid("asset_id").references(() => assets.id, { onDelete: "set null" }),
+    intervalSeconds: integer("interval_seconds").notNull().default(60),
+    timeoutSeconds: integer("timeout_seconds").notNull().default(10),
+    failureThreshold: integer("failure_threshold").notNull().default(3),
+    recoveryThreshold: integer("recovery_threshold").notNull().default(2),
+    priority: priority("priority").notNull().default("P3"),
+    responderAgentId: uuid("responder_agent_id").references(() => agents.id, { onDelete: "set null" }),
+    responderUserId: uuid("responder_user_id").references(() => users.id, { onDelete: "set null" }),
+    autoResolve: boolean("auto_resolve").notNull().default(false),
+    enabled: boolean("enabled").notNull().default(true),
+    state: monitorState("state").notNull().default("pending"),
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+    consecutiveSuccesses: integer("consecutive_successes").notNull().default(0),
+    stateChangedAt: timestamp("state_changed_at", { withTimezone: true }).notNull().defaultNow(),
+    lastCheckAt: timestamp("last_check_at", { withTimezone: true }),
+    nextCheckAt: timestamp("next_check_at", { withTimezone: true }).notNull().defaultNow(),
+    lastResult: jsonb("last_result").$type<MonitorResultSummary>(),
+    openIncidentId: uuid("open_incident_id").references(() => incidents.id, { onDelete: "set null" }),
+    sourceId: uuid("source_id").references(() => monitorSources.id, { onDelete: "cascade" }),
+    externalKey: text("external_key"),
+    ...timestamps(),
+  },
+  (t) => [
+    index("monitors_due_idx").on(t.enabled, t.nextCheckAt),
+    uniqueIndex("monitors_source_key_idx").on(t.sourceId, t.externalKey),
+    index("monitors_asset_idx").on(t.assetId),
+  ],
+);
+
+export const monitorResults = pgTable(
+  "monitor_results",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    monitorId: uuid("monitor_id").notNull().references(() => monitors.id, { onDelete: "cascade" }),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    ok: boolean("ok").notNull(),
+    degraded: boolean("degraded").notNull().default(false),
+    latencyMs: integer("latency_ms"),
+    message: text("message").notNull().default(""),
+  },
+  (t) => [index("monitor_results_monitor_at_idx").on(t.monitorId, t.at)],
+);
+
+export const monitorStateChanges = pgTable(
+  "monitor_state_changes",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    monitorId: uuid("monitor_id").notNull().references(() => monitors.id, { onDelete: "cascade" }),
+    from: monitorState("from").notNull(),
+    to: monitorState("to").notNull(),
+    reason: text("reason").notNull().default(""),
+    /** Raised during an in-progress change on the monitored asset: no incident. */
+    suppressed: boolean("suppressed").notNull().default(false),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("monitor_state_changes_monitor_at_idx").on(t.monitorId, t.at)],
+);
+
+// ---------------------------------------------------------------------------
+// Events outbox: domain events written in the same transaction as the change that
+// caused them; the worker dispatches them (start agent runs, send notifications).
+// ---------------------------------------------------------------------------
+export const events = pgTable(
+  "events",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    orgId: uuid("org_id").notNull(),
+    type: text("type").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    /** Retry backoff: the event is not claimed before this time. */
+    availableAt: timestamp("available_at", { withTimezone: true }).notNull().defaultNow(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("events_pending_idx").on(t.processedAt, t.id)],
 );
 
 // ---------------------------------------------------------------------------

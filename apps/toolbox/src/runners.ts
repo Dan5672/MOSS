@@ -3,9 +3,11 @@
 import { contains, parseRange } from "@moss/policy";
 import { BUILT_IN_TOOLS, parseToolArgs } from "@moss/tools";
 import { execFile } from "node:child_process";
+import { createSocket } from "node:dgram";
 import { promises as dns } from "node:dns";
 import { networkInterfaces } from "node:os";
 import { parseArpScan, parseNmapXml, parsePing } from "./parsers.js";
+import { httpProbe, tcpConnect, tlsInspect, type HttpProbeArgs } from "./probes.js";
 
 const NMAP_PROFILES: Record<string, string[]> = {
   ping: ["-sn"],
@@ -53,9 +55,41 @@ export function attachedInterface(targets: string[], interfaces: { name: string;
   return chosen!;
 }
 
+/** Wake-on-LAN magic packet: 6 x 0xFF followed by the MAC address repeated 16 times. */
+export function magicPacket(mac: string): Buffer {
+  const macBytes = Buffer.from(mac.replace(/[:-]/g, ""), "hex");
+  if (macBytes.length !== 6) throw new ToolError("Invalid MAC address");
+  return Buffer.concat([Buffer.alloc(6, 0xff), ...Array<Buffer>(16).fill(macBytes)]);
+}
+
+export type UdpSender = (packet: Buffer, address: string, port: number, times: number) => Promise<void>;
+
+export let sendUdp: UdpSender = async (packet, address, port, times) => {
+  const socket = createSocket("udp4");
+  try {
+    await new Promise<void>((resolve, reject) => socket.bind(0, () => resolve()).once("error", reject));
+    socket.setBroadcast(true);
+    for (let i = 0; i < times; i++) {
+      await new Promise<void>((resolve, reject) => socket.send(packet, port, address, (err) => (err ? reject(err) : resolve())));
+    }
+  } finally {
+    socket.close();
+  }
+};
+
+/** Test hook. */
+export function setUdpSender(sender: UdpSender) {
+  sendUdp = sender;
+}
+
 /** Defense in depth: even though the gate checked scope, never pass anything but a literal IP/CIDR to a binary. */
 function assertTargets(targets: string[]) {
   for (const t of targets) if (!parseRange(t)) throw new ToolError(`Refusing non-IP target ${JSON.stringify(t)}`);
+}
+
+function assertHost(target: string) {
+  const range = parseRange(target);
+  if (!range || range.start !== range.end) throw new ToolError(`Refusing target ${JSON.stringify(target)}: must be a single IP`);
 }
 
 export async function runTool(
@@ -95,6 +129,15 @@ export async function runTool(
       const res = await exec("ping", ["-c", String(args.count), "-W", "2", target], 60_000);
       return parsePing(target, res.stdout);
     }
+    case "wake_on_lan": {
+      const broadcast = args.broadcast as string;
+      assertTargets([broadcast]);
+      const range = parseRange(broadcast)!;
+      if (range.version !== 4 || range.start !== range.end) throw new ToolError("broadcast must be a single IPv4 address");
+      const mac = (args.mac as string).toLowerCase();
+      await sendUdp(magicPacket(mac), broadcast, args.port as number, 3);
+      return { mac, broadcast, packetsSent: 3 };
+    }
     case "dns_lookup": {
       const nameArg = args.name as string;
       const type = args.type as "A" | "AAAA" | "PTR";
@@ -107,6 +150,20 @@ export async function runTool(
         if (code === "ENOTFOUND" || code === "ENODATA") return { name: nameArg, type, answers: [] };
         throw new ToolError(`DNS lookup failed: ${code ?? String(err)}`);
       }
+    }
+    case "tcp_connect": {
+      const target = args.target as string;
+      assertHost(target);
+      return tcpConnect(target, args.port as number, args.timeoutMs as number);
+    }
+    case "http_probe": {
+      assertHost(args.target as string);
+      return httpProbe(args as unknown as HttpProbeArgs);
+    }
+    case "tls_inspect": {
+      const target = args.target as string;
+      assertHost(target);
+      return tlsInspect(target, args.port as number, args.servername as string | undefined, args.timeoutMs as number);
     }
     default:
       throw new ToolError(`Tool ${name} has no runner`);

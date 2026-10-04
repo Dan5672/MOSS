@@ -5,6 +5,7 @@ import type { Database } from "@moss/db";
 import { evaluate, extractSecretHandles, type DenyCode } from "@moss/policy";
 import { BUILT_IN_TOOLS, parseToolArgs, toolInputSchema, type ToolDefinition } from "@moss/tools";
 import { loadAgent, loadContext, loadToolGrants } from "./context.js";
+import { runMonitorCheck } from "./monitor-check.js";
 import type { ToolboxClient } from "./toolbox-client.js";
 
 export interface ToolCallRequest {
@@ -115,7 +116,10 @@ export function createGate(deps: GateDeps) {
       .map((d) => ({ name: d.manifest.name, class: d.manifest.class, description: d.description, inputSchema: toolInputSchema(d) }));
   }
 
-  return { handleToolCall, listAgentTools };
+  /** Runs one monitor's check; the gate reads the monitor itself, the caller only names it. */
+  const checkMonitor = (monitorId: string) => runMonitorCheck({ db: deps.db, toolbox: deps.toolbox, tools }, monitorId);
+
+  return { handleToolCall, listAgentTools, checkMonitor };
 }
 
 export type Gate = ReturnType<typeof createGate>;

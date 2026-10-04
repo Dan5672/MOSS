@@ -18,6 +18,9 @@
   },
   "dependencies": {
     "@moss/db": "workspace:*",
-    "drizzle-orm": "^0.44.0"
+    "@moss/policy": "workspace:*",
+    "@moss/tools": "workspace:*",
+    "drizzle-orm": "^0.44.0",
+    "zod": "^4.6.5"
   }
 }

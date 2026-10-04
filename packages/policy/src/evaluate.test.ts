@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluate, type PolicyContext, type ToolCall, type ToolManifest } from "./evaluate.js";
+import { evaluate, evaluateMonitorCheck, type PolicyContext, type ToolCall, type ToolManifest } from "./evaluate.js";
 import { contains, parseRange } from "./ip.js";
 
 const nmap: ToolManifest = { name: "nmap_scan", class: "read", targetArgs: ["targets"] };
@@ -121,6 +121,17 @@ describe("evaluate", () => {
     expect(evaluate(tampered, sshExec, ctx({ change: approvedChange }))).toMatchObject({ code: "call_not_in_change_plan" });
   });
 
+  it("allows rollback calls only once the change has started", () => {
+    const rollback = { ...restartCall, args: { ...restartCall.args, params: { service: "dnsmasq-old" } } };
+    const change = { ...approvedChange, rollbackCalls: [{ tool: rollback.tool, args: rollback.args }] };
+    expect(evaluate(rollback, sshExec, ctx({ change }))).toMatchObject({ code: "call_not_in_change_plan" });
+    expect(evaluate(rollback, sshExec, ctx({ change: { ...change, status: "in_progress" } }))).toMatchObject({ allow: true });
+    // After a failure only the rollback is executable, not the original plan.
+    expect(evaluate(rollback, sshExec, ctx({ change: { ...change, status: "failed" } }))).toMatchObject({ allow: true });
+    expect(evaluate(restartCall, sshExec, ctx({ change: { ...change, status: "failed" } }))).toMatchObject({ code: "call_not_in_change_plan" });
+    expect(evaluate(rollback, sshExec, ctx({ change: { ...change, status: "succeeded" } }))).toMatchObject({ code: "change_not_executable" });
+  });
+
   it("enforces the change window", () => {
     const change = { ...approvedChange, windowStart: new Date("2026-10-05T00:00:00Z"), windowEnd: new Date("2026-10-05T02:00:00Z") };
     expect(evaluate(restartCall, sshExec, ctx({ change }))).toMatchObject({ code: "change_outside_window" });
@@ -150,5 +161,43 @@ describe("evaluate", () => {
   it("finds secret handles nested anywhere in the arguments", () => {
     const scan = { tool: "nmap_scan", args: { targets: "192.168.1.1", opts: [{ x: "secret:missing" }] } };
     expect(evaluate(scan, nmap, ctx())).toMatchObject({ code: "secret_not_granted" });
+  });
+});
+
+describe("canonicalCidr", () => {
+  it("normalizes to the network address", async () => {
+    const { canonicalCidr } = await import("./ip.js");
+    expect(canonicalCidr("192.168.1.77/24")).toBe("192.168.1.0/24");
+    expect(canonicalCidr("10.1.2.3")).toBe("10.1.2.3/32");
+    expect(canonicalCidr("fd12:3456:0:0:1::5/64")).toBe("fd12:3456::/64");
+    expect(canonicalCidr("::1")).toBe("::1/128");
+    expect(canonicalCidr("not-an-ip")).toBeNull();
+  });
+});
+
+describe("evaluateMonitorCheck", () => {
+  const httpProbe: ToolManifest = { name: "http_probe", class: "read", targetArgs: ["target"] };
+  const networks = ctx().networks;
+
+  it("allows read probes inside allowed networks, regardless of agent state", () => {
+    expect(evaluateMonitorCheck({ tool: "http_probe", args: { target: "192.168.1.20" } }, httpProbe, networks)).toEqual({
+      allow: true,
+      targets: ["192.168.1.20"],
+      secretHandles: [],
+    });
+  });
+
+  it("applies the same scope rules as agent calls", () => {
+    const check = (target: string) => evaluateMonitorCheck({ tool: "http_probe", args: { target } }, httpProbe, networks);
+    expect(check("10.66.1.1")).toMatchObject({ allow: false, code: "target_off_limits" });
+    expect(check("192.168.50.9")).toMatchObject({ allow: false, code: "target_not_allowed" });
+    expect(check("8.8.8.8")).toMatchObject({ allow: false, code: "target_not_allowed" });
+    expect(check("nas.local")).toMatchObject({ allow: false, code: "invalid_target" });
+  });
+
+  it("never runs write or dangerous tools", () => {
+    const call = { tool: "ssh_exec", args: { host: "192.168.1.1" } };
+    expect(evaluateMonitorCheck(call, sshExec, networks)).toMatchObject({ allow: false, code: "change_required" });
+    expect(evaluateMonitorCheck({ tool: "factory_reset", args: { host: "192.168.1.1" } }, wipe, networks)).toMatchObject({ allow: false });
   });
 });
