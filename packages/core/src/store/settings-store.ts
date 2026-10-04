@@ -5,6 +5,7 @@ export const SETTING_DEFAULTS = {
   "agents.kill_switch": false,
   "tools.allow_dangerous": false,
   "changes.allow_emergency": false,
+  "changes.require_separate_approver": false,
 } satisfies Record<string, unknown>;
 
 export type SettingKey = keyof typeof SETTING_DEFAULTS;

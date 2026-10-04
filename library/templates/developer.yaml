@@ -5,7 +5,7 @@ description: Works on scripts, automations and small internal tools from the dev
 suggestedModel: claude-opus-5-5
 effort: high
 maxStepsPerRun: 40
-skills: [asset-inventory]
+skills: [asset-inventory, incident-management, change-management]
 reportsTo: it-manager
 systemPrompt: |
   You are the Developer. You build and maintain scripts, automations and small internal tools

@@ -1,6 +1,6 @@
 // Worker against Postgres + pg-boss with a scripted LLM and a fake gate. Run with MOSS_TEST_DATABASE_URL set.
 import { hireFromTemplate, loadLibrary, pauseAgent, type GateClient } from "@moss/agent";
-import { bootstrapOrg } from "@moss/core";
+import { approveChange, bootstrapOrg, createChangeRequest, createIncident } from "@moss/core";
 import { agentRuns, models, providers, skills, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { MockAdapter } from "@moss/llm";
@@ -52,6 +52,7 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
       providerFor: () => new MockAdapter([{ text: "All good." }]),
       libraryDir: LIBRARY_DIR,
       log: () => {},
+      eventIntervalMs: 200,
     });
   });
   afterAll(async () => {
@@ -61,7 +62,16 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
 
   it("syncs built-in skills on startup", async () => {
     const rows = await db.select().from(skills).where(eq(skills.orgId, actor.orgId));
-    expect(rows.map((s) => s.key).sort()).toEqual(["asset-inventory", "network-discovery", "security-baseline", "service-desk", "service-health"]);
+    expect(rows.map((s) => s.key).sort()).toEqual([
+      "asset-inventory",
+      "change-management",
+      "device-power",
+      "incident-management",
+      "network-discovery",
+      "security-baseline",
+      "service-desk",
+      "service-health",
+    ]);
   });
 
   it("mirrors agent schedules into the queue and removes them when the agent is paused", async () => {
@@ -103,5 +113,40 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
       return r?.status === "succeeded" ? r : undefined;
     });
     expect(run).toMatchObject({ trigger: "schedule", triggerRef: sched!.id });
+  });
+
+  it("starts runs from events: incident assignment and change approval", async () => {
+    const lib = await loadLibrary(LIBRARY_DIR);
+    const nina = await hireFromTemplate(db, actor, { template: lib.templates.get("network-admin")!, modelId, name: "Nina 2" });
+
+    const inc = await createIncident(db, actor.orgId, { type: "break_fix", title: "Printer offline", assignedAgentId: nina.id }, { type: "user", id: actor.userId });
+    const ticketRun = await waitFor(async () => {
+      const [r] = await db.select().from(agentRuns).where(eq(agentRuns.triggerRef, inc.id));
+      return r?.status === "succeeded" ? r : undefined;
+    });
+    expect(ticketRun).toMatchObject({ agentId: nina.id, trigger: "ticket" });
+
+    const cr = await createChangeRequest(
+      db,
+      actor.orgId,
+      {
+        type: "normal",
+        title: "Wake NAS",
+        description: "d",
+        rollbackPlan: "r",
+        verificationPlan: "v",
+        plannedCalls: [{ tool: "wake_on_lan", args: { mac: "aa:bb:cc:dd:ee:ff", broadcast: "192.168.1.255" } }],
+      },
+      { type: "agent", id: nina.id },
+    );
+    await new Promise((r) => setTimeout(r, 600));
+    expect(await db.select().from(agentRuns).where(eq(agentRuns.triggerRef, cr.id))).toHaveLength(0); // submitted: nothing to do yet
+
+    await approveChange(db, actor.orgId, cr.id, actor.userId);
+    const changeRun = await waitFor(async () => {
+      const [r] = await db.select().from(agentRuns).where(eq(agentRuns.triggerRef, cr.id));
+      return r?.status === "succeeded" ? r : undefined;
+    });
+    expect(changeRun).toMatchObject({ agentId: nina.id, trigger: "event" });
   });
 });

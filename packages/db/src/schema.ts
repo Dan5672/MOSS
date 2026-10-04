@@ -399,6 +399,8 @@ export const changeRequests = pgTable("change_requests", {
   description: text("description").notNull(),
   risk: text("risk", { enum: ["low", "medium", "high"] }).notNull(),
   plannedCalls: jsonb("planned_calls").$type<PlannedToolCall[]>().notNull().default([]),
+  /** Tool calls that undo the change; executable while the change is in progress or verifying. */
+  rollbackCalls: jsonb("rollback_calls").$type<PlannedToolCall[]>().notNull().default([]),
   rollbackPlan: text("rollback_plan").notNull(),
   verificationPlan: text("verification_plan").notNull(),
   standardTemplateKey: text("standard_template_key"),
@@ -427,6 +429,66 @@ export const changeAssets = pgTable(
     assetId: uuid("asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
   },
   (t) => [primaryKey({ columns: [t.changeId, t.assetId] })],
+);
+
+/** Timeline of a change: comments, execution results and system transitions. */
+export const changeNotes = pgTable("change_notes", {
+  id: id(),
+  changeId: uuid("change_id").notNull().references(() => changeRequests.id, { onDelete: "cascade" }),
+  authorUserId: uuid("author_user_id").references(() => users.id),
+  authorAgentId: uuid("author_agent_id").references(() => agents.id),
+  kind: text("kind", { enum: ["comment", "execution", "system"] }).notNull(),
+  body: text("body").notNull(),
+  data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Pre-approved standard changes. Each call is a tool plus argument templates; "{param}"
+ * placeholders must match the regex in `params`. A change built from a template runs
+ * without waiting for an approver.
+ */
+export interface StandardChangeCall {
+  tool: string;
+  args: Record<string, unknown>;
+}
+
+export const standardChangeTemplates = pgTable(
+  "standard_change_templates",
+  {
+    id: id(),
+    ...tenancy(),
+    key: text("key").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    risk: text("risk", { enum: ["low", "medium", "high"] }).notNull().default("low"),
+    calls: jsonb("calls").$type<StandardChangeCall[]>().notNull(),
+    params: jsonb("params").$type<Record<string, string>>().notNull().default({}),
+    enabled: boolean("enabled").notNull().default(true),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("standard_change_templates_org_key_idx").on(t.orgId, t.key)],
+);
+
+// ---------------------------------------------------------------------------
+// Events outbox: domain events written in the same transaction as the change that
+// caused them; the worker dispatches them (start agent runs, send notifications).
+// ---------------------------------------------------------------------------
+export const events = pgTable(
+  "events",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    orgId: uuid("org_id").notNull(),
+    type: text("type").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    /** Retry backoff: the event is not claimed before this time. */
+    availableAt: timestamp("available_at", { withTimezone: true }).notNull().defaultNow(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("events_pending_idx").on(t.processedAt, t.id)],
 );
 
 // ---------------------------------------------------------------------------

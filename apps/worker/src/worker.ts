@@ -1,6 +1,7 @@
 // The worker: runs agent jobs from the queue and turns agent schedules into jobs.
 import { HttpGateClient, loadLibrary, runAgent, syncBuiltInSkills, type GateClient, type ProviderFactory, type RunInput } from "@moss/agent";
-import { agents, agentSchedules, orgs, type Database } from "@moss/db";
+import { changeRef, dispatchEvents, incidentRef, type StoredEvent } from "@moss/core";
+import { agents, agentSchedules, changeRequests, incidents, orgs, type Database } from "@moss/db";
 import { createProvider } from "@moss/llm";
 import { and, eq } from "drizzle-orm";
 import { PgBoss } from "pg-boss";
@@ -14,6 +15,7 @@ export interface WorkerConfig {
   gate: GateClient;
   providerFor: ProviderFactory;
   libraryDir?: string;
+  eventIntervalMs?: number;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
 }
 
@@ -54,6 +56,45 @@ export async function syncSchedules(db: Database, boss: PgBoss): Promise<{ added
   return { added, removed };
 }
 
+/** Turns domain events into agent runs. Tasks reference tickets by id; the agent reads them with its tools. */
+export async function handleEvent(db: Database, boss: PgBoss, event: StoredEvent): Promise<void> {
+  const p = event.payload as Record<string, string | undefined>;
+  switch (event.type) {
+    case "incident.assigned": {
+      if (!p.agentId || !p.incidentId) return;
+      const [inc] = await db.select().from(incidents).where(eq(incidents.id, p.incidentId));
+      if (!inc || inc.assignedAgentId !== p.agentId || inc.status === "resolved" || inc.status === "closed") return;
+      await enqueueRun(boss, {
+        agentId: p.agentId,
+        trigger: "ticket",
+        triggerRef: inc.id,
+        task:
+          `You have been assigned incident ${incidentRef(inc.number)} (${inc.priority}), id ${inc.id}. Read it with incident_get, ` +
+          "investigate, keep it updated with comments, and resolve it once the fix is verified. If fixing it needs a change " +
+          "to a system, raise a change request linked to the incident.",
+      });
+      return;
+    }
+    case "change.approved":
+    case "change.rejected": {
+      if (!p.changeId) return;
+      const [cr] = await db.select().from(changeRequests).where(eq(changeRequests.id, p.changeId));
+      if (!cr?.requestedByAgentId) return;
+      const ref = changeRef(cr.number);
+      const task =
+        event.type === "change.approved"
+          ? `Change ${ref} (id ${cr.id}) has been approved. Read it with change_get, run it with change_execute, carry out ` +
+            "its verification plan, then call change_complete (or change_rollback if verification fails). Update the linked incident."
+          : `Change ${ref} (id ${cr.id}) was rejected. Read the reason with change_get and update the linked incident; ` +
+            "do not attempt the change another way.";
+      await enqueueRun(boss, { agentId: cr.requestedByAgentId, trigger: "event", triggerRef: cr.id, task });
+      return;
+    }
+    default:
+      return; // other events only drive notifications, which are written when the event happens
+  }
+}
+
 export async function startWorker(cfg: WorkerConfig) {
   const { db, boss } = cfg;
   const log = cfg.log ?? ((msg, extra) => console.log(JSON.stringify({ msg, ...extra })));
@@ -92,7 +133,27 @@ export async function startWorker(cfg: WorkerConfig) {
   };
   await sync();
   const timer = setInterval(sync, 60_000);
-  return { stop: async () => (clearInterval(timer), boss.stop({ graceful: true })) };
+
+  let dispatching = false;
+  const dispatch = async () => {
+    if (dispatching) return;
+    dispatching = true;
+    try {
+      await dispatchEvents(db, (e) => handleEvent(db, boss, e), 50);
+    } catch (err) {
+      log("event dispatch failed", { error: (err as Error).message });
+    } finally {
+      dispatching = false;
+    }
+  };
+  const eventTimer = setInterval(dispatch, cfg.eventIntervalMs ?? 3_000);
+  return {
+    stop: async () => {
+      clearInterval(timer);
+      clearInterval(eventTimer);
+      await boss.stop({ graceful: true });
+    },
+  };
 }
 
 export function httpGate(url: string, token: string) {
