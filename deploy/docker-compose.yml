@@ -1,0 +1,29 @@
+# MOSS stack. v0.1 milestone 1: database only. Services are added as they are built:
+# web, api, worker, gate (policy + secrets broker), toolbox, sensor.
+name: moss
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-moss}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-moss}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-moss} -d ${POSTGRES_DB:-moss}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+# The master key is only ever mounted into the gate service:
+# secrets:
+#   master_key:
+#     file: ./secrets/master.key
+
+volumes:
+  pgdata:

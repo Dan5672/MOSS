@@ -1,0 +1,22 @@
+{
+  "name": "moss",
+  "private": true,
+  "description": "MOSS - Managed Operations & Systems Service: a self-hosted AI IT department",
+  "license": "AGPL-3.0-only",
+  "packageManager": "pnpm@10.34.6",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "db:generate": "pnpm --filter @moss/db generate",
+    "db:migrate": "pnpm --filter @moss/db migrate"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0",
+    "@types/node": "^24.0.0"
+  }
+}
