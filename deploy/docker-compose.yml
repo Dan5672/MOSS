@@ -1,5 +1,4 @@
-# MOSS stack. v0.1 milestone 1: database only. Services are added as they are built:
-# web, api, worker, gate (policy + secrets broker), toolbox, sensor.
+# MOSS stack. Services are added as they are built: web, api, worker, sensor are still to come.
 name: moss
 
 services:
@@ -14,16 +13,73 @@ services:
       - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    networks: [backend]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-moss} -d ${POSTGRES_DB:-moss}"]
       interval: 5s
       timeout: 3s
       retries: 20
 
-# The master key is only ever mounted into the gate service:
-# secrets:
-#   master_key:
-#     file: ./secrets/master.key
+  # One-shot: applies database migrations, then exits.
+  migrate:
+    image: moss-gate:${MOSS_VERSION:-dev}
+    build: { context: .., dockerfile: deploy/docker/gate.Dockerfile }
+    command: ["node", "node_modules/@moss/db/dist/migrate.js"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-moss}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-moss}
+    networks: [backend]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  # Policy gate + secrets broker. The only service that holds the master key and
+  # the only service that can reach the toolbox.
+  gate:
+    image: moss-gate:${MOSS_VERSION:-dev}
+    build: { context: .., dockerfile: deploy/docker/gate.Dockerfile }
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-moss}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-moss}
+      MOSS_MASTER_KEY_FILE: /run/secrets/master_key
+      GATE_TOKEN_FILE: /run/secrets/gate_token
+      TOOLBOX_TOKEN_FILE: /run/secrets/toolbox_token
+      TOOLBOX_URL: http://toolbox:7070
+    secrets: [master_key, gate_token, toolbox_token]
+    ports:
+      - "127.0.0.1:7080:7080"
+    networks: [backend, tools]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      toolbox: { condition: service_started }
+
+  # Runs nmap/arp-scan/ping for the gate. Non-root; only the scanner binaries hold raw-socket caps.
+  # On a Linux host, use docker-compose.hostnet.yml so ARP/passive discovery can see your LAN.
+  toolbox:
+    image: moss-toolbox:${MOSS_VERSION:-dev}
+    build: { context: .., dockerfile: deploy/docker/toolbox.Dockerfile }
+    restart: unless-stopped
+    environment:
+      TOOLBOX_TOKEN_FILE: /run/secrets/toolbox_token
+    secrets: [toolbox_token]
+    networks: [tools, egress]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    cap_add: [NET_RAW, NET_ADMIN]
+
+networks:
+  backend: {}
+  # Internal: gate <-> toolbox only, no route out.
+  tools: { internal: true }
+  # Gives the toolbox a route to your network for scanning.
+  egress: {}
+
+secrets:
+  master_key: { file: ./secrets/master.key }
+  gate_token: { file: ./secrets/gate.token }
+  toolbox_token: { file: ./secrets/toolbox.token }
 
 volumes:
   pgdata:

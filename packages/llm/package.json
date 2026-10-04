@@ -1,5 +1,5 @@
 {
-  "name": "@moss/core",
+  "name": "@moss/llm",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -17,7 +17,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@moss/db": "workspace:*",
-    "drizzle-orm": "^0.44.0"
+    "@anthropic-ai/sdk": "^0.131.0"
   }
 }
