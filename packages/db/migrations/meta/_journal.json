@@ -22,6 +22,13 @@
       "when": 1791092656430,
       "tag": "0002_agents_assets",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791094077929,
+      "tag": "0003_incidents_changes",
+      "breakpoints": true
     }
   ]
 }

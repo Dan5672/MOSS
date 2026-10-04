@@ -72,7 +72,14 @@ export async function loadContext(
       .from(changeRequests)
       .where(and(eq(changeRequests.id, opts.changeId), eq(changeRequests.orgId, orgId)));
     if (cr) {
-      change = { id: cr.id, status: cr.status, windowStart: cr.windowStart, windowEnd: cr.windowEnd, plannedCalls: cr.plannedCalls };
+      change = {
+        id: cr.id,
+        status: cr.status,
+        windowStart: cr.windowStart,
+        windowEnd: cr.windowEnd,
+        plannedCalls: cr.plannedCalls,
+        rollbackCalls: cr.rollbackCalls,
+      };
     }
   }
 

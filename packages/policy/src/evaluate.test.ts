@@ -121,6 +121,17 @@ describe("evaluate", () => {
     expect(evaluate(tampered, sshExec, ctx({ change: approvedChange }))).toMatchObject({ code: "call_not_in_change_plan" });
   });
 
+  it("allows rollback calls only once the change has started", () => {
+    const rollback = { ...restartCall, args: { ...restartCall.args, params: { service: "dnsmasq-old" } } };
+    const change = { ...approvedChange, rollbackCalls: [{ tool: rollback.tool, args: rollback.args }] };
+    expect(evaluate(rollback, sshExec, ctx({ change }))).toMatchObject({ code: "call_not_in_change_plan" });
+    expect(evaluate(rollback, sshExec, ctx({ change: { ...change, status: "in_progress" } }))).toMatchObject({ allow: true });
+    // After a failure only the rollback is executable, not the original plan.
+    expect(evaluate(rollback, sshExec, ctx({ change: { ...change, status: "failed" } }))).toMatchObject({ allow: true });
+    expect(evaluate(restartCall, sshExec, ctx({ change: { ...change, status: "failed" } }))).toMatchObject({ code: "call_not_in_change_plan" });
+    expect(evaluate(rollback, sshExec, ctx({ change: { ...change, status: "succeeded" } }))).toMatchObject({ code: "change_not_executable" });
+  });
+
   it("enforces the change window", () => {
     const change = { ...approvedChange, windowStart: new Date("2026-10-05T00:00:00Z"), windowEnd: new Date("2026-10-05T02:00:00Z") };
     expect(evaluate(restartCall, sshExec, ctx({ change }))).toMatchObject({ code: "change_outside_window" });

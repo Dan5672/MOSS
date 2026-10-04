@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseArpScan, parseNmapXml, parsePing } from "./parsers.js";
-import { runTool, type Exec } from "./runners.js";
+import { magicPacket, runTool, setUdpSender, type Exec } from "./runners.js";
 import { buildToolboxServer } from "./server.js";
 
 const NMAP_XML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -75,6 +75,17 @@ describe("runTool", () => {
 
     await expect(runTool("arp_scan", { targets: ["10.1.2.0/24"] }, exec, interfaces)).rejects.toThrow(/not on a subnet directly attached/);
     await expect(runTool("arp_scan", { targets: ["172.30.10.5", "172.19.0.9"] }, exec, interfaces)).rejects.toThrow(/same attached subnet/);
+  });
+
+  it("sends Wake-on-LAN magic packets to a single broadcast address", async () => {
+    const sent: { packet: Buffer; address: string; port: number; times: number }[] = [];
+    setUdpSender(async (packet, address, port, times) => void sent.push({ packet, address, port, times }));
+    const res = await runTool("wake_on_lan", { mac: "AA-BB-CC-DD-EE-FF", broadcast: "192.168.1.255" });
+    expect(res).toEqual({ mac: "aa-bb-cc-dd-ee-ff", broadcast: "192.168.1.255", packetsSent: 3 });
+    expect(sent[0]).toMatchObject({ address: "192.168.1.255", port: 9, times: 3 });
+    expect(sent[0]!.packet).toEqual(magicPacket("aa:bb:cc:dd:ee:ff"));
+    expect(sent[0]!.packet.length).toBe(102);
+    await expect(runTool("wake_on_lan", { mac: "aa:bb:cc:dd:ee:ff", broadcast: "192.168.1.0/24" })).rejects.toThrow(/single IPv4/);
   });
 
   it("rejects invalid arguments before executing anything", async () => {

@@ -5,7 +5,7 @@ description: Discovers devices, keeps the inventory current and watches the netw
 suggestedModel: claude-opus-5-5
 effort: medium
 maxStepsPerRun: 30
-skills: [network-discovery, asset-inventory]
+skills: [network-discovery, asset-inventory, incident-management, change-management, device-power]
 reportsTo: it-manager
 systemPrompt: |
   You are the Network Administrator. You know what is connected to the network, keep the asset

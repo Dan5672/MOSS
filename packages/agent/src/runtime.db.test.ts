@@ -1,5 +1,5 @@
 // Agent runtime against Postgres with a scripted LLM and a fake gate. Run with MOSS_TEST_DATABASE_URL set.
-import { bootstrapOrg, setNetworkStatus, setSetting } from "@moss/core";
+import { approveChange, bootstrapOrg, createChangeRequest, getChange, getIncident, setNetworkStatus, setSetting } from "@moss/core";
 import { agentRuns, agents, agentSkills, assets, budgets, models, providers, runSteps, tokenUsage, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { MockAdapter, type ScriptedTurn } from "@moss/llm";
@@ -34,6 +34,10 @@ describe.skipIf(!TEST_DATABASE_URL)("agent runtime (postgres)", () => {
     listTools: async () => [NMAP_SPEC],
     callTool: async (req): Promise<GateToolResponse> => {
       gateCalls.push(req);
+      if (req.tool === "wake_on_lan") {
+        // Mirrors the real gate: write tools need a change id.
+        return req.changeId ? { allowed: true, ok: true, result: { packetsSent: 3 } } : { allowed: false, code: "change_required", reason: "needs a change" };
+      }
       const targets = (req.args as { targets: string[] }).targets;
       if (!targets.every((t) => t.startsWith("192.168.1."))) {
         return { allowed: false, code: "target_off_limits", reason: "Target overlaps off-limits network 10.66.0.0/16" };
@@ -90,7 +94,7 @@ describe.skipIf(!TEST_DATABASE_URL)("agent runtime (postgres)", () => {
     expect(nina).toMatchObject({ name: "Nina", title: "Network Admin", templateKey: "network-admin", effort: "medium", maxStepsPerRun: 30 });
     expect(nina.reportsToAgentId).toBe(manager.id);
     expect(manager.reportsToUserId).toBe(actor.userId);
-    expect(await db.select().from(agentSkills).where(eq(agentSkills.agentId, nina.id))).toHaveLength(2);
+    expect(await db.select().from(agentSkills).where(eq(agentSkills.agentId, nina.id))).toHaveLength(5);
   });
 
   it("runs a discovery task end to end: scan, denial, inventory, classification", async () => {
@@ -153,6 +157,16 @@ describe.skipIf(!TEST_DATABASE_URL)("agent runtime (postgres)", () => {
     const session = adapter.received[0]!.opts;
     expect(session.system).toContain("## Network Discovery");
     expect(session.tools.map((t) => t.name).sort()).toEqual([
+      "change_complete",
+      "change_execute",
+      "change_get",
+      "change_request_create",
+      "change_rollback",
+      "incident_comment",
+      "incident_create",
+      "incident_get",
+      "incident_list",
+      "incident_update",
       "inventory_add",
       "inventory_search",
       "inventory_update",
@@ -215,6 +229,92 @@ describe.skipIf(!TEST_DATABASE_URL)("agent runtime (postgres)", () => {
       { text: "never reached" },
     ];
     expect(await runAgent(deps(), { agentId: nina.id, task: "t", trigger: "manual" })).toMatchObject({ status: "aborted", steps: expect.any(Number) });
+  });
+
+  it("works an incident through an approved change: raise, wait, execute exactly the plan, verify, resolve", async () => {
+    const nina = await hire();
+    const plan = [{ tool: "wake_on_lan", args: { mac: "aa:bb:cc:00:00:20", broadcast: "192.168.1.255" } }];
+    let incidentId = "";
+    let changeId = "";
+
+    // Run 1: the agent raises an incident and a change, then stops (waiting for approval).
+    const changeTurn: ScriptedTurn = {
+      toolCalls: [
+        {
+          id: "c1",
+          name: "change_request_create",
+          input: { type: "normal", title: "Wake the backup server", description: "It is off", plannedCalls: plan, rollbackPlan: "Shut it down again", verificationPlan: "ping 192.168.1.20" },
+        },
+      ],
+      expect: (input) => {
+        const created = JSON.parse(("toolResults" in input ? input.toolResults : [])[0]!.content);
+        incidentId = created.id;
+        (changeTurn.toolCalls![0]!.input as Record<string, unknown>).incidentId = incidentId;
+      },
+    };
+    script = [
+      { toolCalls: [{ id: "i1", name: "incident_create", input: { type: "break_fix", title: "Backup server is off", description: "No response", priority: "P3" } }] },
+      changeTurn,
+      {
+        text: "Raised a change; waiting for approval.",
+        expect: (input) => {
+          const res = JSON.parse(("toolResults" in input ? input.toolResults : [])[0]!.content);
+          expect(res).toMatchObject({ status: "submitted", next: expect.stringContaining("Waiting for a human approver") });
+          changeId = res.id;
+        },
+      },
+    ];
+    expect((await runAgent(deps(), { agentId: nina.id, task: "The backup server is off", trigger: "chat" })).status).toBe("succeeded");
+
+    // The agent cannot execute before approval.
+    script = [{ toolCalls: [{ id: "x", name: "change_execute", input: { changeId } }] }, { text: "blocked" }];
+    await runAgent(deps(), { agentId: nina.id, task: "try", trigger: "manual" });
+    const blocked = (await db.select().from(runSteps).orderBy(asc(runSteps.createdAt))).filter((s) => s.kind === "tool_result").at(-1)!;
+    expect(blocked.content).toMatchObject({ isError: true, content: expect.stringContaining("only approved changes can be executed") });
+    expect(gateCalls.filter((c) => c.tool === "wake_on_lan")).toHaveLength(0);
+
+    // A human approves; run 2 executes exactly the plan via the gate, verifies, and closes out.
+    await approveChange(db, actor.orgId, changeId, actor.userId);
+    script = [
+      { toolCalls: [{ id: "e1", name: "change_execute", input: { changeId } }] },
+      {
+        toolCalls: [{ id: "v1", name: "change_complete", input: { changeId, outcome: "succeeded", notes: "Host answers ping" } }],
+        expect: (input) => {
+          const res = JSON.parse(("toolResults" in input ? input.toolResults : [])[0]!.content);
+          expect(res).toMatchObject({ status: "verifying", results: [{ step: 1, tool: "wake_on_lan", ok: true }] });
+        },
+      },
+      { toolCalls: [{ id: "r1", name: "incident_update", input: { incidentId, status: "resolved", note: "Woken via CR; verified with ping" } }] },
+      { text: "Done." },
+    ];
+    expect((await runAgent(deps(), { agentId: nina.id, task: "execute", trigger: "event", triggerRef: changeId })).status).toBe("succeeded");
+
+    const wol = gateCalls.filter((c) => c.tool === "wake_on_lan");
+    expect(wol).toEqual([{ agentId: nina.id, tool: "wake_on_lan", args: { mac: "aa:bb:cc:00:00:20", broadcast: "192.168.1.255", port: 9 }, changeId, runId: expect.any(String) }]);
+    const change = await getChange(db, actor.orgId, changeId);
+    expect(change!.status).toBe("succeeded");
+    expect(change!.notes.map((n) => n.body)).toContain("Step 1 wake_on_lan: ok");
+    const inc = await getIncident(db, actor.orgId, incidentId);
+    expect(inc!.status).toBe("resolved");
+    expect(inc!.comments.map((c) => c.body)).toEqual(expect.arrayContaining([expect.stringContaining("finished: succeeded")]));
+  });
+
+  it("stops other agents from executing a change they did not raise", async () => {
+    const nina = await hire();
+    const other = await hire();
+    const cr = await createChangeRequest(
+      db,
+      actor.orgId,
+      { type: "normal", title: "t", description: "d", rollbackPlan: "r", verificationPlan: "v", plannedCalls: [{ tool: "wake_on_lan", args: { mac: "aa:bb:cc:00:00:21", broadcast: "192.168.1.255" } }] },
+      { type: "agent", id: nina.id },
+    );
+    await approveChange(db, actor.orgId, cr.id, actor.userId);
+    script = [{ toolCalls: [{ id: "x", name: "change_execute", input: { changeId: cr.id } }] }, { text: "no" }];
+    const before = gateCalls.length;
+    const out = await runAgent(deps(), { agentId: other.id, task: "t", trigger: "manual" });
+    const result = (await db.select().from(runSteps).where(eq(runSteps.runId, out.runId!))).find((s) => s.kind === "tool_result")!;
+    expect(result.content).toMatchObject({ isError: true, content: expect.stringContaining("not raised by you") });
+    expect(gateCalls.length).toBe(before);
   });
 
   it("records refusals as failed runs", async () => {

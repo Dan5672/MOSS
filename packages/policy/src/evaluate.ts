@@ -38,6 +38,7 @@ export interface ChangeContext {
   windowStart?: Date | null;
   windowEnd?: Date | null;
   plannedCalls: { tool: string; args: Record<string, unknown> }[];
+  rollbackCalls?: { tool: string; args: Record<string, unknown> }[];
 }
 
 export interface PolicyContext {
@@ -77,8 +78,19 @@ export type PolicyDecision =
   | { allow: true; targets: string[]; secretHandles: string[] }
   | { allow: false; code: DenyCode; reason: string };
 
-/** Change statuses under which planned write calls may execute. */
-export const EXECUTABLE_CHANGE_STATUSES = new Set(["approved", "scheduled", "in_progress"]);
+/** Statuses under which a change's planned calls may execute. */
+export const PLAN_STATUSES = new Set(["approved", "scheduled", "in_progress", "verifying"]);
+/** Statuses under which a change's rollback calls may execute (only once work has started). */
+export const ROLLBACK_STATUSES = new Set(["in_progress", "verifying", "failed"]);
+export const EXECUTABLE_CHANGE_STATUSES = new Set([...PLAN_STATUSES, ...ROLLBACK_STATUSES]);
+
+/** The calls a change permits in its current status. */
+export function executableCalls(change: { status: string; plannedCalls: ChangeContext["plannedCalls"]; rollbackCalls?: ChangeContext["plannedCalls"] }) {
+  return [
+    ...(PLAN_STATUSES.has(change.status) ? change.plannedCalls : []),
+    ...(ROLLBACK_STATUSES.has(change.status) ? (change.rollbackCalls ?? []) : []),
+  ];
+}
 
 const SECRET_HANDLE = /^secret:([A-Za-z0-9_.-]+)$/;
 
@@ -171,7 +183,7 @@ export function evaluate(call: ToolCall, manifest: ToolManifest, ctx: PolicyCont
       return deny("change_outside_window", `Change ${change.id} is outside its scheduled window`);
     }
     const actual = canonicalJson({ tool: call.tool, args: call.args });
-    const planned = change.plannedCalls.some((p) => canonicalJson({ tool: p.tool, args: p.args }) === actual);
+    const planned = executableCalls(change).some((p) => canonicalJson({ tool: p.tool, args: p.args }) === actual);
     if (!planned) return deny("call_not_in_change_plan", `This exact call is not in the plan of change ${change.id}`);
   }
 

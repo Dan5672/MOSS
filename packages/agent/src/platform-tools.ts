@@ -10,11 +10,15 @@ import {
 } from "@moss/core";
 import type { Database } from "@moss/db";
 import { z } from "zod";
+import type { GateClient } from "./gate-client.js";
+import { TICKET_TOOLS } from "./ticket-tools.js";
 
 export interface PlatformContext {
   db: Database;
   orgId: string;
   agentId: string;
+  gate: GateClient;
+  runId: string;
 }
 
 export interface PlatformTool {
@@ -49,7 +53,7 @@ function summarizeAsset(a: Awaited<ReturnType<typeof searchAssets>>[number]) {
   };
 }
 
-export const PLATFORM_TOOLS: PlatformTool[] = [
+const INVENTORY_TOOLS: PlatformTool[] = [
   {
     name: "inventory_search",
     description: "Search the asset inventory by free text (name, hostname, vendor, MAC, IP, notes), IP/CIDR, or kind.",
@@ -119,6 +123,8 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
     run: async ({ db, orgId, agentId }, args) => reportNetwork(db, orgId, args, { type: "agent", id: agentId }),
   },
 ];
+
+export const PLATFORM_TOOLS: PlatformTool[] = [...INVENTORY_TOOLS, ...TICKET_TOOLS];
 
 export const PLATFORM_TOOL_MAP: ReadonlyMap<string, PlatformTool> = new Map(PLATFORM_TOOLS.map((t) => [t.name, t]));
 

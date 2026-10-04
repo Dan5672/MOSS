@@ -3,3 +3,5 @@ export * from "./lifecycle.js";
 export * from "./platform-tools.js";
 export * from "./prompt.js";
 export * from "./runtime.js";
+export * from "./gate-client.js";
+export * from "./ticket-tools.js";

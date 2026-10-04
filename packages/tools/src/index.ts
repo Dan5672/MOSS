@@ -52,8 +52,19 @@ export const dnsLookup = tool(
   }),
 );
 
+export const wakeOnLan = tool(
+  { name: "wake_on_lan", class: "write", targetArgs: ["broadcast"] },
+  "Power on a device by sending a Wake-on-LAN magic packet to its MAC address via the subnet's broadcast address. " +
+    "Changes device state, so it only runs as part of an approved change.",
+  z.object({
+    mac: z.string().regex(/^([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$/, "Must be a MAC address"),
+    broadcast: ipOrCidr.describe("Broadcast address of the device's subnet, e.g. 192.168.1.255"),
+    port: z.union([z.literal(7), z.literal(9)]).default(9),
+  }),
+);
+
 export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
-  [nmapScan, arpScan, ping, dnsLookup].map((t) => [t.manifest.name, t as unknown as ToolDefinition]),
+  [nmapScan, arpScan, ping, dnsLookup, wakeOnLan].map((t) => [t.manifest.name, t as unknown as ToolDefinition]),
 );
 
 /** The JSON Schema handed to the LLM for a tool's input. */
@@ -105,6 +116,12 @@ export interface PingResult {
   received: number;
   lossPercent: number;
   rttAvgMs?: number;
+}
+
+export interface WakeOnLanResult {
+  mac: string;
+  broadcast: string;
+  packetsSent: number;
 }
 
 export interface DnsLookupResult {
