@@ -1,6 +1,12 @@
 # MOSS — Managed Operations & Systems Service
+ ███╗   ███╗ ██████╗ ███████╗███████╗
+ ████╗ ████║██╔═══██╗██╔════╝██╔════╝
+ ██╔████╔██║██║   ██║███████╗███████╗
+ ██║╚██╔╝██║██║   ██║╚════██║╚════██║
+ ██║ ╚═╝ ██║╚██████╔╝███████║███████║
+ ╚═╝     ╚═╝ ╚═════╝ ╚══════╝╚══════╝
 
-**Your AI IT department.**
+ **Your AI IT department.**
 
 A self-hosted AI IT department for home and small networks. You hire AI agents (Systems Admin,
 Network Admin, Security Admin, Developer, …) that discover and inventory your network, work
