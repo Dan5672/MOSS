@@ -140,6 +140,43 @@ function checkTarget(range: IpRange, raw: string, networks: { rule: NetworkRule;
   return null;
 }
 
+export type ScopeDecision =
+  | { allow: true; targets: string[]; ranges: IpRange[] }
+  | { allow: false; code: DenyCode; reason: string };
+
+/** Target scope: every target must be inside an allowed network; unknown is denied, off-limits always wins. */
+export function checkScope(manifest: ToolManifest, args: Record<string, unknown>, rules: NetworkRule[]): ScopeDecision {
+  const networks = rules.flatMap((rule) => {
+    const range = parseRange(rule.cidr);
+    return range ? [{ rule, range }] : [];
+  });
+  const targets: string[] = [];
+  const ranges: IpRange[] = [];
+  for (const t of extractTargets(manifest, args)) {
+    if (typeof t !== "string") return { allow: false, code: "invalid_target", reason: "Targets must be IP or CIDR strings" };
+    const range = parseRange(t);
+    if (!range) return { allow: false, code: "invalid_target", reason: `Target ${JSON.stringify(t)} is not a resolved IP or CIDR` };
+    const denied = checkTarget(range, t, networks);
+    if (denied && !denied.allow) return denied;
+    targets.push(t);
+    ranges.push(range);
+  }
+  return { allow: true, targets, ranges };
+}
+
+/**
+ * Checks run by MOSS itself (monitors) rather than by an agent. There is no agent state, grant,
+ * budget or kill switch to consult, so only two rules apply: the tool must be read-only, and its
+ * targets must pass the same network scope as an agent's call.
+ */
+export function evaluateMonitorCheck(call: ToolCall, manifest: ToolManifest, networks: NetworkRule[]): PolicyDecision {
+  if (manifest.name !== call.tool) return deny("tool_not_granted", "Manifest does not match the requested tool");
+  if (manifest.class !== "read") return deny("change_required", `${call.tool} changes state; monitors may only run read tools`);
+  const scope = checkScope(manifest, call.args, networks);
+  if (!scope.allow) return scope;
+  return { allow: true, targets: scope.targets, secretHandles: [] };
+}
+
 export function evaluate(call: ToolCall, manifest: ToolManifest, ctx: PolicyContext): PolicyDecision {
   if (manifest.name !== call.tool) return deny("tool_not_granted", "Manifest does not match the requested tool");
 
@@ -152,21 +189,9 @@ export function evaluate(call: ToolCall, manifest: ToolManifest, ctx: PolicyCont
   if (!ctx.agent.toolGrants.has(call.tool)) return deny("tool_not_granted", `Agent is not granted tool ${call.tool}`);
 
   // 3. Target scope — unknown subnets are denied by default; off-limits always wins.
-  const networks = ctx.networks.flatMap((rule) => {
-    const range = parseRange(rule.cidr);
-    return range ? [{ rule, range }] : [];
-  });
-  const targets: string[] = [];
-  const targetRanges: IpRange[] = [];
-  for (const t of extractTargets(manifest, call.args)) {
-    if (typeof t !== "string") return deny("invalid_target", "Targets must be IP or CIDR strings");
-    const range = parseRange(t);
-    if (!range) return deny("invalid_target", `Target ${JSON.stringify(t)} is not a resolved IP or CIDR`);
-    const denied = checkTarget(range, t, networks);
-    if (denied) return denied;
-    targets.push(t);
-    targetRanges.push(range);
-  }
+  const scope = checkScope(manifest, call.args, ctx.networks);
+  if (!scope.allow) return scope;
+  const { targets, ranges: targetRanges } = scope;
 
   // 4. Tool class
   if (manifest.class === "dangerous" && !ctx.allowDangerousTools) {

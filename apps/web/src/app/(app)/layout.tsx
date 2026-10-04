@@ -1,5 +1,5 @@
 import { getSetting } from "@moss/core";
-import { changeRequests, notifications } from "@moss/db";
+import { changeRequests, monitors, notifications } from "@moss/db";
 import { and, count, eq, isNull } from "drizzle-orm";
 import { OctagonPause } from "lucide-react";
 import Link from "next/link";
@@ -11,7 +11,7 @@ import { logoutAction } from "../(public)/actions";
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const user = await requireUser();
-  const [killSwitch, [pending], [unread]] = await Promise.all([
+  const [killSwitch, [pending], [unread], [down]] = await Promise.all([
     getSetting(db(), user.orgId, "agents.kill_switch"),
     db()
       .select({ n: count() })
@@ -21,7 +21,15 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       .select({ n: count() })
       .from(notifications)
       .where(and(eq(notifications.userId, user.id), isNull(notifications.readAt))),
+    db()
+      .select({ n: count() })
+      .from(monitors)
+      .where(and(eq(monitors.orgId, user.orgId), eq(monitors.state, "down"))),
   ]);
+  const badges = {
+    "/changes": user.permissions.has("changes.approve") ? (pending?.n ?? 0) : 0,
+    "/monitoring": user.permissions.has("monitoring.read") ? (down?.n ?? 0) : 0,
+  };
 
   return (
     <div className="flex min-h-screen">
@@ -30,7 +38,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
           <div className="text-xl font-bold tracking-tight">MOSS</div>
           <div className="text-xs text-muted-foreground">Your AI IT department</div>
         </Link>
-        <Nav badges={{ "/changes": user.permissions.has("changes.approve") ? (pending?.n ?? 0) : 0 }} />
+        <Nav badges={badges} />
         <div className="mt-auto border-t pt-3 text-sm">
           <div className="truncate px-3 font-medium">{user.displayName}</div>
           <div className="truncate px-3 text-xs text-muted-foreground">{user.email}</div>
@@ -46,7 +54,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
         <details className="border-b p-3 md:hidden">
           <summary className="cursor-pointer list-none font-bold tracking-tight">☰ MOSS</summary>
           <div className="mt-3">
-            <Nav badges={{ "/changes": user.permissions.has("changes.approve") ? (pending?.n ?? 0) : 0 }} />
+            <Nav badges={badges} />
             <form action={logoutAction} className="mt-2">
               <Button type="submit" variant="ghost" size="sm">
                 Sign out

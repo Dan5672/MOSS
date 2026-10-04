@@ -17,6 +17,8 @@ export const PERMISSIONS = [
   "changes.read",
   "changes.create",
   "changes.approve",
+  "monitoring.read",
+  "monitoring.manage", // monitors and webhook sources
   "secrets.read", // metadata only; values are never readable
   "secrets.manage",
   "integrations.manage",
@@ -56,7 +58,7 @@ export const BUILT_IN_ROLES: Record<string, { name: string; permissions: Permiss
   },
   operator: {
     name: "Operator",
-    permissions: [...READS, "incidents.manage", "changes.create", "assets.manage", "dev.manage", "killswitch.use"],
+    permissions: [...READS, "incidents.manage", "changes.create", "assets.manage", "monitoring.manage", "dev.manage", "killswitch.use"],
   },
   viewer: { name: "Viewer", permissions: [...READS] },
   agent: {
@@ -69,6 +71,7 @@ export const BUILT_IN_ROLES: Record<string, { name: string; permissions: Permiss
       "incidents.manage",
       "changes.read",
       "changes.create",
+      "monitoring.read",
       "dev.read",
       "dev.manage",
     ],

@@ -211,7 +211,6 @@ importers:
       drizzle-orm:
         specifier: ^0.44.0
         version: 0.44.7(@opentelemetry/api@1.9.1)(pg@8.23.1)(postgres@3.4.9)
-    devDependencies:
       zod:
         specifier: ^4.6.5
         version: 4.6.5

@@ -1,4 +1,4 @@
-// Platform tools: actions on MOSS itself (inventory, networks). They run in the worker
+// Platform tools: actions on MOSS itself (inventory, networks, tickets, monitoring). They run in the worker
 // against the database, gated by the agent's skill grants AND its role permissions.
 import {
   addAsset,
@@ -11,6 +11,7 @@ import {
 import type { Database } from "@moss/db";
 import { z } from "zod";
 import type { GateClient } from "./gate-client.js";
+import { MONITOR_TOOLS } from "./monitor-tools.js";
 import { TICKET_TOOLS } from "./ticket-tools.js";
 
 export interface PlatformContext {
@@ -124,7 +125,7 @@ const INVENTORY_TOOLS: PlatformTool[] = [
   },
 ];
 
-export const PLATFORM_TOOLS: PlatformTool[] = [...INVENTORY_TOOLS, ...TICKET_TOOLS];
+export const PLATFORM_TOOLS: PlatformTool[] = [...INVENTORY_TOOLS, ...TICKET_TOOLS, ...MONITOR_TOOLS];
 
 export const PLATFORM_TOOL_MAP: ReadonlyMap<string, PlatformTool> = new Map(PLATFORM_TOOLS.map((t) => [t.name, t]));
 

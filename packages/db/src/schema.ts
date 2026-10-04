@@ -471,6 +471,127 @@ export const standardChangeTemplates = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Monitoring: built-in checks (run by the gate) and external monitors fed by webhooks.
+// ---------------------------------------------------------------------------
+export const monitorKind = pgEnum("monitor_kind", ["ping", "tcp", "http", "tls", "dns", "external"]);
+export const monitorState = pgEnum("monitor_state", ["pending", "up", "degraded", "down", "paused"]);
+
+/** Kind-specific check settings. Validated by the core service; the gate builds tool args from it. */
+export interface MonitorConfig {
+  port?: number;
+  scheme?: "http" | "https";
+  path?: string;
+  method?: "GET" | "HEAD";
+  expectStatus?: number[];
+  keyword?: string;
+  verifyTls?: boolean;
+  /** TLS: degraded when the certificate expires within this many days. */
+  warnDays?: number;
+  /** DNS: record type and an answer that must be present. */
+  recordType?: "A" | "AAAA" | "PTR";
+  expectAnswer?: string;
+  /** Degraded when latency is above this. */
+  degradedMs?: number;
+  /** Raise a (P4) incident when degraded, not only a notification. */
+  incidentOnDegraded?: boolean;
+}
+
+export interface MonitorResultSummary {
+  ok: boolean;
+  degraded?: boolean;
+  latencyMs?: number | null;
+  message: string;
+  at: string;
+  flapping?: boolean;
+  suppressed?: boolean;
+  /** The gate refused the check (target outside allowed networks). */
+  policyDenied?: boolean;
+}
+
+export const monitorSources = pgTable("monitor_sources", {
+  id: id(),
+  ...tenancy(),
+  name: text("name").notNull(),
+  kind: text("kind", { enum: ["uptime_kuma", "beszel", "alertmanager", "generic"] }).notNull(),
+  /** sha256 of the bearer token; the token itself is shown once on creation. */
+  tokenHash: text("token_hash").notNull(),
+  /** Applied to monitors this source creates; editable per monitor afterwards. */
+  defaultPriority: priority("default_priority").notNull().default("P3"),
+  defaultResponderAgentId: uuid("default_responder_agent_id").references(() => agents.id, { onDelete: "set null" }),
+  enabled: boolean("enabled").notNull().default(true),
+  lastReceivedAt: timestamp("last_received_at", { withTimezone: true }),
+  ...timestamps(),
+});
+
+export const monitors = pgTable(
+  "monitors",
+  {
+    id: id(),
+    ...tenancy(),
+    name: text("name").notNull(),
+    kind: monitorKind("kind").notNull(),
+    /** Hostname or IP for built-in checks; display only for external monitors. */
+    target: text("target").notNull().default(""),
+    config: jsonb("config").$type<MonitorConfig>().notNull().default({}),
+    assetId: uuid("asset_id").references(() => assets.id, { onDelete: "set null" }),
+    intervalSeconds: integer("interval_seconds").notNull().default(60),
+    timeoutSeconds: integer("timeout_seconds").notNull().default(10),
+    failureThreshold: integer("failure_threshold").notNull().default(3),
+    recoveryThreshold: integer("recovery_threshold").notNull().default(2),
+    priority: priority("priority").notNull().default("P3"),
+    responderAgentId: uuid("responder_agent_id").references(() => agents.id, { onDelete: "set null" }),
+    responderUserId: uuid("responder_user_id").references(() => users.id, { onDelete: "set null" }),
+    autoResolve: boolean("auto_resolve").notNull().default(false),
+    enabled: boolean("enabled").notNull().default(true),
+    state: monitorState("state").notNull().default("pending"),
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+    consecutiveSuccesses: integer("consecutive_successes").notNull().default(0),
+    stateChangedAt: timestamp("state_changed_at", { withTimezone: true }).notNull().defaultNow(),
+    lastCheckAt: timestamp("last_check_at", { withTimezone: true }),
+    nextCheckAt: timestamp("next_check_at", { withTimezone: true }).notNull().defaultNow(),
+    lastResult: jsonb("last_result").$type<MonitorResultSummary>(),
+    openIncidentId: uuid("open_incident_id").references(() => incidents.id, { onDelete: "set null" }),
+    sourceId: uuid("source_id").references(() => monitorSources.id, { onDelete: "cascade" }),
+    externalKey: text("external_key"),
+    ...timestamps(),
+  },
+  (t) => [
+    index("monitors_due_idx").on(t.enabled, t.nextCheckAt),
+    uniqueIndex("monitors_source_key_idx").on(t.sourceId, t.externalKey),
+    index("monitors_asset_idx").on(t.assetId),
+  ],
+);
+
+export const monitorResults = pgTable(
+  "monitor_results",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    monitorId: uuid("monitor_id").notNull().references(() => monitors.id, { onDelete: "cascade" }),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    ok: boolean("ok").notNull(),
+    degraded: boolean("degraded").notNull().default(false),
+    latencyMs: integer("latency_ms"),
+    message: text("message").notNull().default(""),
+  },
+  (t) => [index("monitor_results_monitor_at_idx").on(t.monitorId, t.at)],
+);
+
+export const monitorStateChanges = pgTable(
+  "monitor_state_changes",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    monitorId: uuid("monitor_id").notNull().references(() => monitors.id, { onDelete: "cascade" }),
+    from: monitorState("from").notNull(),
+    to: monitorState("to").notNull(),
+    reason: text("reason").notNull().default(""),
+    /** Raised during an in-progress change on the monitored asset: no incident. */
+    suppressed: boolean("suppressed").notNull().default(false),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("monitor_state_changes_monitor_at_idx").on(t.monitorId, t.at)],
+);
+
+// ---------------------------------------------------------------------------
 // Events outbox: domain events written in the same transaction as the change that
 // caused them; the worker dispatches them (start agent runs, send notifications).
 // ---------------------------------------------------------------------------

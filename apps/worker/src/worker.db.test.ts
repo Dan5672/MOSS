@@ -1,7 +1,7 @@
 // Worker against Postgres + pg-boss with a scripted LLM and a fake gate. Run with MOSS_TEST_DATABASE_URL set.
 import { hireFromTemplate, loadLibrary, pauseAgent, type GateClient } from "@moss/agent";
-import { approveChange, bootstrapOrg, createChangeRequest, createIncident } from "@moss/core";
-import { agentRuns, models, providers, skills, type Database } from "@moss/db";
+import { approveChange, bootstrapOrg, createChangeRequest, createIncident, createMonitor, type CheckResult } from "@moss/core";
+import { agentRuns, incidentComments, incidents, models, monitors, providers, skills, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { MockAdapter } from "@moss/llm";
 import { eq } from "drizzle-orm";
@@ -30,6 +30,8 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
   let actor: { orgId: string; userId: string };
   let modelId: string;
   const gate: GateClient = { listTools: async () => [], callTool: async () => ({ allowed: false, code: "x", reason: "x" }) };
+  let checkResult: CheckResult = { ok: true, message: "ok" };
+  const checked: string[] = [];
 
   beforeAll(async () => {
     let url: string;
@@ -53,6 +55,11 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
       libraryDir: LIBRARY_DIR,
       log: () => {},
       eventIntervalMs: 200,
+      monitorIntervalMs: 200,
+      checkMonitor: async (id) => {
+        checked.push(id);
+        return checkResult;
+      },
     });
   });
   afterAll(async () => {
@@ -67,6 +74,7 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
       "change-management",
       "device-power",
       "incident-management",
+      "monitoring-response",
       "network-discovery",
       "security-baseline",
       "service-desk",
@@ -148,5 +156,35 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
       return r?.status === "succeeded" ? r : undefined;
     });
     expect(changeRun).toMatchObject({ agentId: nina.id, trigger: "event" });
+  });
+
+  it("monitors: a failing check raises an incident for the responder agent, and recovery hands it back", async () => {
+    const lib = await loadLibrary(LIBRARY_DIR);
+    const sam = await hireFromTemplate(db, actor, { template: lib.templates.get("systems-admin")!, modelId, name: "Sam M" });
+    checkResult = { ok: false, message: "connect ECONNREFUSED 192.168.1.10:5000" };
+    const m = await createMonitor(
+      db,
+      actor.orgId,
+      { name: "NAS web", kind: "tcp", target: "192.168.1.10", config: { port: 5000 }, intervalSeconds: 30, failureThreshold: 1, recoveryThreshold: 1, responderAgentId: sam.id },
+      { type: "user", id: actor.userId },
+    );
+
+    const inc = await waitFor(async () => (await db.select().from(incidents).where(eq(incidents.title, "NAS web is down")))[0]);
+    expect(checked).toContain(m.id);
+    expect(inc).toMatchObject({ assignedAgentId: sam.id, priority: "P3" });
+    const ticketRun = await waitFor(async () => {
+      const [r] = await db.select().from(agentRuns).where(eq(agentRuns.triggerRef, inc.id));
+      return r?.status === "succeeded" ? r : undefined;
+    });
+    expect(ticketRun).toMatchObject({ agentId: sam.id, trigger: "ticket" });
+
+    checkResult = { ok: true, latencyMs: 3, message: "Port 5000 open" };
+    await db.update(monitors).set({ nextCheckAt: new Date() }).where(eq(monitors.id, m.id));
+    await waitFor(async () => (await db.select().from(incidentComments).where(eq(incidentComments.incidentId, inc.id)))[0]);
+    const runs = await waitFor(async () => {
+      const rows = await db.select().from(agentRuns).where(eq(agentRuns.triggerRef, inc.id));
+      return rows.length === 2 && rows.every((r) => r.status === "succeeded") ? rows : undefined;
+    });
+    expect(runs.map((r) => r.trigger).sort()).toEqual(["event", "ticket"]);
   });
 });

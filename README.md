@@ -20,6 +20,28 @@ permissions you control.
 - Secrets use envelope encryption (`packages/core`). Agents only ever see `secret:<name>` handles.
 - Every action is written to a hash-chained audit log.
 
+## Backups and upgrades
+Your data lives in the `pgdata` volume, `deploy/secrets/` and `deploy/.env`. Containers hold no
+state, so upgrades happen in place and nothing needs reconfiguring.
+
+```sh
+sh deploy/backup.sh                      # database + secrets + .env -> deploy/backups/moss-backup-<time>.tar.gz
+sh deploy/upgrade.sh                     # back up, update to the newest release, rebuild, migrate, health-check
+sh deploy/upgrade.sh v0.2.0              # or a specific release, branch or commit (forward only)
+sh deploy/upgrade.sh --rollback          # return to the version before the last upgrade
+sh deploy/restore.sh <backup> [--checkout]   # restore a backup (--checkout: and the code it was taken with)
+```
+
+- The new version is built while the old one keeps running, so a failed build changes nothing.
+  Database migrations run in a single transaction, so a failed migration leaves the database as it was.
+- `--rollback` reuses the previous images (no rebuild). It restores the pre-upgrade backup only if the
+  upgrade changed the database. In that case anything recorded since the upgrade is lost.
+- Backups contain the master key. They are written owner-only, and the newest 10 are kept
+  (`MOSS_BACKUP_KEEP`). Copy them off the machine: without `master.key`, stored secrets can't be decrypted.
+- To move to a new machine, clone MOSS, then run `sh deploy/restore.sh <backup>` before `init.sh`.
+- If you run extra compose files (such as the lab), set `MOSS_COMPOSE_FILES` in `deploy/.env`, e.g.
+  `MOSS_COMPOSE_FILES=docker-compose.yml lab/compose.lab.yml`.
+
 ## Development
 ```sh
 corepack enable            # provides pnpm (or prefix commands with `corepack pnpm`)
@@ -45,6 +67,15 @@ curl -X POST http://127.0.0.1:7080/v1/tool-calls \
   -d '{"agentId":"<id>","tool":"nmap_scan","args":{"targets":["172.30.10.0/24"],"profile":"top100"}}'
 ```
 Scans of 172.30.10.0/24 run; anything touching 172.30.66.0/24 is denied by the gate.
+
+### Monitoring
+Monitoring (web UI → Monitoring) runs ping, TCP, HTTP(S), TLS-expiry and DNS checks from the toolbox,
+through the gate, so monitors follow the same network rules as agents. It also accepts alerts from
+Uptime Kuma, Beszel, Prometheus Alertmanager or any JSON sender (Monitoring → Webhook sources). When
+a monitor goes down, MOSS raises an incident and assigns it to the monitor's responder agent, which
+starts working it. Recovery is noted on the incident. Outages during an in-progress change on the
+monitored asset do not raise incidents. External senders must be able to reach the web UI, so set
+`MOSS_WEB_BIND` in `deploy/.env` if they run on another machine.
 
 ## License
 AGPL-3.0 open core; commercial license available for business features. Contributions require a CLA.

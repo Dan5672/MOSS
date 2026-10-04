@@ -1,5 +1,5 @@
 // Gate HTTP API. Two callers, two tokens, disjoint routes:
-//   worker (GATE_TOKEN): tool calls, tool listing, LLM proxy
+//   worker (GATE_TOKEN): tool calls, tool listing, monitor checks, LLM proxy
 //   web    (WEB_TOKEN):  write-only secrets API
 import Fastify from "fastify";
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -75,6 +75,14 @@ export function buildGateServer(gate: Gate, opts: GateServerOptions) {
       return gate.handleToolCall({ agentId, tool, args: args ?? {}, changeId, runId });
     },
   );
+
+  app.post<{ Body: { monitorId?: string } }>("/v1/monitor-checks", async (req, reply) => {
+    const monitorId = req.body?.monitorId;
+    if (!monitorId || !UUID.test(monitorId)) return reply.code(400).send({ error: "monitorId (uuid) is required" });
+    const result = await gate.checkMonitor(monitorId);
+    if (!result) return reply.code(404).send({ error: "no such built-in monitor" });
+    return result;
+  });
 
   if (opts.llmProxy) {
     const proxy = opts.llmProxy;

@@ -57,6 +57,11 @@ const STATUS_TONE: Record<string, Tone> = {
   unknown: "amber",
   missing: "orange",
   retired: "gray",
+  // monitors
+  up: "green",
+  degraded: "amber",
+  down: "red",
+  pending: "gray",
 };
 
 export function StatusBadge({ status }: { status: string }) {

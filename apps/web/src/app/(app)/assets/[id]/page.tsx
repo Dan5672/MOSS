@@ -1,3 +1,4 @@
+import { listMonitors } from "@moss/core";
 import { assets, assetServices, incidentAssets, incidents, networks } from "@moss/db";
 import { and, desc, eq } from "drizzle-orm";
 import Link from "next/link";
@@ -17,7 +18,8 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
   if (!user.permissions.has("assets.read")) return <NoPermission />;
   const [asset] = await db().select().from(assets).where(and(eq(assets.id, id), eq(assets.orgId, user.orgId)));
   if (!asset) notFound();
-  const [services, linked, [network]] = await Promise.all([
+  const canMonitor = user.permissions.has("monitoring.read");
+  const [services, linked, [network], assetMonitors] = await Promise.all([
     db().select().from(assetServices).where(eq(assetServices.assetId, id)),
     db()
       .select({ incident: incidents })
@@ -26,7 +28,11 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
       .where(eq(incidentAssets.assetId, id))
       .orderBy(desc(incidents.createdAt)),
     asset.networkId ? db().select().from(networks).where(eq(networks.id, asset.networkId)) : Promise.resolve([]),
+    canMonitor ? listMonitors(db(), user.orgId, { assetId: id }) : Promise.resolve([]),
   ]);
+  const canAddMonitor = user.permissions.has("monitoring.manage") && !!asset.primaryIp;
+  const monitorLink = (kind: string, port?: number, scheme?: string, name?: string) =>
+    `/monitoring?${new URLSearchParams({ new: "1", kind, asset: id, target: asset.primaryIp ?? "", name: name ?? asset.name, ...(port ? { port: String(port) } : {}), ...(scheme ? { scheme } : {}) })}#new`;
   const canManage = user.permissions.has("assets.manage");
   const attributes = Object.entries(asset.attributes);
 
@@ -83,6 +89,18 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
                     </span>
                     <span className="text-muted-foreground">{[s.name, s.product, s.version].filter(Boolean).join(" · ")}</span>
                     <span className="text-xs text-muted-foreground">{timeAgo(s.lastSeenAt)}</span>
+                    {canAddMonitor && s.protocol === "tcp" && (
+                      <Link
+                        href={
+                          /^https?$|^http-|^https-/.test(s.name ?? "") || [80, 443, 8080, 8443].includes(s.port)
+                            ? monitorLink("http", s.port, s.name?.startsWith("https") || s.port === 443 || s.port === 8443 ? "https" : "http", `${asset.name} ${s.name ?? s.port}`)
+                            : monitorLink("tcp", s.port, undefined, `${asset.name} ${s.name ?? s.port}`)
+                        }
+                        className="text-xs underline"
+                      >
+                        Monitor
+                      </Link>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -98,6 +116,27 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
                   </div>
                 ))}
               </dl>
+            </Section>
+          )}
+          {canMonitor && (
+            <Section
+              title="Monitors"
+              actions={canAddMonitor && <Link href={monitorLink("ping", undefined, undefined, `${asset.name} reachable`)} className="text-sm underline">Add ping monitor</Link>}
+            >
+              {assetMonitors.length === 0 ? (
+                <Empty>Nothing is watching this asset.</Empty>
+              ) : (
+                <ul className="divide-y rounded-lg border text-sm">
+                  {assetMonitors.map((m) => (
+                    <li key={m.id}>
+                      <Link href={`/monitoring/${m.id}`} className="flex items-center gap-3 p-3 hover:bg-accent/40">
+                        <StatusBadge status={m.state} /> {m.name}
+                        <span className="ml-auto truncate text-xs text-muted-foreground">{m.lastResult?.message}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </Section>
           )}
           <Section title="Incidents">

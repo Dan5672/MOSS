@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluate, type PolicyContext, type ToolCall, type ToolManifest } from "./evaluate.js";
+import { evaluate, evaluateMonitorCheck, type PolicyContext, type ToolCall, type ToolManifest } from "./evaluate.js";
 import { contains, parseRange } from "./ip.js";
 
 const nmap: ToolManifest = { name: "nmap_scan", class: "read", targetArgs: ["targets"] };
@@ -172,5 +172,32 @@ describe("canonicalCidr", () => {
     expect(canonicalCidr("fd12:3456:0:0:1::5/64")).toBe("fd12:3456::/64");
     expect(canonicalCidr("::1")).toBe("::1/128");
     expect(canonicalCidr("not-an-ip")).toBeNull();
+  });
+});
+
+describe("evaluateMonitorCheck", () => {
+  const httpProbe: ToolManifest = { name: "http_probe", class: "read", targetArgs: ["target"] };
+  const networks = ctx().networks;
+
+  it("allows read probes inside allowed networks, regardless of agent state", () => {
+    expect(evaluateMonitorCheck({ tool: "http_probe", args: { target: "192.168.1.20" } }, httpProbe, networks)).toEqual({
+      allow: true,
+      targets: ["192.168.1.20"],
+      secretHandles: [],
+    });
+  });
+
+  it("applies the same scope rules as agent calls", () => {
+    const check = (target: string) => evaluateMonitorCheck({ tool: "http_probe", args: { target } }, httpProbe, networks);
+    expect(check("10.66.1.1")).toMatchObject({ allow: false, code: "target_off_limits" });
+    expect(check("192.168.50.9")).toMatchObject({ allow: false, code: "target_not_allowed" });
+    expect(check("8.8.8.8")).toMatchObject({ allow: false, code: "target_not_allowed" });
+    expect(check("nas.local")).toMatchObject({ allow: false, code: "invalid_target" });
+  });
+
+  it("never runs write or dangerous tools", () => {
+    const call = { tool: "ssh_exec", args: { host: "192.168.1.1" } };
+    expect(evaluateMonitorCheck(call, sshExec, networks)).toMatchObject({ allow: false, code: "change_required" });
+    expect(evaluateMonitorCheck({ tool: "factory_reset", args: { host: "192.168.1.1" } }, wipe, networks)).toMatchObject({ allow: false });
   });
 });

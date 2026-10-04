@@ -17,6 +17,6 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Skip static assets and the health check.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/health).*)"],
+  // Skip static assets, the health check and monitoring webhooks (they authenticate with a source token).
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/health|api/hooks/).*)"],
 };
