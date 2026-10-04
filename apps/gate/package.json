@@ -16,10 +16,10 @@
     "@moss/policy": "workspace:*",
     "@moss/tools": "workspace:*",
     "drizzle-orm": "^0.44.0",
-    "fastify": "^5.0.0"
+    "fastify": "^5.0.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@moss/llm": "workspace:*",
-    "zod": "^4.6.5"
+    "@moss/llm": "workspace:*"
   }
 }

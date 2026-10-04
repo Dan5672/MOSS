@@ -1,9 +1,13 @@
-// Gate HTTP API, called only by the worker (agent runtime) with a service token.
+// Gate HTTP API. Two callers, two tokens, disjoint routes:
+//   worker (GATE_TOKEN): tool calls, tool listing, LLM proxy
+//   web    (WEB_TOKEN):  write-only secrets API
 import Fastify from "fastify";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { Readable } from "node:stream";
 import type { ReadableStream as NodeWebStream } from "node:stream/web";
+import { z } from "zod";
 import type { LlmProxy } from "./llm-proxy.js";
+import { secretWriteSchema, type SecretWrite } from "./secrets-api.js";
 import type { Gate } from "./service.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -12,8 +16,18 @@ function sameToken(a: string, b: string): boolean {
   return timingSafeEqual(createHash("sha256").update(a).digest(), createHash("sha256").update(b).digest());
 }
 
-export function buildGateServer(gate: Gate, opts: { token: string; llmProxy?: LlmProxy; logger?: boolean }) {
+export interface GateServerOptions {
+  token: string;
+  llmProxy?: LlmProxy;
+  /** Enables the secrets API, authenticated with its own token. */
+  secrets?: { token: string; write: (input: SecretWrite) => Promise<{ id: string; created: boolean }> };
+  logger?: boolean;
+}
+
+export function buildGateServer(gate: Gate, opts: GateServerOptions) {
   if (opts.token.length < 32) throw new Error("GATE_TOKEN must be at least 32 characters");
+  if (opts.secrets && opts.secrets.token.length < 32) throw new Error("WEB_TOKEN must be at least 32 characters");
+  if (opts.secrets && sameToken(opts.secrets.token, opts.token)) throw new Error("WEB_TOKEN must differ from GATE_TOKEN");
   // Large body limit for LLM requests (long agent transcripts); tool calls are small.
   const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 32 * 1024 * 1024 });
 
@@ -22,10 +36,24 @@ export function buildGateServer(gate: Gate, opts: { token: string; llmProxy?: Ll
     // SDKs send the service token as their "API key": Bearer for OpenAI-style clients, x-api-key for Anthropic.
     const header = req.headers.authorization ?? "";
     const presented = header.startsWith("Bearer ") ? header.slice(7) : req.headers["x-api-key"];
-    if (typeof presented !== "string" || !sameToken(presented, opts.token)) {
+    const expected = req.url.startsWith("/v1/secrets") ? opts.secrets?.token : opts.token;
+    if (typeof presented !== "string" || !expected || !sameToken(presented, expected)) {
       return reply.code(401).send({ error: "unauthorized" });
     }
   });
+
+  if (opts.secrets) {
+    const secretsApi = opts.secrets;
+    app.post("/v1/secrets", async (req, reply) => {
+      const parsed = secretWriteSchema.safeParse(req.body);
+      if (!parsed.success) return reply.code(400).send({ error: z.prettifyError(parsed.error) });
+      try {
+        return await secretsApi.write(parsed.data);
+      } catch (err) {
+        return reply.code(400).send({ error: (err as Error).message });
+      }
+    });
+  }
 
   app.get("/v1/health", async () => ({ ok: true }));
 

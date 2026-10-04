@@ -16,9 +16,13 @@ if [ ! -f secrets/master.key ]; then
   echo "Generated deploy/secrets/master.key."
   echo "BACK THIS FILE UP. Without it, stored secrets cannot be recovered or restored."
 fi
-for token in gate toolbox; do
+for token in gate toolbox web; do
   if [ ! -f "secrets/$token.token" ]; then
     openssl rand -hex 32 > "secrets/$token.token"
     echo "Generated deploy/secrets/$token.token."
   fi
 done
+if [ ! -f secrets/app.key ]; then
+  openssl rand -hex 32 > secrets/app.key
+  echo "Generated deploy/secrets/app.key (encrypts users' two-factor secrets)."
+fi
