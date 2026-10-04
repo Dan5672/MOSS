@@ -77,3 +77,37 @@ export function contains(outer: IpRange, inner: IpRange): boolean {
 export function overlaps(a: IpRange, b: IpRange): boolean {
   return a.version === b.version && a.start <= b.end && b.start <= a.end;
 }
+
+function formatV6(value: bigint): string {
+  const groups = Array.from({ length: 8 }, (_, i) => Number((value >> BigInt((7 - i) * 16)) & 0xffffn));
+  // Compress the longest run of two or more zero groups (RFC 5952).
+  let best = { start: -1, len: 0 };
+  for (let i = 0; i < 8; ) {
+    if (groups[i] !== 0) {
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j < 8 && groups[j] === 0) j++;
+    if (j - i > best.len && j - i >= 2) best = { start: i, len: j - i };
+    i = j;
+  }
+  const hex = groups.map((g) => g.toString(16));
+  if (best.start === -1) return hex.join(":");
+  return `${hex.slice(0, best.start).join(":")}::${hex.slice(best.start + best.len).join(":")}`;
+}
+
+export function formatAddress(version: 4 | 6, value: bigint): string {
+  if (version === 6) return formatV6(value);
+  return [24n, 16n, 8n, 0n].map((s) => String((value >> s) & 255n)).join(".");
+}
+
+/** Canonical network form of an IP/CIDR ("192.168.1.77/24" -> "192.168.1.0/24"), or null if invalid. */
+export function canonicalCidr(input: string): string | null {
+  const range = parseRange(input);
+  if (!range) return null;
+  const bits = range.version === 4 ? 32 : 128;
+  const size = range.end - range.start + 1n;
+  const prefix = bits - (size.toString(2).length - 1);
+  return `${formatAddress(range.version, range.start)}/${prefix}`;
+}

@@ -152,3 +152,14 @@ describe("evaluate", () => {
     expect(evaluate(scan, nmap, ctx())).toMatchObject({ code: "secret_not_granted" });
   });
 });
+
+describe("canonicalCidr", () => {
+  it("normalizes to the network address", async () => {
+    const { canonicalCidr } = await import("./ip.js");
+    expect(canonicalCidr("192.168.1.77/24")).toBe("192.168.1.0/24");
+    expect(canonicalCidr("10.1.2.3")).toBe("10.1.2.3/32");
+    expect(canonicalCidr("fd12:3456:0:0:1::5/64")).toBe("fd12:3456::/64");
+    expect(canonicalCidr("::1")).toBe("::1/128");
+    expect(canonicalCidr("not-an-ip")).toBeNull();
+  });
+});

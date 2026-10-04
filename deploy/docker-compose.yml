@@ -1,4 +1,4 @@
-# MOSS stack. Services are added as they are built: web, api, worker, sensor are still to come.
+# MOSS stack. Still to come: web, api, sensor.
 name: moss
 
 services:
@@ -53,6 +53,26 @@ services:
     depends_on:
       migrate: { condition: service_completed_successfully }
       toolbox: { condition: service_started }
+
+  # Agent runtime + scheduler. Holds no secrets: LLM calls go through the gate's proxy,
+  # which injects provider API keys, and tool calls go through the gate's policy checks.
+  worker:
+    image: moss-worker:${MOSS_VERSION:-dev}
+    build: { context: .., dockerfile: deploy/docker/worker.Dockerfile }
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-moss}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-moss}
+      GATE_URL: http://gate:7080
+      GATE_TOKEN_FILE: /run/secrets/gate_token
+      TZ: ${TZ:-UTC}
+    secrets: [gate_token]
+    networks: [backend]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      gate: { condition: service_started }
 
   # Runs nmap/arp-scan/ping for the gate. Non-root; only the scanner binaries hold raw-socket caps.
   # On a Linux host, use docker-compose.hostnet.yml so ARP/passive discovery can see your LAN.

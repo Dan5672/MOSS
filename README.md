@@ -39,7 +39,7 @@ MOSS_TEST_DATABASE_URL=postgres://moss:<password>@localhost:5432/moss_test pnpm 
 (172.30.66.0/24), each with target containers.
 ```sh
 docker compose -f deploy/docker-compose.yml -f deploy/lab/compose.lab.yml --env-file deploy/.env up -d --build
-DATABASE_URL=postgres://moss:<password>@localhost:5432/moss node apps/gate/dist/scripts/seed-lab.js   # prints an agent id
+DATABASE_URL=postgres://moss:<password>@localhost:5432/moss node apps/worker/dist/scripts/seed-lab.js   # prints an agent id
 curl -X POST http://127.0.0.1:7080/v1/tool-calls \
   -H "authorization: Bearer $(cat deploy/secrets/gate.token)" -H 'content-type: application/json' \
   -d '{"agentId":"<id>","tool":"nmap_scan","args":{"targets":["172.30.10.0/24"],"profile":"top100"}}'

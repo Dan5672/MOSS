@@ -1,0 +1,100 @@
+// The worker: runs agent jobs from the queue and turns agent schedules into jobs.
+import { HttpGateClient, loadLibrary, runAgent, syncBuiltInSkills, type GateClient, type ProviderFactory, type RunInput } from "@moss/agent";
+import { agents, agentSchedules, orgs, type Database } from "@moss/db";
+import { createProvider } from "@moss/llm";
+import { and, eq } from "drizzle-orm";
+import { PgBoss } from "pg-boss";
+
+export const RUN_QUEUE = "agent-run";
+export const SCHEDULE_QUEUE = "agent-schedule";
+
+export interface WorkerConfig {
+  db: Database;
+  boss: PgBoss;
+  gate: GateClient;
+  providerFor: ProviderFactory;
+  libraryDir?: string;
+  log?: (msg: string, extra?: Record<string, unknown>) => void;
+}
+
+/** LLM clients authenticate to the gate's proxy with the service token; the gate adds the real key. */
+export function gateProviderFactory(gateUrl: string, gateToken: string): ProviderFactory {
+  return (provider) =>
+    createProvider({ kind: provider.kind, apiKey: gateToken, baseURL: `${gateUrl.replace(/\/+$/, "")}/v1/llm/${provider.id}` });
+}
+
+export async function enqueueRun(boss: PgBoss, input: RunInput): Promise<string | null> {
+  // singletonKey + the queue's "singleton" policy: at most one active run per agent; others wait.
+  return boss.send(RUN_QUEUE, input, { singletonKey: input.agentId, retryLimit: 0, expireInSeconds: 60 * 60 });
+}
+
+/** Mirrors enabled agent schedules into pg-boss cron schedules, keyed by schedule id. */
+export async function syncSchedules(db: Database, boss: PgBoss): Promise<{ added: number; removed: number }> {
+  const rows = await db
+    .select({ id: agentSchedules.id, cron: agentSchedules.cron })
+    .from(agentSchedules)
+    .innerJoin(agents, eq(agentSchedules.agentId, agents.id))
+    .where(and(eq(agentSchedules.enabled, true), eq(agents.status, "active")));
+  const wanted = new Map(rows.map((r) => [r.id, r.cron]));
+  const existing = await boss.getSchedules(SCHEDULE_QUEUE);
+  let added = 0;
+  let removed = 0;
+  for (const s of existing) {
+    if (!s.key || wanted.get(s.key) !== s.cron) {
+      await boss.unschedule(SCHEDULE_QUEUE, s.key);
+      removed++;
+    }
+  }
+  const have = new Set(existing.filter((s) => s.key && wanted.get(s.key) === s.cron).map((s) => s.key));
+  for (const [id, cron] of wanted) {
+    if (have.has(id)) continue;
+    await boss.schedule(SCHEDULE_QUEUE, cron, { scheduleId: id }, { key: id, tz: process.env.TZ ?? "UTC" });
+    added++;
+  }
+  return { added, removed };
+}
+
+export async function startWorker(cfg: WorkerConfig) {
+  const { db, boss } = cfg;
+  const log = cfg.log ?? ((msg, extra) => console.log(JSON.stringify({ msg, ...extra })));
+
+  if (cfg.libraryDir) {
+    const lib = await loadLibrary(cfg.libraryDir);
+    for (const org of await db.select({ id: orgs.id }).from(orgs)) await syncBuiltInSkills(db, org.id, lib.skills.values());
+    log("library synced", { skills: lib.skills.size, templates: lib.templates.size });
+  }
+
+  await boss.createQueue(RUN_QUEUE, { policy: "singleton" });
+  await boss.createQueue(SCHEDULE_QUEUE);
+
+  await boss.work<RunInput>(RUN_QUEUE, { localConcurrency: 4 }, async ([job]) => {
+    if (!job) return;
+    log("run started", { agentId: job.data.agentId, trigger: job.data.trigger });
+    const outcome = await runAgent({ db, gate: cfg.gate, providerFor: cfg.providerFor }, job.data);
+    log("run finished", { agentId: job.data.agentId, runId: outcome.runId, status: outcome.status });
+    return outcome;
+  });
+
+  await boss.work<{ scheduleId: string }>(SCHEDULE_QUEUE, async ([job]) => {
+    if (!job) return;
+    const [s] = await db.select().from(agentSchedules).where(eq(agentSchedules.id, job.data.scheduleId));
+    if (!s?.enabled) return;
+    await enqueueRun(boss, { agentId: s.agentId, task: s.task, trigger: "schedule", triggerRef: s.id });
+  });
+
+  const sync = async () => {
+    try {
+      const res = await syncSchedules(db, boss);
+      if (res.added || res.removed) log("schedules synced", res);
+    } catch (err) {
+      log("schedule sync failed", { error: (err as Error).message });
+    }
+  };
+  await sync();
+  const timer = setInterval(sync, 60_000);
+  return { stop: async () => (clearInterval(timer), boss.stop({ graceful: true })) };
+}
+
+export function httpGate(url: string, token: string) {
+  return new HttpGateClient(url, token);
+}

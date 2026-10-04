@@ -15,6 +15,13 @@
       "when": 1791090807081,
       "tag": "0001_usage_cache_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791092656430,
+      "tag": "0002_agents_assets",
+      "breakpoints": true
     }
   ]
 }

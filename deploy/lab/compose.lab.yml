@@ -17,6 +17,14 @@ services:
     networks:
       lab_allowed: { ipv4_address: 172.30.10.11 }
 
+  # Scripted OpenAI-compatible model so the whole stack can run without a paid API key.
+  lab-llm:
+    image: node:24-alpine
+    command: ["node", "/lab/fake-llm.mjs"]
+    # Paths resolve relative to deploy/ (the first compose file).
+    volumes: ["./lab/fake-llm.mjs:/lab/fake-llm.mjs:ro"]
+    networks: [backend]
+
   # Lives on the off-limits network: agents must never be able to touch it.
   lab-forbidden:
     image: nginx:alpine
