@@ -10,7 +10,7 @@ import { approveChange, changeRef, incidentRef, listChanges, listIncidents, reje
 import { agentRuns, agents, createDb, users } from "@moss/db";
 import { desc, eq } from "drizzle-orm";
 import { PgBoss } from "pg-boss";
-import { enqueueRun, RUN_QUEUE } from "./worker.js";
+import { enqueueRun, ensureQueues } from "@moss/agent";
 
 const [command, ...args] = process.argv.slice(2);
 const databaseUrl = process.env.DATABASE_URL;
@@ -30,7 +30,7 @@ switch (command) {
     if (!agentId || !task) throw new Error('Usage: moss-cli run <agentId> "<task>"');
     const boss = new PgBoss(databaseUrl);
     await boss.start();
-    await boss.createQueue(RUN_QUEUE, { policy: "singleton" });
+    await ensureQueues(boss);
     const jobId = await enqueueRun(boss, { agentId, task, trigger: "manual" });
     console.log(jobId ? `Queued run ${jobId}` : "Not queued (a run for this agent may already be waiting)");
     await boss.stop({ graceful: false });

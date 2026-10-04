@@ -1,13 +1,24 @@
 // The worker: runs agent jobs from the queue and turns agent schedules into jobs.
-import { HttpGateClient, loadLibrary, runAgent, syncBuiltInSkills, type GateClient, type ProviderFactory, type RunInput } from "@moss/agent";
+import {
+  enqueueRun,
+  ensureQueues,
+  HttpGateClient,
+  loadLibrary,
+  RUN_QUEUE,
+  runAgent,
+  SCHEDULE_QUEUE,
+  syncBuiltInSkills,
+  type GateClient,
+  type ProviderFactory,
+  type RunInput,
+} from "@moss/agent";
 import { changeRef, dispatchEvents, incidentRef, type StoredEvent } from "@moss/core";
 import { agents, agentSchedules, changeRequests, incidents, orgs, type Database } from "@moss/db";
 import { createProvider } from "@moss/llm";
 import { and, eq } from "drizzle-orm";
 import { PgBoss } from "pg-boss";
 
-export const RUN_QUEUE = "agent-run";
-export const SCHEDULE_QUEUE = "agent-schedule";
+export { enqueueRun, RUN_QUEUE, SCHEDULE_QUEUE };
 
 export interface WorkerConfig {
   db: Database;
@@ -23,11 +34,6 @@ export interface WorkerConfig {
 export function gateProviderFactory(gateUrl: string, gateToken: string): ProviderFactory {
   return (provider) =>
     createProvider({ kind: provider.kind, apiKey: gateToken, baseURL: `${gateUrl.replace(/\/+$/, "")}/v1/llm/${provider.id}` });
-}
-
-export async function enqueueRun(boss: PgBoss, input: RunInput): Promise<string | null> {
-  // singletonKey + the queue's "singleton" policy: at most one active run per agent; others wait.
-  return boss.send(RUN_QUEUE, input, { singletonKey: input.agentId, retryLimit: 0, expireInSeconds: 60 * 60 });
 }
 
 /** Mirrors enabled agent schedules into pg-boss cron schedules, keyed by schedule id. */
@@ -105,8 +111,7 @@ export async function startWorker(cfg: WorkerConfig) {
     log("library synced", { skills: lib.skills.size, templates: lib.templates.size });
   }
 
-  await boss.createQueue(RUN_QUEUE, { policy: "singleton" });
-  await boss.createQueue(SCHEDULE_QUEUE);
+  await ensureQueues(boss);
 
   await boss.work<RunInput>(RUN_QUEUE, { localConcurrency: 4 }, async ([job]) => {
     if (!job) return;
