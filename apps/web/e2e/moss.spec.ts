@@ -33,6 +33,14 @@ async function signOut() {
   await expect(page).toHaveURL(/\/login$/);
 }
 
+test("app icons load for signed-out visitors", async ({ request }) => {
+  for (const [path, type] of [["/icon.svg", "image/svg+xml"], ["/apple-icon.png", "image/png"], ["/favicon.ico", "image/"]]) {
+    const res = await request.get(path, { maxRedirects: 0 });
+    expect(res.status(), path).toBe(200);
+    expect(res.headers()["content-type"], path).toContain(type);
+  }
+});
+
 test("first run: setup creates the owner and signs them in", async () => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/setup$/);
