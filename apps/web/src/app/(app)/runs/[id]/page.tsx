@@ -43,18 +43,18 @@ export default async function RunPage({ params }: PageProps<"/runs/[id]">) {
         title={`Run by ${agent.name}`}
         description={
           <span className="flex flex-wrap items-center gap-2">
-            <StatusBadge status={run.status} /> {run.trigger} · started {timeAgo(run.startedAt)} · {formatUsd(Number(usage?.usd ?? 0))} ·{" "}
-            {Number(usage?.input ?? 0).toLocaleString()} in / {Number(usage?.output ?? 0).toLocaleString()} out tokens
+            <StatusBadge status={run.status} /> {run.trigger} · started <span className="font-mono">{timeAgo(run.startedAt)}</span> · <span className="font-mono">{formatUsd(Number(usage?.usd ?? 0))}</span> ·{" "}
+            <span className="font-mono">{Number(usage?.input ?? 0).toLocaleString()} in / {Number(usage?.output ?? 0).toLocaleString()} out</span> tokens
           </span>
         }
         actions={<Link href={`/agents/${agent.id}`} className="text-sm underline">{agent.name}</Link>}
       />
-      {run.summary && <p className="mb-6 rounded-lg border bg-muted/40 p-4 text-sm whitespace-pre-wrap">{run.summary}</p>}
+      {run.summary && <p className="mb-6 px-frame p-4 text-sm whitespace-pre-wrap">{run.summary}</p>}
       <ol className="space-y-2">
         {steps.map((s) => {
           const c = s.content as StepContent;
           return (
-            <li key={s.id} className="rounded-lg border p-3 text-sm">
+            <li key={s.id} className="px-frame p-3 text-sm">
               {s.kind === "message" && (
                 <>
                   {c.text && <p className="whitespace-pre-wrap">{c.text}</p>}

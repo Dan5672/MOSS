@@ -62,7 +62,7 @@ export default async function SettingsPage() {
                 <div key={t.key} className="flex items-start justify-between gap-4 py-4 first:pt-0 last:pb-0">
                   <div>
                     <div className="font-medium">
-                      {t.title} <span className={on ? (t.danger ? "text-red-600" : "text-emerald-600") : "text-muted-foreground"}>· {on ? "on" : "off"}</span>
+                      {t.title} <span className={on ? (t.danger ? "text-alarm" : "text-phosphor") : "text-muted-foreground"}>· {on ? "on" : "off"}</span>
                     </div>
                     <p className="text-sm text-muted-foreground">{t.description}</p>
                   </div>

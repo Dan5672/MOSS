@@ -5,7 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 /** The control is nested inside its <label>, so it is labelled for screen readers without ids. */
 export function Field({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
   return (
-    <div className="grid content-start gap-1.5">
+    <div className="grid min-w-0 content-start gap-1.5">
       <label className="grid content-start gap-1.5 text-sm font-medium leading-none">
         <span>{label}</span>
         {children}
@@ -54,7 +54,7 @@ export function SelectField({
     <Field label={label} hint={hint}>
       <select
         {...props}
-        className="h-9 rounded-md border border-input bg-transparent px-3 text-sm font-normal shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
+        className="h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 text-sm font-normal shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>

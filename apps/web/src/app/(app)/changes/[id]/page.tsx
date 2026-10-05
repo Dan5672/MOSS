@@ -18,7 +18,7 @@ function Calls({ calls }: { calls: { tool: string; args: Record<string, unknown>
   return (
     <ol className="space-y-2">
       {calls.map((c, i) => (
-        <li key={i} className="rounded-lg border p-3">
+        <li key={i} className="px-frame p-3">
           <div className="text-sm">
             <span className="text-muted-foreground">{i + 1}.</span> <span className="font-mono font-medium">{c.tool}</span>
           </div>
@@ -50,12 +50,12 @@ export default async function ChangePage({ params }: PageProps<"/changes/[id]">)
         description={
           <span className="flex flex-wrap items-center gap-2">
             <StatusBadge status={change.status} /> <Pill>{change.type}</Pill> <Pill tone={change.risk === "high" ? "red" : change.risk === "medium" ? "amber" : "green"}>{change.risk} risk</Pill>
-            requested by {name(change.requestedByAgentId ?? change.requestedByUserId)} {timeAgo(change.createdAt)}
+            requested by {name(change.requestedByAgentId ?? change.requestedByUserId)} <span className="font-mono">{timeAgo(change.createdAt)}</span>
             {incident && (
               <>
                 · for{" "}
                 <Link href={`/incidents/${incident.id}`} className="underline">
-                  {incidentRef(incident.number)}
+                  <span className="font-mono">{incidentRef(incident.number)}</span>
                 </Link>
               </>
             )}
@@ -66,10 +66,10 @@ export default async function ChangePage({ params }: PageProps<"/changes/[id]">)
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
-          <p className="rounded-lg border p-4 text-sm whitespace-pre-wrap">{change.description}</p>
+          <p className="px-frame p-4 text-sm whitespace-pre-wrap">{change.description}</p>
           {(change.windowStart || change.windowEnd) && (
             <p className="text-sm">
-              Window: {change.windowStart?.toLocaleString() ?? "now"} – {change.windowEnd?.toLocaleString() ?? "open"}
+              Window: <span className="font-mono">{change.windowStart?.toLocaleString() ?? "now"} – {change.windowEnd?.toLocaleString() ?? "open"}</span>
             </p>
           )}
           <Section title="What will run">
@@ -86,11 +86,11 @@ export default async function ChangePage({ params }: PageProps<"/changes/[id]">)
           <Section title="Timeline">
             <ol className="space-y-2">
               {change.notes.map((n) => (
-                <li key={n.id} className="rounded-lg border p-3 text-sm">
+                <li key={n.id} className="px-frame p-3 text-sm">
                   <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
                     <Pill tone={n.kind === "execution" ? "blue" : "gray"}>{n.kind}</Pill>
                     <span className="font-medium text-foreground">{name(n.authorAgentId ?? n.authorUserId)}</span>
-                    {timeAgo(n.createdAt)}
+                    <span className="font-mono">{timeAgo(n.createdAt)}</span>
                   </div>
                   <p className="whitespace-pre-wrap">{n.body}</p>
                 </li>

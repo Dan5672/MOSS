@@ -61,7 +61,7 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
                   <div className="text-muted-foreground">{a.vendor}</div>
                 </TableCell>
                 <TableCell className="font-mono text-xs">{a.services.map((s) => s.port).join(", ") || "—"}</TableCell>
-                <TableCell className="text-sm whitespace-nowrap">{timeAgo(a.lastSeenAt)}</TableCell>
+                <TableCell className="font-mono text-sm whitespace-nowrap">{timeAgo(a.lastSeenAt)}</TableCell>
               </TableRow>
             ))}
           </TableBody>

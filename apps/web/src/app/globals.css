@@ -154,8 +154,9 @@
   --glow: #4dff9a;
 }
 
-/* Pixel frame: a 4px border with notched corners. Use on cards/tiles instead of rounded borders. */
-.px-frame {
+/* Pixel frame: a 4px border with notched corners. Use on cards/tiles instead of rounded borders.
+   A Tailwind utility (not plain CSS) so spacing utilities like mt-8 on the same element still win. */
+@utility px-frame {
   box-shadow:
     0 -4px 0 0 var(--border),
     0 4px 0 0 var(--border),
@@ -165,7 +166,7 @@
 }
 
 /* CRT scanlines: hero panels, terminal, login background only. */
-.scanlines {
+@utility scanlines {
   background-image: repeating-linear-gradient(0deg, color-mix(in oklch, var(--phosphor) 3.5%, transparent) 0 2px, transparent 2px 4px);
 }
 
@@ -196,6 +197,23 @@
   border-radius: 0;
   font-family: var(--font-mono);
   font-size: 14px;
+}
+
+/* Visible keyboard focus everywhere: 3px phosphor, 2px offset. Unlayered, so it beats outline-none utilities. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* No animation for people who ask for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* Blinking block cursor for the audit tail. */

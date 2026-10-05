@@ -75,7 +75,7 @@ export default async function SourcesPage() {
                 </TableCell>
                 <TableCell className="max-w-xs truncate font-mono text-xs">{`${base}/api/hooks/monitoring/${s.id}`}</TableCell>
                 <TableCell className="tabular-nums">{s.monitorCount}</TableCell>
-                <TableCell className="text-sm">{s.lastReceivedAt ? timeAgo(s.lastReceivedAt) : "never"}</TableCell>
+                <TableCell className="font-mono text-sm">{s.lastReceivedAt ? timeAgo(s.lastReceivedAt) : "never"}</TableCell>
                 {canManage && (
                   <TableCell>
                     <div className="flex justify-end gap-2">

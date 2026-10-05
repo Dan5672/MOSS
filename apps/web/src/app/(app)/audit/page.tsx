@@ -65,7 +65,7 @@ export default async function AuditPage({ searchParams }: PageProps<"/audit">) {
           {rows.map((e) => (
             <TableRow key={e.id}>
               <TableCell className="font-mono text-xs text-muted-foreground">{e.id}</TableCell>
-              <TableCell className="whitespace-nowrap text-xs">{e.createdAt.toLocaleString()}</TableCell>
+              <TableCell className="whitespace-nowrap font-mono text-xs">{e.createdAt.toLocaleString()}</TableCell>
               <TableCell className="text-sm">
                 <Pill tone={e.actorType === "agent" ? "blue" : e.actorType === "user" ? "gray" : "amber"}>{e.actorType}</Pill>{" "}
                 {e.actorType !== "system" && name(e.actorId)}

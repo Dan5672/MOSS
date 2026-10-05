@@ -99,14 +99,14 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
             {runs.length === 0 ? (
               <Empty>No runs yet.</Empty>
             ) : (
-              <ul className="divide-y rounded-lg border">
+              <ul className="divide-y-2 px-frame">
                 {runs.map((r) => (
                   <li key={r.id}>
-                    <Link href={`/runs/${r.id}`} className="flex items-start gap-3 p-3 hover:bg-accent/40">
+                    <Link href={`/runs/${r.id}`} className="flex items-start gap-3 p-3 hover:bg-accent">
                       <StatusBadge status={r.status} />
                       <div className="min-w-0 flex-1 text-sm">
                         <div className="text-muted-foreground">
-                          {r.trigger} · {timeAgo(r.startedAt)}
+                          {r.trigger} · <span className="font-mono">{timeAgo(r.startedAt)}</span>
                         </div>
                         {r.summary && <p className="line-clamp-2">{r.summary}</p>}
                       </div>
@@ -121,7 +121,7 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
             {agentSkillRows.length === 0 ? (
               <Empty>No skills. Without skills, {agent.name} has no tools.</Empty>
             ) : (
-              <ul className="divide-y rounded-lg border">
+              <ul className="divide-y-2 px-frame">
                 {agentSkillRows.map((s) => (
                   <li key={s.key} className="flex items-start justify-between gap-4 p-3">
                     <div className="text-sm">
@@ -186,7 +186,7 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
                       </span>
                     </div>
                     <div className="h-2 rounded bg-muted" role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
-                      <div className={`h-2 rounded ${pct >= 100 ? "bg-red-500" : pct >= 80 ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${pct}%` }} />
+                      <div className={`h-2 rounded ${pct >= 100 ? "bg-alarm" : pct >= 80 ? "bg-amber" : "bg-phosphor"}`} style={{ width: `${pct}%` }} />
                     </div>
                     {row && canBudget && <ActionForm action={deleteBudgetAction.bind(null, row.id)} submitLabel="Remove" submitVariant="outline" />}
                   </div>

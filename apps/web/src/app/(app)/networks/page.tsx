@@ -71,7 +71,7 @@ export default async function NetworksPage() {
                   <div className="font-mono">{n.cidr}</div>
                   <div className="text-xs text-muted-foreground">
                     {n.name ?? "Unnamed"}
-                    {n.vlan ? ` · VLAN ${n.vlan}` : ""} · added {timeAgo(n.createdAt)}
+                    {n.vlan ? ` · VLAN ${n.vlan}` : ""} · added <span className="font-mono">{timeAgo(n.createdAt)}</span>
                   </div>
                 </TableCell>
                 <TableCell>

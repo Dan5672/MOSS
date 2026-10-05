@@ -154,7 +154,7 @@ export default async function ModelsPage() {
         )}
 
         <Section title="Using a Claude subscription">
-          <div className="space-y-3 rounded-lg border p-4 text-sm">
+          <div className="space-y-3 px-frame p-4 text-sm">
             <p>
               Agents can run on your Claude Pro or Max plan instead of an API key. MOSS runs them through Claude Code, locked down so its only
               tools are MOSS&apos;s: every network action still goes through the policy gate, and agents get no shell, files or web access.
@@ -184,7 +184,7 @@ export default async function ModelsPage() {
           {providerRows.length === 0 ? (
             <Empty>No providers yet.</Empty>
           ) : (
-            <ul className="divide-y rounded-lg border text-sm">
+            <ul className="divide-y-2 px-frame text-sm">
               {providerRows.map((p) => (
                 <li key={p.id} className="flex items-center justify-between gap-3 p-3">
                   <span>

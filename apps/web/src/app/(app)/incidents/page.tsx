@@ -65,7 +65,7 @@ export default async function IncidentsPage({ searchParams }: PageProps<"/incide
                   <StatusBadge status={i.status} />
                 </TableCell>
                 <TableCell className="text-sm">{name(i.assignedAgentId ?? i.assignedUserId, "—")}</TableCell>
-                <TableCell className="whitespace-nowrap text-sm">{timeAgo(i.createdAt)}</TableCell>
+                <TableCell className="whitespace-nowrap font-mono text-sm">{timeAgo(i.createdAt)}</TableCell>
               </TableRow>
             ))}
           </TableBody>

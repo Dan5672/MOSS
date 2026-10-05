@@ -64,15 +64,15 @@ export default async function AgentsPage() {
                   <TableCell className="text-sm">
                     {a.lastRun ? (
                       <span className="flex items-center gap-2">
-                        <StatusBadge status={a.lastRun.status} /> {timeAgo(a.lastRun.startedAt)}
+                        <StatusBadge status={a.lastRun.status} /> <span className="font-mono">{timeAgo(a.lastRun.startedAt)}</span>
                       </span>
                     ) : (
                       "Never"
                     )}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
-                    {formatUsd(a.monthUsd)}
-                    <div className="text-xs text-muted-foreground">{a.monthTokens.toLocaleString()} tokens</div>
+                    <span className="font-mono">{formatUsd(a.monthUsd)}</span>
+                    <div className="font-mono text-xs text-muted-foreground">{a.monthTokens.toLocaleString()} tokens</div>
                   </TableCell>
                 </TableRow>
               ))}

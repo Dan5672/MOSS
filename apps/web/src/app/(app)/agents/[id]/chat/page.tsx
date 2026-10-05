@@ -57,7 +57,7 @@ export default async function ChatPage({ params }: PageProps<"/agents/[id]/chat"
               <li key={m.id} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
                 <div
                   className={cn(
-                    "max-w-[85%] rounded-lg border px-4 py-3 text-sm",
+                    "max-w-[85%] px-frame px-4 py-3 text-sm",
                     m.role === "user" ? "bg-primary text-primary-foreground" : "bg-card",
                     m.status && m.status !== "succeeded" && "border-destructive/50",
                   )}
@@ -65,7 +65,7 @@ export default async function ChatPage({ params }: PageProps<"/agents/[id]/chat"
                   {/* Plain text only: agent replies can quote untrusted network data. */}
                   <p className="whitespace-pre-wrap break-words">{m.content}</p>
                   <p className={cn("mt-2 text-xs", m.role === "user" ? "text-primary-foreground/70" : "text-muted-foreground")}>
-                    {m.role === "user" ? "You" : agent.name} · {timeAgo(m.createdAt)}
+                    {m.role === "user" ? "You" : agent.name} · <span className="font-mono">{timeAgo(m.createdAt)}</span>
                     {m.status && m.status !== "succeeded" && ` · run ${m.status}`}
                     {m.runId && (
                       <>

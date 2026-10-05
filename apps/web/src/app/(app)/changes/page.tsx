@@ -72,7 +72,7 @@ export default async function ChangesPage({ searchParams }: PageProps<"/changes"
                   <StatusBadge status={c.status} />
                 </TableCell>
                 <TableCell className="text-sm">
-                  {name(c.requestedByAgentId ?? c.requestedByUserId)} · {timeAgo(c.createdAt)}
+                  {name(c.requestedByAgentId ?? c.requestedByUserId)} · <span className="font-mono">{timeAgo(c.createdAt)}</span>
                 </TableCell>
               </TableRow>
             ))}

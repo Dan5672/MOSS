@@ -51,9 +51,9 @@ export default async function MonitoringPage({ searchParams }: PageProps<"/monit
       <div className="mb-6 grid gap-3 sm:grid-cols-4">
         {(
           [
-            ["down", "Down", "text-red-600 dark:text-red-400"],
-            ["degraded", "Degraded", "text-amber-600 dark:text-amber-400"],
-            ["up", "Up", "text-emerald-600 dark:text-emerald-400"],
+            ["down", "Down", "text-alarm"],
+            ["degraded", "Degraded", "text-amber"],
+            ["up", "Up", "text-phosphor"],
             ["paused", "Paused", "text-muted-foreground"],
           ] as const
         ).map(([state, label, tone]) => (
@@ -103,13 +103,13 @@ export default async function MonitoringPage({ searchParams }: PageProps<"/monit
                     {m.lastResult?.flapping && <Pill tone="orange">flapping</Pill>}
                     {m.lastResult?.policyDenied && <Pill tone="red">blocked</Pill>}
                   </div>
-                  <div className="mt-1 text-xs text-muted-foreground">since {timeAgo(m.stateChangedAt)}</div>
+                  <div className="mt-1 font-mono text-xs text-muted-foreground">since {timeAgo(m.stateChangedAt)}</div>
                 </TableCell>
                 <TableCell className="max-w-xs">
                   <div className="truncate text-sm" title={m.lastResult?.message}>
                     {m.lastResult?.message ?? "Not checked yet"}
                   </div>
-                  <div className="text-xs text-muted-foreground">{timeAgo(m.lastCheckAt)}</div>
+                  <div className="font-mono text-xs text-muted-foreground">{timeAgo(m.lastCheckAt)}</div>
                 </TableCell>
                 <TableCell className="text-right tabular-nums">{formatUptime(m.uptime24h)}</TableCell>
                 <TableCell className="text-sm">
