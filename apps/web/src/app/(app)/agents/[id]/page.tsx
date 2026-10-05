@@ -4,22 +4,28 @@ import { and, desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
-import { StatusBadge } from "@/components/badges";
+import { Pill, StatusBadge } from "@/components/badges";
 import { SelectField, TextAreaField, TextField } from "@/components/field";
 import { Empty, formatUsd, PageHeader, Section, timeAgo } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/server/auth";
+import { describeCron } from "@/lib/schedule";
 import { db } from "@/server/db";
 import {
+  addScheduleAction,
   addSkillAction,
+  deleteScheduleAction,
   deleteBudgetAction,
   removeSkillAction,
   runNowAction,
   setBudgetAction,
   setModelAction,
+  setScheduleEnabledAction,
   setStatusAction,
+  updateScheduleAction,
 } from "../actions";
+import { ScheduleFields } from "./schedule-fields";
 
 export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
   const { id } = await params;
@@ -27,7 +33,7 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
   const [agent] = await db().select().from(agents).where(and(eq(agents.id, id), eq(agents.orgId, user.orgId)));
   if (!agent) notFound();
 
-  const [agentSkillRows, allSkills, runs, budgetRows, schedules, modelRows, budgetStatus] = await Promise.all([
+  const [agentSkillRows, allSkills, runs, budgetRows, schedules, modelRows, budgetStatus, lastScheduledRuns] = await Promise.all([
     db()
       .select({ key: skills.key, name: skills.name, description: skills.description, tools: skills.toolGrants })
       .from(agentSkills)
@@ -36,10 +42,19 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
     db().select().from(skills).where(eq(skills.orgId, user.orgId)),
     db().select().from(agentRuns).where(eq(agentRuns.agentId, id)).orderBy(desc(agentRuns.startedAt)).limit(15),
     db().select().from(budgets).where(and(eq(budgets.orgId, user.orgId), eq(budgets.agentId, id))),
-    db().select().from(agentSchedules).where(eq(agentSchedules.agentId, id)),
+    db().select().from(agentSchedules).where(eq(agentSchedules.agentId, id)).orderBy(agentSchedules.cron),
     db().select().from(models).where(eq(models.orgId, user.orgId)),
     getBudgetStatus(db(), user.orgId, id),
+    // When each schedule last fired (a scheduled run's trigger_ref is its schedule id).
+    db()
+      .selectDistinctOn([agentRuns.triggerRef], { scheduleId: agentRuns.triggerRef, startedAt: agentRuns.startedAt })
+      .from(agentRuns)
+      .where(and(eq(agentRuns.agentId, id), eq(agentRuns.trigger, "schedule")))
+      .orderBy(agentRuns.triggerRef, desc(agentRuns.startedAt)),
   ]);
+  const lastRunOf = (scheduleId: string) => lastScheduledRuns.find((r) => r.scheduleId === scheduleId)?.startedAt;
+  // The worker runs schedules in its time zone; web and worker share TZ in the stack.
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const canManage = user.permissions.has("agents.manage") && agent.status !== "fired";
   const canBudget = user.permissions.has("agents.budget") && agent.status !== "fired";
   const missingSkills = allSkills.filter((s) => !agentSkillRows.some((a) => a.key === s.key));
@@ -209,14 +224,51 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
             <CardHeader>
               <CardTitle>Schedules</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              {schedules.length === 0 && <p className="text-muted-foreground">No scheduled tasks.</p>}
-              {schedules.map((s) => (
-                <div key={s.id}>
-                  <div className="font-mono text-xs">{s.cron}{!s.enabled && " (disabled)"}</div>
-                  <div className="text-muted-foreground">{s.task}</div>
-                </div>
-              ))}
+            <CardContent className="grid gap-4 text-sm">
+              {schedules.length === 0 && <p className="text-muted-foreground">No scheduled tasks. {agent.name} only works when asked.</p>}
+              {schedules.map((s) => {
+                const lastRun = lastRunOf(s.id);
+                return (
+                  <div key={s.id} className="grid gap-1.5 border-b-2 pb-4 last:border-b-0 last:pb-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={s.enabled ? "font-medium" : "font-medium text-muted-foreground line-through"}>{describeCron(s.cron)}</span>
+                      {!s.enabled && <Pill>off</Pill>}
+                    </div>
+                    <p className="text-muted-foreground">{s.task}</p>
+                    <p className="font-mono text-xs text-dim">{lastRun ? `Last ran ${timeAgo(lastRun)}` : "Hasn't run yet"}</p>
+                    {canManage && (
+                      <div className="flex flex-wrap items-start gap-2">
+                        <ActionForm
+                          action={setScheduleEnabledAction.bind(null, id, s.id, !s.enabled)}
+                          submitLabel={s.enabled ? "Turn off" : "Turn on"}
+                          submitVariant="outline"
+                        />
+                        <ActionForm
+                          action={deleteScheduleAction.bind(null, id, s.id)}
+                          submitLabel="Delete"
+                          submitVariant="outline"
+                          confirm={`Delete this schedule? ${agent.name} will stop doing it: ${describeCron(s.cron)}.`}
+                        />
+                        <details className="basis-full">
+                          <summary className="cursor-pointer text-xs text-muted-foreground">Edit</summary>
+                          <ActionForm action={updateScheduleAction.bind(null, id, s.id)} submitLabel="Save schedule" className="mt-3">
+                            <ScheduleFields cron={s.cron} task={s.task} />
+                          </ActionForm>
+                        </details>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {canManage && (
+                <details className="border-t-2 pt-4">
+                  <summary className="cursor-pointer font-medium">Add a schedule</summary>
+                  <ActionForm action={addScheduleAction.bind(null, id)} submitLabel="Add schedule" resetOnSuccess className="mt-3">
+                    <ScheduleFields />
+                  </ActionForm>
+                </details>
+              )}
+              <p className="font-mono text-xs text-dim">Times are in {timeZone}.</p>
             </CardContent>
           </Card>
         </div>

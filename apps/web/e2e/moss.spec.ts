@@ -113,6 +113,48 @@ test("agents: hire, budget, pause and resume", async () => {
   await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
 });
 
+test("agents: schedules read as words and can be edited, turned off, added and deleted", async () => {
+  await page.goto("/agents");
+  await page.getByRole("link", { name: "Nina" }).click();
+  // The Network Admin template's "30 2 * * *".
+  await expect(page.getByText("Every day at 02:30", { exact: true })).toBeVisible();
+  await expect(page.getByText("30 2 * * *")).toHaveCount(0);
+
+  await page.getByText("Edit", { exact: true }).click();
+  const edit = page.locator("form", { has: page.getByRole("button", { name: "Save schedule" }) });
+  await edit.getByRole("combobox", { name: "Repeats", exact: true }).selectOption("every_hours");
+  // By role: getByLabel would match the label's whole text, which includes the select's options.
+  await edit.getByRole("combobox", { name: "Every", exact: true }).selectOption("6");
+  await edit.getByRole("spinbutton", { name: "Minutes past the hour" }).fill("15");
+  await expect(edit.getByText("Runs: Every 6 hours, at 15 past")).toBeVisible();
+  await edit.getByRole("button", { name: "Save schedule" }).click();
+  await expect(page.getByText("Schedule saved: Every 6 hours, at 15 past.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Turn off" }).click();
+  await expect(page.getByText("off", { exact: true })).toBeVisible();
+
+  await page.getByText("Add a schedule").click();
+  const add = page.locator("form", { has: page.getByRole("button", { name: "Add schedule" }) });
+  await add.getByRole("combobox", { name: "Repeats", exact: true }).selectOption("weekly");
+  await add.getByRole("checkbox", { name: "Mon" }).uncheck();
+  await add.getByRole("checkbox", { name: "Sat" }).check();
+  await add.getByLabel("At", { exact: true }).fill("07:30");
+  await add.getByRole("textbox", { name: "Task", exact: true }).fill("Check the backup NAS has space left.");
+  await add.getByRole("button", { name: "Add schedule" }).click();
+  await expect(page.getByText("Scheduled: Saturdays at 07:30.")).toBeVisible();
+
+  // Custom cron is validated on the server. (The add form stays open after a save.)
+  await add.getByRole("combobox", { name: "Repeats", exact: true }).selectOption("custom");
+  await add.getByRole("textbox", { name: "Cron expression" }).fill("* * * * *");
+  await add.getByRole("textbox", { name: "Task", exact: true }).fill("Too often.");
+  await add.getByRole("button", { name: "Add schedule" }).click();
+  await expect(add.getByRole("alert")).toContainText("more than every 5 minutes");
+
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Delete" }).first().click();
+  await expect(page.getByText("Schedule deleted.")).toBeVisible();
+});
+
 test("agents: hire a custom agent with chosen skills", async () => {
   await page.goto("/agents");
   const form = page.locator("form", { has: page.getByRole("button", { name: "Hire custom agent" }) });

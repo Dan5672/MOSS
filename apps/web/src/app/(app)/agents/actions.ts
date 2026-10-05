@@ -2,10 +2,11 @@
 
 import { fireAgent, hireCustom, hireFromTemplate, pauseAgent, removeSkill, resumeAgent, upskillAgent } from "@moss/agent";
 import { writeAudit } from "@moss/core";
-import { agents, budgets, models } from "@moss/db";
+import { agents, agentSchedules, budgets, models } from "@moss/db";
 import { and, eq, isNull } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { describeCron, repeatFromForm, toCron } from "@/lib/schedule";
 import { act, formObject, type ActionState } from "@/server/action";
 import { requirePermission } from "@/server/auth";
 import { db } from "@/server/db";
@@ -137,5 +138,74 @@ export async function setModelAction(agentId: string, _: ActionState, form: Form
     await db().update(agents).set({ modelId, effort, updatedAt: new Date() }).where(eq(agents.id, agentId));
     await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "agent.set_model", targetType: "agent", targetId: agentId, details: { modelId, effort } });
     return "Model updated.";
+  });
+}
+
+// --- Schedules: stored as cron, edited as a repeat. The worker picks up changes within a minute. ---
+
+function scheduleFromForm(form: FormData) {
+  const fields = formObject(form);
+  const cron = toCron(repeatFromForm((name) => fields[name]));
+  const task = z.string().trim().min(3, "Describe what the agent should do").max(2000).parse(fields.task ?? "");
+  return { cron, task };
+}
+
+async function ownSchedule(orgId: string, agentId: string, scheduleId: string) {
+  const [row] = await db()
+    .select()
+    .from(agentSchedules)
+    .where(and(eq(agentSchedules.id, scheduleId), eq(agentSchedules.agentId, agentId), eq(agentSchedules.orgId, orgId)));
+  if (!row) throw new Error("Schedule not found");
+  return row;
+}
+
+export async function addScheduleAction(agentId: string, _: ActionState, form: FormData): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("agents.manage");
+    const agent = await ownAgent(user.orgId, agentId);
+    if (agent.status === "fired") throw new Error(`${agent.name} has been fired`);
+    const s = scheduleFromForm(form);
+    const [row] = await db().insert(agentSchedules).values({ orgId: user.orgId, agentId, ...s }).returning();
+    await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "schedule.add", targetType: "schedule", targetId: row!.id, details: { agentId, ...s } });
+    return `Scheduled: ${describeCron(s.cron)}.`;
+  });
+}
+
+export async function updateScheduleAction(agentId: string, scheduleId: string, _: ActionState, form: FormData): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("agents.manage");
+    const before = await ownSchedule(user.orgId, agentId, scheduleId);
+    const s = scheduleFromForm(form);
+    await db().update(agentSchedules).set(s).where(eq(agentSchedules.id, scheduleId));
+    await writeAudit(db(), {
+      orgId: user.orgId,
+      actorType: "user",
+      actorId: user.id,
+      action: "schedule.update",
+      targetType: "schedule",
+      targetId: scheduleId,
+      details: { agentId, from: { cron: before.cron, task: before.task }, to: s },
+    });
+    return `Schedule saved: ${describeCron(s.cron)}.`;
+  });
+}
+
+export async function setScheduleEnabledAction(agentId: string, scheduleId: string, enabled: boolean, _: ActionState): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("agents.manage");
+    await ownSchedule(user.orgId, agentId, scheduleId);
+    await db().update(agentSchedules).set({ enabled }).where(eq(agentSchedules.id, scheduleId));
+    await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: enabled ? "schedule.enable" : "schedule.disable", targetType: "schedule", targetId: scheduleId, details: { agentId } });
+    return enabled ? "Schedule turned on." : "Schedule turned off.";
+  });
+}
+
+export async function deleteScheduleAction(agentId: string, scheduleId: string, _: ActionState): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("agents.manage");
+    const before = await ownSchedule(user.orgId, agentId, scheduleId);
+    await db().delete(agentSchedules).where(eq(agentSchedules.id, scheduleId));
+    await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "schedule.delete", targetType: "schedule", targetId: scheduleId, details: { agentId, cron: before.cron, task: before.task } });
+    return "Schedule deleted.";
   });
 }
