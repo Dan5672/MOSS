@@ -98,11 +98,11 @@ test("agents: hire, budget, pause and resume", async () => {
   await expect(page.getByText("Budget saved.")).toBeVisible();
   await expect(page.getByText(/\$0\.0000 \/ \$2\.00/)).toBeVisible();
 
-  await page.getByRole("button", { name: "Pause" }).click();
-  await expect(page.getByRole("button", { name: "Resume" })).toBeVisible();
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
   await expect(page.getByText("paused", { exact: true }).first()).toBeVisible();
-  await page.getByRole("button", { name: "Resume" }).click();
-  await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+  await page.getByRole("button", { name: "Resume", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
 });
 
 test("agents: hire a custom agent with chosen skills", async () => {
@@ -210,8 +210,8 @@ test("monitoring: add checks, and warn about targets outside allowed networks", 
   await page.getByRole("button", { name: "Add monitor" }).click();
   await expect(page.getByText("MOSS will not check this target")).toBeVisible();
   await expect(page.getByText(/not inside an allowed network/)).toBeVisible();
-  await page.getByRole("button", { name: "Pause" }).click();
-  await expect(page.getByRole("button", { name: "Resume" })).toBeVisible();
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
 });
 
 test("monitoring: an Uptime Kuma alert raises an incident for the responder agent", async () => {
@@ -270,6 +270,14 @@ test("settings: the kill switch stops agents and shows everywhere", async () => 
   await expect(page.getByRole("status")).toContainText("All agents are paused");
   await page.goto("/settings");
   await page.getByRole("button", { name: "Turn off" }).first().click();
+  await expect(page.getByRole("status")).toHaveCount(0);
+
+  // The sidebar panel does the same, asking before it pauses.
+  await page.goto("/");
+  await page.getByRole("button", { name: "PAUSE ALL AGENTS" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Pause all agents" }).click();
+  await expect(page.getByRole("status")).toContainText("All agents are paused");
+  await page.getByRole("button", { name: "RESUME AGENTS" }).click();
   await expect(page.getByRole("status")).toHaveCount(0);
 });
 
