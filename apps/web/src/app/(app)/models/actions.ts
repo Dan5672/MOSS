@@ -80,6 +80,46 @@ export async function addModelAction(_: ActionState, form: FormData): Promise<Ac
   });
 }
 
+const pricingSchema = z.object({
+  inputPrice: z.coerce.number().min(0),
+  outputPrice: z.coerce.number().min(0),
+  cacheReadPrice: z.coerce.number().min(0),
+  cacheWritePrice: z.coerce.number().min(0),
+});
+
+export async function updateModelPricingAction(modelId: string, _: ActionState, form: FormData): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("models.manage");
+    const p = pricingSchema.parse(formObject(form));
+    const [row] = await db()
+      .select({ model: models, providerKind: providers.kind })
+      .from(models)
+      .innerJoin(providers, eq(providers.id, models.providerId))
+      .where(and(eq(models.id, modelId), eq(models.orgId, user.orgId)));
+    if (!row) throw new Error("Unknown model");
+    // Runs on a subscription are never priced, so a price here would have no effect.
+    if (row.providerKind === "claude_code") throw new Error("Models on a Claude subscription have no per-token price");
+    const next = {
+      inputPricePerMTok: String(p.inputPrice),
+      outputPricePerMTok: String(p.outputPrice),
+      cacheReadPricePerMTok: String(p.cacheReadPrice),
+      cacheWritePricePerMTok: String(p.cacheWritePrice),
+    };
+    await db().update(models).set(next).where(eq(models.id, modelId));
+    const { inputPricePerMTok, outputPricePerMTok, cacheReadPricePerMTok, cacheWritePricePerMTok } = row.model;
+    await writeAudit(db(), {
+      orgId: user.orgId,
+      actorType: "user",
+      actorId: user.id,
+      action: "model.update_pricing",
+      targetType: "model",
+      targetId: modelId,
+      details: { modelId: row.model.modelId, from: { inputPricePerMTok, outputPricePerMTok, cacheReadPricePerMTok, cacheWritePricePerMTok }, to: next },
+    });
+    return `Prices updated for ${row.model.displayName}. They apply from the next run.`;
+  });
+}
+
 export async function toggleModelAction(modelId: string, enabled: boolean, _: ActionState): Promise<ActionState> {
   return act(async () => {
     const user = await requirePermission("models.manage");

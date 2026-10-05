@@ -1,9 +1,9 @@
-import { models } from "@moss/db";
+import { models, skills } from "@moss/db";
 import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { ActionForm } from "@/components/action-form";
 import { StatusBadge } from "@/components/badges";
-import { SelectField, TextField } from "@/components/field";
+import { CheckboxField, SelectField, TextAreaField, TextField } from "@/components/field";
 import { Empty, formatUsd, PageHeader, Section, timeAgo } from "@/components/page";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -11,16 +11,19 @@ import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { agentList } from "@/server/queries";
 import { library } from "@/server/services";
-import { hireAction } from "./actions";
+import { hireAction, hireCustomAction } from "./actions";
 
 export const metadata = { title: "Agents" };
 
+const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+
 export default async function AgentsPage() {
   const user = await requireUser();
-  const [list, lib, modelRows] = await Promise.all([
+  const [list, lib, modelRows, skillRows] = await Promise.all([
     agentList(user.orgId),
     library(),
     db().select().from(models).where(eq(models.orgId, user.orgId)),
+    db().select().from(skills).where(eq(skills.orgId, user.orgId)).orderBy(skills.name),
   ]);
   const enabledModels = modelRows.filter((m) => m.enabled);
   const canManage = user.permissions.has("agents.manage");
@@ -29,7 +32,7 @@ export default async function AgentsPage() {
 
   return (
     <>
-      <PageHeader title="Agents" description="Your AI team. Hire agents from templates, give them skills, and set their budgets." />
+      <PageHeader title="Agents" description="Your AI team. Hire agents from templates or design your own, give them skills, and set their budgets." />
 
       <Section title="Team">
         {team.length === 0 ? (
@@ -108,6 +111,41 @@ export default async function AgentsPage() {
                     </CardContent>
                   </Card>
                 ))}
+                <Card className="md:col-span-2 lg:col-span-3">
+                  <CardHeader>
+                    <CardTitle>Custom agent</CardTitle>
+                    <CardDescription>Design your own role: describe the job, then choose which skills (and so which tools) it gets.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ActionForm action={hireCustomAction} submitLabel="Hire custom agent">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <TextField label="Name" name="name" placeholder="Wren" maxLength={60} required />
+                        <TextField label="Job title" name="title" placeholder="Backup Admin" maxLength={60} required />
+                      </div>
+                      <TextAreaField
+                        label="Instructions"
+                        name="systemPrompt"
+                        rows={4}
+                        maxLength={8000}
+                        required
+                        placeholder="You look after backups. Check that the NAS is reachable each morning and raise an incident if it isn't."
+                        hint="What the agent is for and how it should work. Skills add their own instructions on top of this."
+                      />
+                      <fieldset className="grid gap-2">
+                        <legend className="mb-2 text-sm font-medium">Skills</legend>
+                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                          {skillRows.map((s) => (
+                            <CheckboxField key={s.key} label={s.name} name="skills" value={s.key} hint={s.description} />
+                          ))}
+                        </div>
+                      </fieldset>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <SelectField label="Model" name="modelId" options={enabledModels.map((m) => ({ value: m.id, label: m.displayName }))} />
+                        <SelectField label="Effort" name="effort" defaultValue="medium" options={EFFORTS.map((e) => ({ value: e, label: e }))} />
+                      </div>
+                    </ActionForm>
+                  </CardContent>
+                </Card>
               </div>
             )}
           </Section>

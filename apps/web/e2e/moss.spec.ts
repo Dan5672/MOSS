@@ -74,6 +74,16 @@ test("models: add a local provider and a model", async () => {
   await page.getByLabel("Display name").fill("Qwen3 14B");
   await page.getByRole("button", { name: "Add model" }).click();
   await expect(page.getByRole("cell", { name: /Qwen3 14B/ })).toBeVisible();
+
+  // Prices can be changed after a model is added.
+  const qwen = page.getByRole("row", { name: /Qwen3 14B/ });
+  await qwen.getByText("Edit prices").click();
+  await qwen.getByLabel("$ / 1M input").fill("0.5");
+  await qwen.getByLabel("$ / 1M output").fill("1.25");
+  await qwen.getByRole("button", { name: "Save prices" }).click();
+  await expect(page.getByText("Prices updated for Qwen3 14B.")).toBeVisible();
+  await expect(qwen.getByRole("cell", { name: "0.50", exact: true })).toBeVisible();
+  await expect(qwen.getByRole("cell", { name: "1.25", exact: true })).toBeVisible();
 });
 
 test("agents: hire, budget, pause and resume", async () => {
@@ -93,6 +103,33 @@ test("agents: hire, budget, pause and resume", async () => {
   await expect(page.getByText("paused", { exact: true }).first()).toBeVisible();
   await page.getByRole("button", { name: "Resume" }).click();
   await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+});
+
+test("agents: hire a custom agent with chosen skills", async () => {
+  await page.goto("/agents");
+  const form = page.locator("form", { has: page.getByRole("button", { name: "Hire custom agent" }) });
+  await form.getByLabel("Name").fill("Wren");
+  await form.getByLabel("Job title").fill("Backup Admin");
+  await form.getByLabel("Instructions").fill("You look after backups. Check the NAS is reachable each morning.");
+  await form.getByLabel("Service Health Checks").check();
+  await form.getByLabel("Incident Management").check();
+  await form.getByRole("button", { name: "Hire custom agent" }).click();
+
+  await expect(page.getByRole("heading", { name: "Wren" })).toBeVisible();
+  await expect(page.getByText("Backup Admin").first()).toBeVisible();
+  // Only the chosen skills are granted; the rest stay available to add.
+  const granted = page.getByRole("listitem").filter({ has: page.getByRole("button", { name: "Remove" }) });
+  await expect(granted).toHaveCount(2);
+  await expect(granted.filter({ hasText: "Service Health Checks" })).toHaveCount(1);
+  await expect(granted.filter({ hasText: "Incident Management" })).toHaveCount(1);
+
+  // Chat: the message is stored and a run is queued (no worker runs in this suite, so no reply).
+  await page.getByRole("link", { name: "Chat" }).click();
+  await expect(page.getByRole("heading", { name: "Chat with Wren" })).toBeVisible();
+  await page.getByLabel("Message").fill("Is the NAS backed up?");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByRole("list", { name: "Conversation" })).toContainText("Is the NAS backed up?");
+  await expect(page.getByRole("status")).toContainText("Wren is working on a reply");
 });
 
 test("incidents: raise, comment and update", async () => {

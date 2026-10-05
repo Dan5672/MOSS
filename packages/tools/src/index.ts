@@ -145,6 +145,8 @@ export interface ScannedPort {
 export interface ScannedHost {
   ip: string;
   status: "up" | "down";
+  /** Why nmap considers the host up or down, e.g. "echo-reply", "arp-response", "reset". */
+  reason?: string;
   mac?: string;
   vendor?: string;
   hostnames: string[];
@@ -154,6 +156,8 @@ export interface ScannedHost {
 export interface NmapResult {
   hosts: ScannedHost[];
   elapsedSeconds?: number;
+  /** Set when the scan had to work around an unreliable network path. */
+  warning?: string;
 }
 
 export interface ArpScanResult {

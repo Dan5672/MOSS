@@ -15,6 +15,31 @@ const NMAP_PROFILES: Record<string, string[]> = {
   services: ["-sS", "-sV", "--top-ports", "1000", "-T4"],
 };
 
+/** Host discovery by ICMP echo and timestamp only, for when TCP replies can't be trusted. */
+const ICMP_DISCOVERY = ["-PE", "-PP"];
+/** Host-up reasons that come from TCP probes. */
+const TCP_REASONS = new Set(["reset", "syn-ack"]);
+
+// Some network paths answer TCP probes for every address themselves: Docker Desktop's NAT replies
+// with a reset for addresses where nothing exists, so nmap's default discovery reports every address
+// up. Once that is seen, discovery uses ICMP only for the life of the process.
+let tcpRepliesUntrusted = false;
+
+/** Test hook. */
+export function resetDiscoveryState() {
+  tcpRepliesUntrusted = false;
+}
+
+/** The network and broadcast addresses of IPv4 CIDR targets: no real host answers as them. */
+function reservedAddresses(targets: string[]): Set<bigint> {
+  const out = new Set<bigint>();
+  for (const t of targets) {
+    const range = parseRange(t)!;
+    if (range.version === 4 && range.end - range.start >= 3n) out.add(range.start).add(range.end);
+  }
+  return out;
+}
+
 export class ToolError extends Error {}
 
 export type Exec = (file: string, args: string[], timeoutMs: number) => Promise<{ stdout: string; stderr: string; code: number }>;
@@ -108,10 +133,28 @@ export async function runTool(
     case "nmap_scan": {
       const targets = args.targets as string[];
       assertTargets(targets);
-      const flags = [...NMAP_PROFILES[args.profile as string]!, "--privileged", "-oX", "-", ...targets];
-      const res = await exec("nmap", flags, 15 * 60_000);
-      if (res.code !== 0 && !res.stdout.includes("<nmaprun")) throw new ToolError(`nmap failed: ${res.stderr.slice(0, 500)}`);
-      return parseNmapXml(res.stdout);
+      const scan = async (icmpOnly: boolean) => {
+        const flags = [...NMAP_PROFILES[args.profile as string]!, ...(icmpOnly ? ICMP_DISCOVERY : []), "--privileged", "-oX", "-", ...targets];
+        const res = await exec("nmap", flags, 15 * 60_000);
+        if (res.code !== 0 && !res.stdout.includes("<nmaprun")) throw new ToolError(`nmap failed: ${res.stderr.slice(0, 500)}`);
+        return parseNmapXml(res.stdout);
+      };
+      const reserved = reservedAddresses(targets);
+      const isReserved = (ip: string) => reserved.has(parseRange(ip)?.start ?? -1n);
+      let result = await scan(tcpRepliesUntrusted);
+      if (!tcpRepliesUntrusted && result.hosts.some((h) => h.status === "up" && isReserved(h.ip) && TCP_REASONS.has(h.reason ?? ""))) {
+        tcpRepliesUntrusted = true;
+        result = await scan(true);
+      }
+      return {
+        ...result,
+        hosts: result.hosts.filter((h) => !isReserved(h.ip)),
+        ...(tcpRepliesUntrusted && {
+          warning:
+            "TCP replies on this network path are unreliable (something answers for addresses where no host exists), " +
+            "so hosts were discovered by ICMP only. Hosts that block ping will not be listed.",
+        }),
+      };
     }
     case "arp_scan": {
       const targets = args.targets as string[];

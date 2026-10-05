@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
-import { addModelAction, addProviderAction, toggleModelAction } from "./actions";
+import { addModelAction, addProviderAction, toggleModelAction, updateModelPricingAction } from "./actions";
 
 export const metadata = { title: "Models" };
 
@@ -21,6 +21,10 @@ const KINDS = [
   { value: "ollama", label: "Ollama (local)" },
   { value: "openai_compatible", label: "Other OpenAI-compatible" },
 ];
+
+function PriceField({ label, name, value }: { label: string; name: string; value: string }) {
+  return <TextField label={label} name={name} type="number" step="any" min="0" defaultValue={Number(value)} required className="w-28" />;
+}
 
 export default async function ModelsPage() {
   const user = await requireUser();
@@ -59,6 +63,20 @@ export default async function ModelsPage() {
                     <TableCell>
                       <div className="font-medium">{m.displayName}</div>
                       <div className="font-mono text-xs text-muted-foreground">{m.modelId}</div>
+                      {canManage && !onSubscription(m.providerId) && (
+                        <details className="mt-2">
+                          <summary className="cursor-pointer text-xs text-muted-foreground">Edit prices</summary>
+                          <ActionForm action={updateModelPricingAction.bind(null, m.id)} submitLabel="Save prices" submitVariant="outline" inline className="mt-2">
+                            {/* key: re-mount with the saved values after a refresh */}
+                            <div key={`${m.inputPricePerMTok}-${m.outputPricePerMTok}-${m.cacheReadPricePerMTok}-${m.cacheWritePricePerMTok}`} className="contents">
+                              <PriceField label="$ / 1M input" name="inputPrice" value={m.inputPricePerMTok} />
+                              <PriceField label="$ / 1M output" name="outputPrice" value={m.outputPricePerMTok} />
+                              <PriceField label="$ / 1M cache read" name="cacheReadPrice" value={m.cacheReadPricePerMTok} />
+                              <PriceField label="$ / 1M cache write" name="cacheWritePrice" value={m.cacheWritePricePerMTok} />
+                            </div>
+                          </ActionForm>
+                        </details>
+                      )}
                     </TableCell>
                     <TableCell className="text-sm">{providerName(m.providerId)}</TableCell>
                     {onSubscription(m.providerId) ? (
@@ -109,7 +127,7 @@ export default async function ModelsPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Add a model</CardTitle>
-                <CardDescription>Prices are filled in automatically for known Claude models; you can override them.</CardDescription>
+                <CardDescription>Prices are filled in automatically for known Claude models; you can override them here or later with Edit prices.</CardDescription>
               </CardHeader>
               <CardContent>
                 {providerRows.length === 0 ? (

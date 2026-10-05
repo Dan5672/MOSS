@@ -226,6 +226,36 @@ export const agentRuns = pgTable(
   (t) => [index("agent_runs_agent_idx").on(t.agentId, t.startedAt)],
 );
 
+// A conversation between one user and one agent. Each reply is produced by an agent run with
+// trigger "chat", so chat goes through the same policy gate, budgets and audit as any other run.
+export const chatThreads = pgTable(
+  "chat_threads",
+  {
+    id: id(),
+    ...tenancy(),
+    agentId: uuid("agent_id").notNull().references(() => agents.id),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    ...timestamps(),
+  },
+  (t) => [index("chat_threads_agent_user_idx").on(t.agentId, t.userId, t.updatedAt)],
+);
+
+export const chatMessages = pgTable(
+  "chat_messages",
+  {
+    id: id(),
+    threadId: uuid("thread_id").notNull().references(() => chatThreads.id, { onDelete: "cascade" }),
+    role: text("role", { enum: ["user", "agent"] }).notNull(),
+    content: text("content").notNull(),
+    /** For agent replies: the run that produced it. */
+    runId: uuid("run_id").references(() => agentRuns.id),
+    /** For agent replies: how that run ended, so a failed run reads as an error rather than an answer. */
+    status: text("status", { enum: ["succeeded", "failed", "aborted"] }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("chat_messages_thread_idx").on(t.threadId, t.createdAt)],
+);
+
 export const runSteps = pgTable("run_steps", {
   id: id(),
   runId: uuid("run_id").notNull().references(() => agentRuns.id, { onDelete: "cascade" }),

@@ -1,9 +1,11 @@
 // The worker: runs agent jobs from the queue, turns agent schedules into jobs, and runs monitor checks.
 import {
+  chatSnapshot,
   enqueueRun,
   ensureQueues,
   HttpGateClient,
   loadLibrary,
+  recordChatReply,
   RUN_QUEUE,
   runAgent,
   SCHEDULE_QUEUE,
@@ -12,6 +14,7 @@ import {
   type GateClient,
   type ProviderFactory,
   type RunInput,
+  unansweredThreads,
 } from "@moss/agent";
 import { changeRef, dispatchEvents, ensureBuiltInRoles, incidentRef, type StoredEvent } from "@moss/core";
 import { agents, agentSchedules, changeRequests, incidents, orgs, type Database } from "@moss/db";
@@ -129,9 +132,19 @@ export async function startWorker(cfg: WorkerConfig) {
 
   await boss.work<RunInput>(RUN_QUEUE, { localConcurrency: 4 }, async ([job]) => {
     if (!job) return;
-    log("run started", { agentId: job.data.agentId, trigger: job.data.trigger });
-    const outcome = await runAgent({ db, gate: cfg.gate, providerFor: cfg.providerFor, claudeCode: cfg.claudeCode }, job.data);
-    log("run finished", { agentId: job.data.agentId, runId: outcome.runId, status: outcome.status });
+    let input = job.data;
+    // A chat run answers the conversation as it stands when the run starts.
+    const chat = input.trigger === "chat" && input.triggerRef ? await chatSnapshot(db, input.triggerRef) : undefined;
+    if (chat === null) return; // already answered
+    if (chat) input = { ...input, task: chat.task };
+    log("run started", { agentId: input.agentId, trigger: input.trigger });
+    const outcome = await runAgent({ db, gate: cfg.gate, providerFor: cfg.providerFor, claudeCode: cfg.claudeCode }, input);
+    log("run finished", { agentId: input.agentId, runId: outcome.runId, status: outcome.status });
+    if (chat) await recordChatReply(db, input.triggerRef!, outcome, chat.cutoff);
+    // Messages sent while the agent was busy couldn't be queued (one run per agent); answer them now.
+    for (const threadId of await unansweredThreads(db, input.agentId)) {
+      await enqueueRun(boss, { agentId: input.agentId, trigger: "chat", triggerRef: threadId, task: "Reply in chat" });
+    }
     return outcome;
   });
 

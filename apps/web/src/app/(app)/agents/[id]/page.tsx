@@ -7,6 +7,7 @@ import { ActionForm } from "@/components/action-form";
 import { StatusBadge } from "@/components/badges";
 import { SelectField, TextAreaField, TextField } from "@/components/field";
 import { Empty, formatUsd, PageHeader, Section, timeAgo } from "@/components/page";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
@@ -54,8 +55,14 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
           </span>
         }
         actions={
-          canManage && (
-            <>
+          <>
+            {user.permissions.has("agents.chat") && agent.status === "active" && (
+              <Button asChild>
+                <Link href={`/agents/${id}/chat`}>Chat</Link>
+              </Button>
+            )}
+            {canManage && (
+              <>
               {agent.status === "active" ? (
                 <ActionForm action={setStatusAction.bind(null, id, "paused")} submitLabel="Pause" submitVariant="outline" />
               ) : (
@@ -67,8 +74,9 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
                 submitVariant="destructive"
                 confirm={`Fire ${agent.name}? This removes all of their skills, secret access and schedules, and can't be undone.`}
               />
-            </>
-          )
+              </>
+            )}
+          </>
         }
       />
 

@@ -5,6 +5,7 @@ export const PERMISSIONS = [
   "dashboard.read",
   "agents.read",
   "agents.manage", // hire, pause, fire, upskill
+  "agents.chat", // talk to agents (each message starts a run)
   "agents.budget",
   "models.manage",
   "skills.manage",
@@ -39,6 +40,7 @@ export const HUMAN_ONLY_PERMISSIONS: ReadonlySet<Permission> = new Set<Permissio
   "users.manage",
   "settings.manage",
   "agents.manage",
+  "agents.chat",
   "agents.budget",
   "models.manage",
   "skills.manage",
@@ -58,7 +60,7 @@ export const BUILT_IN_ROLES: Record<string, { name: string; permissions: Permiss
   },
   operator: {
     name: "Operator",
-    permissions: [...READS, "incidents.manage", "changes.create", "assets.manage", "monitoring.manage", "dev.manage", "killswitch.use"],
+    permissions: [...READS, "agents.chat", "incidents.manage", "changes.create", "assets.manage", "monitoring.manage", "dev.manage", "killswitch.use"],
   },
   viewer: { name: "Viewer", permissions: [...READS] },
   agent: {

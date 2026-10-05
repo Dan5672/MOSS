@@ -1,4 +1,4 @@
-// Agent lifecycle: hire (from a template), pause, resume, fire and upskill. Every action is audited.
+// Agent lifecycle: hire (from a template or custom), pause, resume, fire and upskill. Every action is audited.
 import { writeAudit } from "@moss/core";
 import { agents, agentSchedules, agentSkills, roles, secretGrants, skills, type Database } from "@moss/db";
 import { and, eq, inArray, ne } from "drizzle-orm";
@@ -27,20 +27,53 @@ export interface HireInput {
 
 export async function hireFromTemplate(db: Database, actor: Actor, input: HireInput) {
   const { template } = input;
+  return hire(db, actor, { ...template, templateKey: template.key, name: input.name ?? template.defaultName, modelId: input.modelId });
+}
+
+export interface CustomHireInput {
+  name: string;
+  title: string;
+  /** What the agent is for and how it should work; becomes its system prompt. */
+  systemPrompt: string;
+  skills: string[];
+  modelId: string;
+  effort?: AgentTemplate["effort"];
+  maxStepsPerRun?: number;
+}
+
+/** Hires an agent the user designed themselves rather than from a library template. */
+export async function hireCustom(db: Database, actor: Actor, input: CustomHireInput) {
+  return hire(db, actor, {
+    ...input,
+    templateKey: null,
+    effort: input.effort ?? "medium",
+    maxStepsPerRun: input.maxStepsPerRun ?? 25,
+    reportsTo: null,
+    schedules: [],
+  });
+}
+
+interface HireSpec extends Pick<AgentTemplate, "title" | "systemPrompt" | "effort" | "maxStepsPerRun" | "skills" | "reportsTo" | "schedules"> {
+  templateKey: string | null;
+  name: string;
+  modelId: string;
+}
+
+async function hire(db: Database, actor: Actor, spec: HireSpec) {
   const [agentRole] = await db.select().from(roles).where(and(eq(roles.orgId, actor.orgId), eq(roles.key, "agent")));
   // Report to an active agent hired from the manager template, if there is one.
-  const [manager] = template.reportsTo
+  const [manager] = spec.reportsTo
     ? await db
         .select({ id: agents.id })
         .from(agents)
-        .where(and(eq(agents.orgId, actor.orgId), eq(agents.templateKey, template.reportsTo), ne(agents.status, "fired")))
+        .where(and(eq(agents.orgId, actor.orgId), eq(agents.templateKey, spec.reportsTo), ne(agents.status, "fired")))
         .limit(1)
     : [];
 
-  const skillRows = template.skills.length
-    ? await db.select().from(skills).where(and(eq(skills.orgId, actor.orgId), inArray(skills.key, template.skills)))
+  const skillRows = spec.skills.length
+    ? await db.select().from(skills).where(and(eq(skills.orgId, actor.orgId), inArray(skills.key, spec.skills)))
     : [];
-  const missing = template.skills.filter((k) => !skillRows.some((s) => s.key === k));
+  const missing = spec.skills.filter((k) => !skillRows.some((s) => s.key === k));
   if (missing.length) throw new Error(`Skills not installed: ${missing.join(", ")}`);
 
   const agent = await db.transaction(async (tx) => {
@@ -48,13 +81,13 @@ export async function hireFromTemplate(db: Database, actor: Actor, input: HireIn
       .insert(agents)
       .values({
         orgId: actor.orgId,
-        name: input.name ?? template.defaultName,
-        title: template.title,
-        templateKey: template.key,
-        modelId: input.modelId,
-        systemPrompt: template.systemPrompt,
-        effort: template.effort,
-        maxStepsPerRun: template.maxStepsPerRun,
+        name: spec.name,
+        title: spec.title,
+        templateKey: spec.templateKey,
+        modelId: spec.modelId,
+        systemPrompt: spec.systemPrompt,
+        effort: spec.effort,
+        maxStepsPerRun: spec.maxStepsPerRun,
         roleId: agentRole?.id,
         reportsToAgentId: manager?.id ?? null,
         reportsToUserId: manager ? null : actor.userId,
@@ -63,12 +96,12 @@ export async function hireFromTemplate(db: Database, actor: Actor, input: HireIn
     if (skillRows.length) {
       await tx.insert(agentSkills).values(skillRows.map((s) => ({ agentId: row!.id, skillId: s.id, grantedBy: actor.userId })));
     }
-    if (template.schedules.length) {
-      await tx.insert(agentSchedules).values(template.schedules.map((s) => ({ orgId: actor.orgId, agentId: row!.id, cron: s.cron, task: s.task })));
+    if (spec.schedules.length) {
+      await tx.insert(agentSchedules).values(spec.schedules.map((s) => ({ orgId: actor.orgId, agentId: row!.id, cron: s.cron, task: s.task })));
     }
     return row!;
   });
-  await audit(db, actor, "agent.hire", agent.id, { template: template.key, name: agent.name, skills: template.skills });
+  await audit(db, actor, "agent.hire", agent.id, { template: spec.templateKey, name: agent.name, skills: spec.skills });
   return agent;
 }
 

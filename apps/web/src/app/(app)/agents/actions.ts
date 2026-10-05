@@ -1,6 +1,6 @@
 "use server";
 
-import { fireAgent, hireFromTemplate, pauseAgent, removeSkill, resumeAgent, upskillAgent } from "@moss/agent";
+import { fireAgent, hireCustom, hireFromTemplate, pauseAgent, removeSkill, resumeAgent, upskillAgent } from "@moss/agent";
 import { writeAudit } from "@moss/core";
 import { agents, budgets, models } from "@moss/db";
 import { and, eq, isNull } from "drizzle-orm";
@@ -28,6 +28,26 @@ export async function hireAction(_: ActionState, form: FormData): Promise<Action
     const [model] = await db().select().from(models).where(and(eq(models.id, input.modelId), eq(models.orgId, user.orgId)));
     if (!model) throw new Error("Unknown model");
     const agent = await hireFromTemplate(db(), { orgId: user.orgId, userId: user.id }, { template, modelId: model.id, name: input.name });
+    redirect(`/agents/${agent.id}`);
+  });
+}
+
+const customHireSchema = z.object({
+  name: z.string().min(1, "Give the agent a name").max(60),
+  title: z.string().min(1, "Give the agent a job title").max(60),
+  systemPrompt: z.string().min(20, "Describe the agent's job in a sentence or two").max(8000),
+  modelId: z.uuid("Choose a model"),
+  effort: z.enum(["low", "medium", "high", "xhigh", "max"]),
+  skills: z.array(z.string()).max(50),
+});
+
+export async function hireCustomAction(_: ActionState, form: FormData): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("agents.manage");
+    const input = customHireSchema.parse({ ...formObject(form), skills: form.getAll("skills").map(String) });
+    const [model] = await db().select().from(models).where(and(eq(models.id, input.modelId), eq(models.orgId, user.orgId)));
+    if (!model) throw new Error("Unknown model");
+    const agent = await hireCustom(db(), { orgId: user.orgId, userId: user.id }, input);
     redirect(`/agents/${agent.id}`);
   });
 }

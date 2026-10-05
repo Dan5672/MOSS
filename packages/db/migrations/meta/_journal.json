@@ -36,6 +36,13 @@
       "when": 1791112481560,
       "tag": "0004_monitoring",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791197623802,
+      "tag": "0005_chat",
+      "breakpoints": true
     }
   ]
 }
