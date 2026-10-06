@@ -6,7 +6,8 @@ import { Empty, formatUsd, PageHeader, Section } from "@/components/page";
 import { agentGlow, agentMascot } from "@/lib/agent-look";
 import { cn } from "@/lib/utils";
 import { requireUser } from "@/server/auth";
-import { dashboard } from "@/server/queries";
+import { dashboard, setupProgress } from "@/server/queries";
+import { SetupChecklist } from "./setup-checklist";
 
 export const metadata = { title: "Dashboard" };
 
@@ -132,7 +133,7 @@ const clock = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-dig
 
 export default async function DashboardPage() {
   const user = await requireUser();
-  const d = await dashboard(user.orgId);
+  const [d, setup] = await Promise.all([dashboard(user.orgId), setupProgress(user.orgId)]);
   const priorities = (["P1", "P2", "P3", "P4"] as const).filter((p) => d.incidents.byPriority[p]);
 
   return (
@@ -148,6 +149,7 @@ export default async function DashboardPage() {
         }
       />
 
+      <SetupChecklist s={setup} user={user} />
       <Briefing d={d} />
 
       <div className="grid grid-cols-[repeat(auto-fit,minmax(min(170px,100%),1fr))] gap-3">

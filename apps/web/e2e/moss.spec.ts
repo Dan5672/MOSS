@@ -53,6 +53,10 @@ test("first run: setup creates the owner and signs them in", async () => {
   await page.getByRole("checkbox").check();
   await page.getByRole("button", { name: "Create and sign in" }).click();
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  // A fresh install suggests the first steps.
+  const setup = page.getByRole("region", { name: "Getting started" });
+  await expect(setup).toContainText("0 of 6 done");
+  await expect(setup.getByRole("link", { name: "Networks" })).toBeVisible();
 });
 
 test("networks: allow a subnet", async () => {
@@ -118,6 +122,13 @@ test("agents: hire, budget, pause and resume", async () => {
   await expect(page.getByText("paused", { exact: true }).first()).toBeVisible();
   await page.getByRole("button", { name: "Resume", exact: true }).click();
   await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+
+  // With a model, an allowed network and a Network Admin, the dashboard offers a first discovery.
+  await page.goto("/");
+  const setup = page.getByRole("region", { name: "Getting started" });
+  await expect(setup).toContainText("3 of 6 done");
+  await setup.getByRole("button", { name: "Start discovery with Nina" }).click();
+  await expect(page.getByText("Nina will start shortly.")).toBeVisible();
 });
 
 test("agents: each agent's mascot can be picked from the registry, defaulting by role", async () => {

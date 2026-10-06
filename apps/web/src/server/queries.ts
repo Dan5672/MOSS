@@ -1,6 +1,6 @@
 import "server-only";
-import { getSetting, periodStart } from "@moss/core";
-import { agentRuns, agents, assets, auditLog, budgets, changeRequests, incidents, models, monitors, providers, tokenUsage, users } from "@moss/db";
+import { agentToolGrants, getSetting, periodStart } from "@moss/core";
+import { agentRuns, agents, assets, auditLog, budgets, changeRequests, incidents, models, monitors, networks, providers, tokenUsage, users } from "@moss/db";
 import { and, asc, count, desc, eq, gte, inArray, ne, sql, sum } from "drizzle-orm";
 import { db } from "./db";
 
@@ -200,6 +200,42 @@ export async function basement(orgId: string) {
     }),
     down: down.map((m) => ({ id: m.id, name: m.name })),
     responderId,
+  };
+}
+
+/**
+ * The dashboard's "Getting started" checklist: what's set up, and which agent could run a first network
+ * discovery (an active agent that may use nmap_scan, preferring a Network Admin).
+ */
+export async function setupProgress(orgId: string) {
+  const d = db();
+  const [[modelCount], [allowed], [monitorCount], [assetCount], active] = await Promise.all([
+    d.select({ n: count() }).from(models).where(and(eq(models.orgId, orgId), eq(models.enabled, true))),
+    d.select({ n: count() }).from(networks).where(and(eq(networks.orgId, orgId), eq(networks.status, "allowed"))),
+    d.select({ n: count() }).from(monitors).where(eq(monitors.orgId, orgId)),
+    d.select({ n: count() }).from(assets).where(eq(assets.orgId, orgId)),
+    d
+      .select({ id: agents.id, name: agents.name, templateKey: agents.templateKey })
+      .from(agents)
+      .where(and(eq(agents.orgId, orgId), eq(agents.status, "active")))
+      .orderBy(agents.hiredAt),
+  ]);
+  const ordered = [...active].sort((a, b) => Number(b.templateKey === "network-admin") - Number(a.templateKey === "network-admin"));
+  let discoveryAgent: { id: string; name: string } | null = null;
+  for (const a of ordered) {
+    if ((await agentToolGrants(d, a.id)).has("nmap_scan")) {
+      discoveryAgent = { id: a.id, name: a.name };
+      break;
+    }
+  }
+  const [anyAgent] = await d.select({ n: count() }).from(agents).where(and(eq(agents.orgId, orgId), ne(agents.status, "fired")));
+  return {
+    hasModel: (modelCount?.n ?? 0) > 0,
+    hasAllowedNetwork: (allowed?.n ?? 0) > 0,
+    hasAgent: (anyAgent?.n ?? 0) > 0,
+    hasAssets: (assetCount?.n ?? 0) > 0,
+    hasMonitor: (monitorCount?.n ?? 0) > 0,
+    discoveryAgent,
   };
 }
 
