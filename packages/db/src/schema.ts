@@ -155,6 +155,10 @@ export const agents = pgTable("agents", {
   roleId: uuid("role_id").references(() => roles.id),
   effort: text("effort", { enum: ["low", "medium", "high", "xhigh", "max"] }).notNull().default("medium"),
   maxStepsPerRun: integer("max_steps_per_run").notNull().default(25),
+  /** The agent's mascot (a key of the web app's mascot registry); null means the role's default. */
+  mascot: text("mascot"),
+  /** The mascot's glow colour (#rrggbb); null means the role's colour. */
+  mascotGlow: text("mascot_glow"),
   pausedReason: text("paused_reason"),
   hiredAt: timestamp("hired_at", { withTimezone: true }).notNull().defaultNow(),
   firedAt: timestamp("fired_at", { withTimezone: true }),

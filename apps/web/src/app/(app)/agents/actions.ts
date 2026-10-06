@@ -6,6 +6,8 @@ import { agents, agentSchedules, budgets, models } from "@moss/db";
 import { and, eq, isNull } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { isMascot } from "@/components/mascots";
+import { HEX_COLOUR } from "@/lib/agent-look";
 import { describeCron, repeatFromForm, toCron } from "@/lib/schedule";
 import { act, formObject, type ActionState } from "@/server/action";
 import { requirePermission } from "@/server/auth";
@@ -138,6 +140,25 @@ export async function setModelAction(agentId: string, _: ActionState, form: Form
     await db().update(agents).set({ modelId, effort, updatedAt: new Date() }).where(eq(agents.id, agentId));
     await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "agent.set_model", targetType: "agent", targetId: agentId, details: { modelId, effort } });
     return "Model updated.";
+  });
+}
+
+// --- Mascot -----------------------------------------------------------------------------------
+
+export async function setMascotAction(agentId: string, _: ActionState, form: FormData): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("agents.manage");
+    const agent = await ownAgent(user.orgId, agentId);
+    const choice = String(form.get("mascot") ?? "");
+    // "role" means: no override, use the role's default.
+    if (choice !== "role" && !isMascot(choice)) throw new Error("Choose one of the mascots shown");
+    const glow = String(form.get("glow") ?? "");
+    if (glow && !HEX_COLOUR.test(glow)) throw new Error("Choose one of the glow colours shown");
+    const mascot = choice === "role" ? null : choice;
+    const mascotGlow = glow || null;
+    await db().update(agents).set({ mascot, mascotGlow, updatedAt: new Date() }).where(eq(agents.id, agentId));
+    await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "agent.set_mascot", targetType: "agent", targetId: agentId, details: { mascot, mascotGlow } });
+    return `Saved ${agent.name}'s look.`;
   });
 }
 

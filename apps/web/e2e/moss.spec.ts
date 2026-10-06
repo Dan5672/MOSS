@@ -114,6 +114,24 @@ test("agents: hire, budget, pause and resume", async () => {
   await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
 });
 
+test("agents: each agent's mascot can be picked from the registry, defaulting by role", async () => {
+  await page.goto("/agents");
+  await page.getByRole("link", { name: "Nina" }).click();
+  // A Network Admin defaults to the Desk Lead mascot.
+  await expect(page.getByRole("radio", { name: "Role default (Desk Lead)" })).toBeChecked();
+  await page.getByRole("radio", { name: "Night Shift" }).check({ force: true });
+  await page.getByRole("combobox", { name: "Glow", exact: true }).selectOption("#ffb547");
+  await page.getByRole("button", { name: "Save look" }).click();
+  await expect(page.getByText("Saved Nina's look.")).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("radio", { name: "Night Shift" })).toBeChecked();
+  await expect(page.getByRole("combobox", { name: "Glow", exact: true })).toHaveValue("#ffb547");
+
+  await page.getByRole("radio", { name: "Role default (Desk Lead)" }).check({ force: true });
+  await page.getByRole("button", { name: "Save look" }).click();
+  await expect(page.getByText("Saved Nina's look.")).toBeVisible();
+});
+
 test("agents: schedules read as words and can be edited, turned off, added and deleted", async () => {
   await page.goto("/agents");
   await page.getByRole("link", { name: "Nina" }).click();

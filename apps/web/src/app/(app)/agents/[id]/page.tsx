@@ -10,6 +10,9 @@ import { Empty, formatUsd, PageHeader, Section, timeAgo } from "@/components/pag
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/server/auth";
+import { isMascot, MASCOT_IDS, MASCOTS } from "@/components/mascots";
+import { MascotSvg } from "@/components/mascot-svg";
+import { agentGlow, agentMascot, GLOW_CHOICES, roleMascot } from "@/lib/agent-look";
 import { describeCron } from "@/lib/schedule";
 import { db } from "@/server/db";
 import {
@@ -20,6 +23,7 @@ import {
   removeSkillAction,
   runNowAction,
   setBudgetAction,
+  setMascotAction,
   setModelAction,
   setScheduleEnabledAction,
   setStatusAction,
@@ -158,6 +162,44 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
         </div>
 
         <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Mascot</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {canManage ? (
+                <ActionForm action={setMascotAction.bind(null, id)} submitLabel="Save look">
+                  <fieldset className="grid gap-2">
+                    <legend className="mb-2 text-sm font-medium">Mascot</legend>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { value: "role", label: `Role default (${MASCOTS[roleMascot(agent.templateKey)].label})`, variant: roleMascot(agent.templateKey) },
+                        ...MASCOT_IDS.map((m) => ({ value: m, label: MASCOTS[m].label, variant: m })),
+                      ].map((o) => (
+                        <label key={o.value} className="flex min-h-11 cursor-pointer items-center gap-2 border-2 p-2 text-xs has-checked:border-phosphor has-focus-visible:outline-3 has-focus-visible:outline-ring">
+                          <input type="radio" name="mascot" value={o.value} defaultChecked={(agent.mascot && isMascot(agent.mascot) ? agent.mascot : "role") === o.value} className="sr-only" />
+                          <MascotSvg variant={o.variant} size={48} glow={agentGlow(agent)} className="shrink-0" />
+                          <span>{o.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                  <SelectField
+                    label="Glow"
+                    name="glow"
+                    defaultValue={agent.mascotGlow ?? ""}
+                    options={[{ value: "", label: "Role colour" }, ...GLOW_CHOICES.map((g) => ({ value: g.value, label: g.label }))]}
+                  />
+                </ActionForm>
+              ) : (
+                <div className="flex items-center gap-3 text-sm">
+                  <MascotSvg variant={agentMascot(agent)} size={48} glow={agentGlow(agent)} />
+                  {MASCOTS[agentMascot(agent)].label}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Model</CardTitle>

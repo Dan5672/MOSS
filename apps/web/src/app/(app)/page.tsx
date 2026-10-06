@@ -3,6 +3,7 @@ import Link from "next/link";
 import { PriorityBadge } from "@/components/badges";
 import { Mascot } from "@/components/mascot";
 import { Empty, formatUsd, PageHeader, Section } from "@/components/page";
+import { agentGlow, agentMascot } from "@/lib/agent-look";
 import { cn } from "@/lib/utils";
 import { requireUser } from "@/server/auth";
 import { dashboard } from "@/server/queries";
@@ -75,13 +76,6 @@ function Briefing({ d }: { d: Dashboard }) {
   );
 }
 
-const ROLE_GLOW: Record<string, string> = {
-  "it-manager": "var(--phosphor)",
-  "systems-admin": "var(--amber)",
-  "network-admin": "var(--signal)",
-  "security-admin": "#ff7ad9",
-};
-
 function TeamCard({ agent, killSwitch }: { agent: Dashboard["team"][number]; killSwitch: boolean }) {
   const paused = agent.status === "paused" || killSwitch;
   const status = agent.status === "paused" ? "Paused" : killSwitch ? "Paused · kill switch" : "On shift";
@@ -89,7 +83,7 @@ function TeamCard({ agent, killSwitch }: { agent: Dashboard["team"][number]; kil
   const ratio = b ? b.spent / b.limit : 0;
   return (
     <Link href={`/agents/${agent.id}`} className="px-frame flex gap-3 bg-card p-3 transition-colors hover:bg-accent">
-      <Mascot size={48} glow={ROLE_GLOW[agent.templateKey ?? ""] ?? "var(--phosphor)"} className="shrink-0" />
+      <Mascot variant={agentMascot(agent)} size={48} glow={agentGlow(agent)} className="shrink-0" />
       <div className="grid min-w-0 flex-1 gap-1">
         <div className="flex flex-wrap items-baseline justify-between gap-x-2">
           <span className="text-[15px] font-semibold">{agent.name}</span>

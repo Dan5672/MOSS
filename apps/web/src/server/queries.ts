@@ -147,6 +147,8 @@ async function dashboardExtras(orgId: string) {
         name: agent.name,
         title: agent.title,
         templateKey: agent.templateKey,
+        mascot: agent.mascot,
+        mascotGlow: agent.mascotGlow,
         status: agent.status,
         modelName,
         providerName,
