@@ -183,6 +183,8 @@ test("agents: tool access shows who can use each tool, and the knowledge base ca
   await page.getByLabel("Search notes").fill("gateway");
   await page.getByRole("button", { name: "Search" }).click();
   await expect(page.getByRole("heading", { name: "ISP gateway" })).toBeVisible();
+  // Searching loads a new page; wait until it's interactive before using a form on it.
+  await page.waitForLoadState("networkidle");
 
   page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "Delete" }).click();

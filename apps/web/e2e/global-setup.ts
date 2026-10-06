@@ -6,12 +6,19 @@ import { createTestDb } from "@moss/db/testing";
 import { createServer } from "node:http";
 import { E2E_DATABASE_URL, E2E_GATE_PORT, E2E_WEB_TOKEN } from "../playwright.config";
 
+interface GateSecretsApi {
+  secretWriteSchema: { parse(input: unknown): unknown };
+  writeSecret(db: ReturnType<typeof createDb>, masterKey: Buffer, input: unknown): Promise<{ id: string; created: boolean }>;
+}
+
 export default async function globalSetup() {
   const { close } = await createTestDb("web_e2e");
   await close();
 
-  // The gate isn't a dependency of the web app; use its built secrets API directly.
-  const { secretWriteSchema, writeSecret } = (await import("../../gate/dist/secrets-api.js")) as typeof import("../../gate/src/secrets-api");
+  // The gate isn't a dependency of the web app; load its built secrets API at run time. The path is a
+  // variable so `next build` (which typechecks this file) doesn't need the gate built too.
+  const gateSecretsApi = "../../gate/dist/secrets-api.js";
+  const { secretWriteSchema, writeSecret } = (await import(gateSecretsApi)) as GateSecretsApi;
   const db = createDb(E2E_DATABASE_URL);
   const masterKey = parseMasterKey(Buffer.from("22".repeat(32)));
   const server = createServer((req, res) => {
