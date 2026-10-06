@@ -90,7 +90,8 @@ export interface PreparedRun {
 
 const MAX_RESULT_CHARS = 30_000;
 const MAX_IDENTICAL_CALLS = 3;
-const DISCOVERY_TOOLS = new Set(["nmap_scan", "arp_scan"]);
+// Tools whose results carry hosts for the inventory.
+const DISCOVERY_TOOLS = new Set(["nmap_scan", "arp_scan", "unifi_clients", "name_lookup"]);
 
 function stableKey(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableKey).join(",")}]`;

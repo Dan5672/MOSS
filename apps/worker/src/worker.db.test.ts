@@ -76,6 +76,7 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
       "incident-management",
       "monitoring-response",
       "network-discovery",
+      "network-insight",
       "security-baseline",
       "service-desk",
       "service-health",

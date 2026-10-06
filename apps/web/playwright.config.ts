@@ -7,6 +7,8 @@ if (!base) throw new Error("Set MOSS_TEST_DATABASE_URL to run the e2e tests");
 const dbUrl = new URL(base);
 dbUrl.pathname = `${dbUrl.pathname}_web_e2e`;
 const PORT = 3107;
+export const E2E_GATE_PORT = 3108;
+export const E2E_WEB_TOKEN = "e2e-web-token-for-the-stand-in-gate-0000";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -26,8 +28,9 @@ export default defineConfig({
     env: {
       DATABASE_URL: dbUrl.toString(),
       MOSS_APP_KEY: "11".repeat(32),
-      WEB_TOKEN: "e2e-web-token-not-used-by-these-tests-0000",
-      GATE_URL: "http://127.0.0.1:9", // nothing listens: these tests never store secrets
+      WEB_TOKEN: E2E_WEB_TOKEN,
+      // Stand-in for the gate's secrets API, started by global-setup.
+      GATE_URL: `http://127.0.0.1:${E2E_GATE_PORT}`,
       MOSS_LIBRARY_DIR: "../../library",
       NEXT_TELEMETRY_DISABLED: "1",
     },

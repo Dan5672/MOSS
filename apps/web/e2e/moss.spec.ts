@@ -189,6 +189,44 @@ test("agents: tool access shows who can use each tool, and the knowledge base ca
   await expect(page.getByText("Note deleted.")).toBeVisible();
 });
 
+test("settings: secrets are scoped to hosts and tools, granted to agents, and never shown", async () => {
+  await page.goto("/settings");
+  await page.getByRole("link", { name: "Secrets" }).click();
+  await expect(page.getByText("No secrets yet.")).toBeVisible();
+  const add = page.locator("form", { has: page.getByRole("button", { name: "Save secret" }) });
+  await add.getByLabel("Name", { exact: true }).fill("unifi-api");
+  await add.getByRole("textbox", { name: "Value" }).fill("super-secret-key-value");
+  await add.getByLabel("Description").fill("Read-only key for the UniFi console");
+
+  // A host scope is required (by the browser), and checked on the server.
+  const hosts = add.getByRole("textbox", { name: "Use only with these hosts" });
+  await expect(hosts).toHaveAttribute("required", "");
+  await hosts.fill("the-nas");
+  await add.getByRole("button", { name: "Save secret" }).click();
+  await expect(add.getByRole("alert")).toContainText(`"the-nas" isn't an IP address or CIDR`);
+
+  await hosts.fill("192.168.50.1");
+  await add.getByRole("checkbox", { name: /^Nina/ }).check();
+  await add.getByRole("button", { name: "Save secret" }).click();
+  await expect(page.getByText("Saved secret:unifi-api.")).toBeVisible();
+
+  const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: "secret:unifi-api" }) });
+  await expect(card).toContainText("192.168.50.1");
+  await expect(card).toContainText("unifi_clients");
+  await expect(card).toContainText("Nina");
+  await expect(page.getByText("super-secret-key-value")).toHaveCount(0);
+
+  await card.getByText("Change scope and agents").click();
+  await card.getByRole("textbox", { name: "Use only with these hosts" }).fill("192.168.50.1, 192.168.50.2");
+  await card.getByRole("button", { name: "Save scope" }).click();
+  await expect(page.getByText("Updated secret:unifi-api.")).toBeVisible();
+  await expect(card).toContainText("192.168.50.1, 192.168.50.2");
+
+  page.once("dialog", (d) => d.accept());
+  await card.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByText("Deleted secret:unifi-api.")).toBeVisible();
+});
+
 test("agents: hire a custom agent with chosen skills", async () => {
   await page.goto("/agents");
   const form = page.locator("form", { has: page.getByRole("button", { name: "Hire custom agent" }) });

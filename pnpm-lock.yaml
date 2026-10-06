@@ -78,6 +78,9 @@ importers:
       '@moss/llm':
         specifier: workspace:*
         version: link:../../packages/llm
+      '@moss/policy':
+        specifier: workspace:*
+        version: link:../../packages/policy
       '@moss/tools':
         specifier: workspace:*
         version: link:../../packages/tools

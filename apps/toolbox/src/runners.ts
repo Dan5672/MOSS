@@ -6,6 +6,7 @@ import { execFile } from "node:child_process";
 import { createSocket } from "node:dgram";
 import { promises as dns } from "node:dns";
 import { networkInterfaces } from "node:os";
+import { DiscoveryError, httpsGet, nameLookup, snmpQuery, traceroute, unifiClients, type HttpGet } from "./discovery.js";
 import { parseArpScan, parseNmapXml, parsePing } from "./parsers.js";
 import { httpProbe, tcpConnect, tlsInspect, type HttpProbeArgs } from "./probes.js";
 
@@ -122,7 +123,18 @@ export async function runTool(
   rawArgs: unknown,
   exec: Exec = defaultExec,
   interfaces: InterfaceLister = listInterfaces,
+  get: HttpGet = httpsGet,
 ): Promise<unknown> {
+  try {
+    return await runToolInner(name, rawArgs, exec, interfaces, get);
+  } catch (err) {
+    // Discovery tools report device-side problems (bad key, no answer) as tool errors, not crashes.
+    if (err instanceof DiscoveryError) throw new ToolError(err.message);
+    throw err;
+  }
+}
+
+async function runToolInner(name: string, rawArgs: unknown, exec: Exec, interfaces: InterfaceLister, get: HttpGet): Promise<unknown> {
   const def = BUILT_IN_TOOLS.get(name);
   if (!def) throw new ToolError(`Unknown tool ${name}`);
   const parsed = parseToolArgs(def, rawArgs);
@@ -207,6 +219,27 @@ export async function runTool(
       const target = args.target as string;
       assertHost(target);
       return tlsInspect(target, args.port as number, args.servername as string | undefined, args.timeoutMs as number);
+    }
+    case "unifi_clients": {
+      assertHost(args.controller as string);
+      return unifiClients(args as Parameters<typeof unifiClients>[0], get);
+    }
+    case "snmp_query": {
+      assertHost(args.target as string);
+      return snmpQuery(args as Parameters<typeof snmpQuery>[0], exec);
+    }
+    case "traceroute": {
+      assertHost(args.target as string);
+      return traceroute(args as Parameters<typeof traceroute>[0], exec);
+    }
+    case "name_lookup": {
+      const targets = args.targets as string[];
+      assertTargets(targets);
+      for (const t of targets) {
+        const r = parseRange(t)!;
+        if (r.end - r.start > 255n) throw new ToolError(`${t} is too large for name_lookup; use /24 or smaller`);
+      }
+      return nameLookup({ targets }, exec);
     }
     default:
       throw new ToolError(`Tool ${name} has no runner`);

@@ -10,6 +10,8 @@ export interface ToolManifest {
   class: ToolClass;
   /** Argument names whose values are network targets (an IP/CIDR string or an array of them). */
   targetArgs: string[];
+  /** Argument names that carry a credential. They must be secret:<name> handles, never literal values. */
+  secretArgs?: string[];
 }
 
 export interface ToolCall {
@@ -72,7 +74,8 @@ export type DenyCode =
   | "change_outside_window"
   | "call_not_in_change_plan"
   | "secret_not_granted"
-  | "secret_scope";
+  | "secret_scope"
+  | "secret_required";
 
 export type PolicyDecision =
   | { allow: true; targets: string[]; secretHandles: string[] }
@@ -212,7 +215,14 @@ export function evaluate(call: ToolCall, manifest: ToolManifest, ctx: PolicyCont
     if (!planned) return deny("call_not_in_change_plan", `This exact call is not in the plan of change ${change.id}`);
   }
 
-  // 5. Secret handles
+  // 5. Secret handles. Credential arguments must be handles: a literal value would be a credential the
+  // model invented or was fed, which the owner never stored or scoped.
+  for (const name of manifest.secretArgs ?? []) {
+    const v = call.args[name];
+    if (v !== undefined && (typeof v !== "string" || !SECRET_HANDLE.test(v))) {
+      return deny("secret_required", `${name} must be a stored secret, written as secret:<name>`);
+    }
+  }
   const secretHandles = [...new Set(extractSecretHandles(call.args))];
   for (const name of secretHandles) {
     const secret = ctx.secrets.get(name);

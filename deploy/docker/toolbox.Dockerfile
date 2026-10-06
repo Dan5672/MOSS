@@ -9,14 +9,17 @@ RUN pnpm install --frozen-lockfile \
 
 FROM node:24-bookworm-slim
 RUN apt-get update \
- && apt-get install -y --no-install-recommends nmap arp-scan iputils-ping libcap2-bin ca-certificates \
+ && apt-get install -y --no-install-recommends nmap arp-scan iputils-ping traceroute snmp libcap2-bin ca-certificates \
  # Grant raw-socket capabilities to the scanners only, so the service itself runs unprivileged.
  && setcap cap_net_raw,cap_net_admin+eip /usr/bin/nmap \
  && setcap cap_net_raw+eip /usr/sbin/arp-scan \
  && rm -rf /var/lib/apt/lists/* \
  # Fail the build if any tool binary is missing. (Keep libcap2-bin: iputils-ping depends on it.)
  # Existence checks only: nmap's NET_ADMIN file capability can't be exercised in the build sandbox.
- && test -x /usr/bin/nmap && test -x /usr/sbin/arp-scan && test -x /bin/ping
+ && test -x /usr/bin/nmap && test -x /usr/sbin/arp-scan && test -x /bin/ping \
+ && command -v traceroute && command -v snmpget && command -v snmpbulkwalk \
+ && test -f /usr/share/nmap/scripts/nbstat.nse && test -f /usr/share/nmap/scripts/upnp-info.nse \
+ && test -f /usr/share/nmap/scripts/dns-service-discovery.nse
 WORKDIR /app
 COPY --from=build /out /app
 USER node

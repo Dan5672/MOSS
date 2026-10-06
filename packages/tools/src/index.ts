@@ -113,8 +113,64 @@ export const tlsInspect = tool(
   z.object({ target: hostIp, port: port.default(443), servername: hostname.optional(), timeoutMs }),
 );
 
+// --- Discovery and diagnostics ------------------------------------------------------------
+// Credentials are passed as secret:<name> handles. The gate checks the agent's grant and the secret's
+// host/tool scope, substitutes the value for the toolbox, and scrubs it from the result.
+const secretHandle = z
+  .string()
+  .min(1)
+  .max(4096)
+  .describe("A stored secret, written as secret:<name>. Never a literal password or key.");
+
+export const unifiClients = tool(
+  { name: "unifi_clients", class: "read", targetArgs: ["controller"], secretArgs: ["apiKey"] },
+  "List the clients a UniFi console knows about (its official local API): IP, MAC, name, wired or Wi-Fi, and when each " +
+    "connected. The best way to name devices and learn their MACs. Needs an API key stored as a secret. Results are added " +
+    "to the inventory.",
+  z.object({
+    controller: hostIp.describe("The UniFi console or gateway, e.g. 10.0.0.1"),
+    apiKey: secretHandle,
+    port: port.default(443),
+    site: z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[A-Za-z0-9_-]+$/)
+      .default("default")
+      .describe("Site name (internalReference), usually 'default'"),
+    timeoutMs,
+  }),
+);
+
+export const snmpQuery = tool(
+  { name: "snmp_query", class: "read", targetArgs: ["target"], secretArgs: ["community"] },
+  "Read standard SNMP (v2c) data from a device. Presets: 'system' (description, name, uptime, location), 'interfaces' " +
+    "(names, status, speed, traffic counters), 'lldp_neighbors' (what each port is plugged into), 'storage' (disks and " +
+    "memory). The community string must be a stored secret.",
+  z.object({
+    target: hostIp,
+    community: secretHandle,
+    preset: z.enum(["system", "interfaces", "lldp_neighbors", "storage"]),
+    timeoutMs,
+  }),
+);
+
+export const traceroute = tool(
+  { name: "traceroute", class: "read", targetArgs: ["target"] },
+  "Trace the network path to a host: each hop's address and round-trip time, to find where latency or loss starts. " +
+    "The target must be in an allowed network (add e.g. 1.1.1.1/32 to trace towards the internet).",
+  z.object({ target: hostIp, maxHops: z.number().int().min(1).max(30).default(20) }),
+);
+
+export const nameLookup = tool(
+  { name: "name_lookup", class: "read", targetArgs: ["targets"] },
+  "Ask devices their own names with unicast NetBIOS, mDNS (Bonjour) and UPnP queries. Finds names for PCs, printers, " +
+    "TVs, speakers and IoT devices that DNS doesn't know. Names found are added to the inventory.",
+  z.object({ targets: z.array(ipOrCidr).min(1).max(8).describe("IPs or small CIDRs (at most /24)") }),
+);
+
 export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
-  [nmapScan, arpScan, ping, dnsLookup, wakeOnLan, tcpConnect, httpProbe, tlsInspect].map((t) => [t.manifest.name, t as unknown as ToolDefinition]),
+  [nmapScan, arpScan, ping, dnsLookup, wakeOnLan, tcpConnect, httpProbe, tlsInspect, unifiClients, snmpQuery, traceroute, nameLookup].map((t) => [t.manifest.name, t as unknown as ToolDefinition]),
 );
 
 /** The JSON Schema handed to the LLM for a tool's input. */
@@ -132,6 +188,50 @@ export function parseToolArgs(def: ToolDefinition, raw: unknown): ParsedArgs {
 }
 
 // --- Result shapes returned by the toolbox ------------------------------------------------
+
+export interface UnifiClient {
+  ip?: string;
+  mac?: string;
+  name?: string;
+  type?: string;
+  connectedAt?: string;
+  uplinkDevice?: string;
+}
+
+export interface UnifiClientsResult {
+  site: string;
+  /** Inventory-shaped hosts (only clients with an IP), so they are added to the inventory. */
+  hosts: { ip: string; mac?: string; hostnames: string[]; status: "up" }[];
+  clients: UnifiClient[];
+}
+
+export interface SnmpResult {
+  target: string;
+  preset: string;
+  values: Record<string, string>;
+  rows?: Record<string, string>[];
+}
+
+export interface TracerouteResult {
+  target: string;
+  reached: boolean;
+  hops: { hop: number; ip: string | null; rttMs: number | null }[];
+}
+
+export interface NameLookupHost {
+  ip: string;
+  netbiosName?: string;
+  netbiosUser?: string;
+  mac?: string;
+  mdnsServices?: string[];
+  upnp?: { server?: string; friendlyName?: string; manufacturer?: string; model?: string };
+}
+
+export interface NameLookupResult {
+  /** Inventory-shaped hosts (only hosts that answered with a name), so names reach the inventory. */
+  hosts: { ip: string; mac?: string; hostnames: string[]; status: "up" }[];
+  found: NameLookupHost[];
+}
 
 export interface ScannedPort {
   protocol: "tcp" | "udp";
