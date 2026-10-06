@@ -1,10 +1,11 @@
 // Executes built-in tools. Binaries are invoked with execFile and fixed argument lists:
 // no shell, and every user-supplied value has already passed strict schema validation.
 import { contains, parseRange } from "@moss/policy";
-import { BUILT_IN_TOOLS, customHttp as customHttpTool, parseToolArgs, type RenderedRequest } from "@moss/tools";
+import { BUILT_IN_TOOLS, customHttp as customHttpTool, parseToolArgs, SYSTEM_TOOLS, type RenderedRequest } from "@moss/tools";
 import * as actions from "./actions.js";
 import { configBackup, type BackupArgs } from "./backups.js";
 import { customHttp, sendRequest, type RawRequest } from "./custom-http.js";
+import { homeassistantDevices, homeassistantHealth, homeassistantLogs, homeassistantNotify, homeassistantPublish } from "./home-assistant.js";
 import { adguardStats, HomelabError, homeassistantStates, piholeSummary, proxmoxStatus, synologyStatus, truenasStatus } from "./homelab.js";
 import { diskUsage, dockerPs, hostFacts, ServerError, serviceStatus, sshRun, type SshRun, type SshTarget } from "./servers.js";
 import { execFile } from "node:child_process";
@@ -150,8 +151,8 @@ async function runToolInner(
   send: RawRequest,
   ssh: SshRun,
 ): Promise<unknown> {
-  // custom_http is internal: only the gate sends it, with a request it rendered after the policy allowed it.
-  const def = name === "custom_http" ? customHttpTool : BUILT_IN_TOOLS.get(name);
+  // custom_http and the system tools are internal: only the gate sends them, for a call it already allowed.
+  const def = name === "custom_http" ? customHttpTool : (BUILT_IN_TOOLS.get(name) ?? SYSTEM_TOOLS.get(name));
   if (!def) throw new ToolError(`Unknown tool ${name}`);
   const parsed = parseToolArgs(def, rawArgs);
   if (!parsed.ok) throw new ToolError(`Invalid arguments: ${parsed.error}`);
@@ -269,6 +270,19 @@ async function runToolInner(
       if (name === "homeassistant_states") return homeassistantStates(a, send);
       if (name === "pihole_summary") return piholeSummary(a, send);
       return adguardStats(a, send);
+    }
+    case "homeassistant_health":
+    case "homeassistant_logs":
+    case "homeassistant_devices":
+    case "homeassistant_notify":
+    case "homeassistant_publish": {
+      assertHost(args.target as string);
+      const a = args as never;
+      if (name === "homeassistant_health") return homeassistantHealth(a, send);
+      if (name === "homeassistant_logs") return homeassistantLogs(a, send);
+      if (name === "homeassistant_devices") return homeassistantDevices(a, send);
+      if (name === "homeassistant_notify") return homeassistantNotify(a, send);
+      return homeassistantPublish(a, send);
     }
     case "config_backup": {
       assertHost(args.target as string);

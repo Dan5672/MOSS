@@ -272,6 +272,36 @@ export const homeassistantStates = tool(
   }),
 );
 
+const haConnection = {
+  ...apiCommon,
+  token: secretHandle.describe("A Home Assistant long-lived access token stored as a secret"),
+  port: port.default(8123),
+  scheme: z.enum(["http", "https"]).default("http"),
+};
+
+export const homeassistantHealth = tool(
+  { name: "homeassistant_health", class: "read", targetArgs: ["target"], secretArgs: ["token"] },
+  "Check Home Assistant's own health: its version, integrations that failed to load, pending updates, and entities that are unavailable.",
+  z.object(haConnection),
+);
+
+export const homeassistantLogs = tool(
+  { name: "homeassistant_logs", class: "read", targetArgs: ["target"], secretArgs: ["token"] },
+  "Summarise Home Assistant's error log: counts by level, the most repeated problems grouped by integration (with first and last " +
+    "time seen), and the latest errors. Use it to spot new, growing or unusual problems.",
+  z.object({
+    ...haConnection,
+    sinceHours: z.number().int().min(1).max(168).default(24).describe("Only entries from the last this many hours"),
+    minLevel: z.enum(["WARNING", "ERROR"]).default("WARNING"),
+  }),
+);
+
+export const homeassistantDevices = tool(
+  { name: "homeassistant_devices", class: "read", targetArgs: ["target"], secretArgs: ["token"] },
+  "List the devices Home Assistant knows: name, room (area), manufacturer and model, and any MAC and IP addresses it has for them.",
+  z.object({ ...haConnection, limit: z.number().int().min(1).max(1000).default(500) }),
+);
+
 export const piholeSummary = tool(
   { name: "pihole_summary", class: "read", targetArgs: ["target"], secretArgs: ["password"] },
   "Read Pi-hole (v6) statistics: queries today, how many were blocked, active clients, and the busiest clients.",
@@ -505,6 +535,9 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     truenasStatus,
     synologyStatus,
     homeassistantStates,
+    homeassistantHealth,
+    homeassistantLogs,
+    homeassistantDevices,
     piholeSummary,
     adguardStats,
     serviceRestart,
@@ -521,6 +554,51 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     unifiWlanEnable,
     configBackup,
   ].map((t) => [t.manifest.name, t as unknown as ToolDefinition]),
+);
+
+// --- System tools ---------------------------------------------------------------------------
+// Called only by MOSS itself (through the gate, for an enabled module), never by an agent: they are not
+// in BUILT_IN_TOOLS, so the gate can't grant them, list them or run them for an agent.
+
+/** Home Assistant's notify services, e.g. mobile_app_pixel_8. */
+const notifyService = z.string().regex(/^[a-z0-9_]{1,64}$/, "A notify service name, e.g. mobile_app_pixel_8");
+
+export const homeassistantNotify = tool(
+  { name: "homeassistant_notify", class: "write", targetArgs: ["target"], secretArgs: ["token"] },
+  "Send a notification through a Home Assistant notify service (for example the companion app on a phone).",
+  z.object({
+    ...haConnection,
+    service: notifyService,
+    title: z.string().min(1).max(120),
+    message: z.string().min(1).max(1000),
+    /** A path in MOSS the notification opens, e.g. /incidents/<id>. */
+    url: z.string().max(500).regex(/^https?:\/\/[^\s]+$/).optional(),
+  }),
+);
+
+/** MOSS's own entities in Home Assistant. Nothing else can be written. */
+const mossEntity = z.string().regex(/^(sensor|binary_sensor)\.moss_[a-z0-9_]{1,40}$/,"Only sensor.moss_* or binary_sensor.moss_* entities");
+
+export const homeassistantPublish = tool(
+  { name: "homeassistant_publish", class: "write", targetArgs: ["target"], secretArgs: ["token"] },
+  "Set the state of MOSS's own sensor.moss_* / binary_sensor.moss_* entities in Home Assistant.",
+  z.object({
+    ...haConnection,
+    states: z
+      .array(
+        z.object({
+          entity: mossEntity,
+          state: z.string().max(64),
+          attributes: z.record(z.string().regex(/^[a-z_]{1,32}$/), z.union([z.string().max(200), z.number(), z.boolean()])).default({}),
+        }),
+      )
+      .min(1)
+      .max(10),
+  }),
+);
+
+export const SYSTEM_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
+  [homeassistantNotify, homeassistantPublish].map((t) => [t.manifest.name, t as unknown as ToolDefinition]),
 );
 
 /** The JSON Schema handed to the LLM for a tool's input. */
@@ -668,3 +746,4 @@ export interface DnsLookupResult {
   answers: string[];
 }
 export * from "./custom.js";
+export * from "./home-assistant.js";

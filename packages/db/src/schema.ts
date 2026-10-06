@@ -590,7 +590,7 @@ export const monitorSources = pgTable("monitor_sources", {
   id: id(),
   ...tenancy(),
   name: text("name").notNull(),
-  kind: text("kind", { enum: ["uptime_kuma", "beszel", "alertmanager", "generic"] }).notNull(),
+  kind: text("kind", { enum: ["uptime_kuma", "beszel", "alertmanager", "generic", "home_assistant"] }).notNull(),
   /** sha256 of the bearer token; the token itself is shown once on creation. */
   tokenHash: text("token_hash").notNull(),
   /** Applied to monitors this source creates; editable per monitor afterwards. */
@@ -801,6 +801,24 @@ export const notifications = pgTable("notifications", {
   readAt: timestamp("read_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Optional modules (e.g. Home Assistant). `config` is what people set and is validated by the core
+ * service on every read; `state` is what MOSS records while running the module (last sync, last remedy...).
+ */
+export const modules = pgTable(
+  "modules",
+  {
+    orgId: uuid("org_id").notNull(),
+    key: text("key").notNull(),
+    enabled: boolean("enabled").notNull().default(false),
+    config: jsonb("config").$type<Record<string, unknown>>().notNull().default({}),
+    state: jsonb("state").$type<Record<string, unknown>>().notNull().default({}),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.orgId, t.key] })],
+);
 
 export const settings = pgTable(
   "settings",

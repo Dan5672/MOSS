@@ -109,10 +109,13 @@ export interface NewChange {
   assetIds?: string[];
   windowStart?: Date;
   windowEnd?: Date;
+  /** A change MOSS raises (system actor) for an agent to execute, e.g. the Home Assistant module's self-heal. */
+  forAgentId?: string;
 }
 
 export async function createChangeRequest(db: Database, orgId: string, input: NewChange, actor: Actor, opts: ChangeOptions = {}) {
   if (input.windowStart && input.windowEnd && input.windowEnd <= input.windowStart) throw new ChangeError("The window must end after it starts");
+  if (input.forAgentId && actor.type !== "system") throw new ChangeError("Only MOSS itself raises changes for an agent");
 
   let planned = input.plannedCalls ?? [];
   let risk = input.risk ?? "medium";
@@ -164,7 +167,7 @@ export async function createChangeRequest(db: Database, orgId: string, input: Ne
         standardTemplateKey: input.standardTemplateKey ?? null,
         incidentId: input.incidentId ?? null,
         requestedByUserId: actor.type === "user" ? actor.id : null,
-        requestedByAgentId: actor.type === "agent" ? actor.id : null,
+        requestedByAgentId: actor.type === "agent" ? actor.id : (input.forAgentId ?? null),
         windowStart: input.windowStart ?? null,
         windowEnd: input.windowEnd ?? null,
         postReviewRequired,

@@ -75,7 +75,8 @@ export type DenyCode =
   | "call_not_in_change_plan"
   | "secret_not_granted"
   | "secret_scope"
-  | "secret_required";
+  | "secret_required"
+  | "module_disabled";
 
 export type PolicyDecision =
   | { allow: true; targets: string[]; secretHandles: string[] }

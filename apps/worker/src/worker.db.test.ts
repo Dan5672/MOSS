@@ -74,6 +74,7 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
       "change-management",
       "config-backups",
       "device-power",
+      "home-assistant",
       "home-dns-actions",
       "homelab-integrations",
       "incident-management",

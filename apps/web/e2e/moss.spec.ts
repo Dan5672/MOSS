@@ -534,6 +534,53 @@ test("monitoring: an Uptime Kuma alert raises an incident for the responder agen
   await expect(page.getByText("Monitors down")).toBeVisible();
 });
 
+test("modules: Home Assistant is connected, tested, switched on, and fills in the inventory", async () => {
+  await page.goto("/settings/modules");
+  await expect(page.getByText("Not set up.")).toBeVisible();
+  await page.getByRole("link", { name: "Set up" }).click();
+  await expect(page.getByRole("heading", { name: "Home Assistant", exact: true })).toBeVisible();
+
+  const connection = page.locator("#connection");
+  await connection.getByLabel("Address", { exact: true }).fill("192.168.50.20");
+  await connection.getByLabel("Access token").fill("e2e-long-lived-access-token-0123456789");
+  await connection.getByRole("button", { name: "Save connection" }).click();
+  await expect(page.getByText("Saved the connection and the token.")).toBeVisible();
+  // The token is never shown again, only that one is stored.
+  await expect(connection.getByLabel("Access token")).toHaveValue("");
+  await expect(connection.getByLabel("Access token")).toHaveAttribute("placeholder", /^Stored/);
+
+  // Testing works before the module is on.
+  await connection.getByRole("button", { name: "Test connection" }).click();
+  await expect(page.getByText("Connected to Home Assistant 2026.9.2 (Home): 42 entities. All integrations loaded.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Switch module on" }).click();
+  await expect(page.getByText("Home Assistant module switched on.")).toBeVisible();
+
+  // Alerts: a webhook source with a token shown once, and the rest_command to paste.
+  const alerts = page.locator("#alerts");
+  await alerts.getByLabel("Alerts from Home Assistant automations").check();
+  await alerts.getByRole("button", { name: "Save alerts and health checks" }).click();
+  await expect(alerts.getByText("This is the only time the webhook token is shown.")).toBeVisible();
+  await expect(alerts.getByText(/rest_command:\s+moss_alert:/)).toBeVisible();
+  await expect(alerts.getByText(/\/api\/hooks\/monitoring\/[0-9a-f-]{36}/).first()).toBeVisible();
+
+  const inventory = page.locator("#inventory");
+  await inventory.getByLabel("Sync the inventory from Home Assistant").check();
+  await inventory.getByRole("button", { name: "Save inventory sync" }).click();
+  await expect(page.getByText("Inventory sync switched on")).toBeVisible();
+  await inventory.getByRole("button", { name: "Sync now" }).click();
+  await expect(page.getByText("Matched 0 device(s) to the inventory, added 1, skipped 0 with no address on an allowed network.")).toBeVisible();
+  await page.goto("/assets");
+  await expect(page.getByRole("link", { name: "Living room TV" })).toBeVisible();
+
+  await page.goto("/settings/modules");
+  await expect(page.getByText("Using: alerts, inventory sync.")).toBeVisible();
+  await page.getByRole("link", { name: "Configure" }).click();
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Switch module off" }).click();
+  await expect(page.getByText("Home Assistant module switched off")).toBeVisible();
+});
+
 test("settings: the kill switch stops agents and shows everywhere", async () => {
   await page.goto("/settings");
   await page.getByRole("button", { name: "Turn on" }).first().click();
@@ -597,6 +644,8 @@ test("users: a viewer can look but not approve or manage", async () => {
   await page.goto("/monitoring");
   await expect(page.getByRole("link", { name: "NAS web" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add monitor" })).toHaveCount(0);
+  await page.goto("/settings/modules/home-assistant");
+  await expect(page.getByText("You don't have permission to view this page.")).toBeVisible();
 });
 
 test("basement: shows every agent at a desk or on a break, as a scene and as a list", async () => {

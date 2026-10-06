@@ -15,7 +15,7 @@ import { NewSourceForm } from "./new-source-form";
 
 export const metadata = { title: "Webhook sources" };
 
-const KIND_LABEL: Record<string, string> = { uptime_kuma: "Uptime Kuma", beszel: "Beszel", alertmanager: "Alertmanager", generic: "Generic JSON" };
+const KIND_LABEL: Record<string, string> = { uptime_kuma: "Uptime Kuma", beszel: "Beszel", alertmanager: "Alertmanager", generic: "Generic JSON", home_assistant: "Home Assistant (module)" };
 
 /** The address this browser used to reach MOSS, so the webhook URL is one that resolves on the LAN. */
 async function baseUrl(): Promise<string> {

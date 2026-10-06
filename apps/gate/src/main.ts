@@ -3,6 +3,7 @@ import { createDb } from "@moss/db";
 import { readFileSync } from "node:fs";
 import { createLlmProxy } from "./llm-proxy.js";
 import { readBackup } from "./backups.js";
+import { moduleManagerOrg } from "./home-assistant.js";
 import { writeSecret } from "./secrets-api.js";
 import { buildGateServer } from "./server.js";
 import { createGate } from "./service.js";
@@ -33,6 +34,7 @@ const app = buildGateServer(gate, {
     token: secretFromEnv("WEB_TOKEN"),
     write: (input) => writeSecret(db, masterKey, input),
     readBackup: (backupId, userId) => readBackup(db, masterKey, backupId, userId),
+    userOrg: (userId) => moduleManagerOrg(db, userId),
   },
   logger: true,
 });

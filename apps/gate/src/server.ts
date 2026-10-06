@@ -1,6 +1,6 @@
 // Gate HTTP API. Two callers, two tokens, disjoint routes:
-//   worker (GATE_TOKEN): tool calls, tool listing, monitor checks, LLM proxy
-//   web    (WEB_TOKEN):  write-only secrets API, config backup downloads
+//   worker (GATE_TOKEN): tool calls, tool listing, monitor checks, module calls, LLM proxy
+//   web    (WEB_TOKEN):  write-only secrets API, config backup downloads, a person's module calls (/v1/web/...)
 import Fastify from "fastify";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { Readable } from "node:stream";
@@ -8,6 +8,7 @@ import type { ReadableStream as NodeWebStream } from "node:stream/web";
 import { z } from "zod";
 import type { LlmProxy } from "./llm-proxy.js";
 import { secretWriteSchema, type SecretWrite } from "./secrets-api.js";
+import { HA_OPS, type HaOp } from "./home-assistant.js";
 import type { Gate } from "./service.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -25,6 +26,8 @@ export interface GateServerOptions {
     write: (input: SecretWrite) => Promise<{ id: string; created: boolean }>;
     /** Decrypts a config backup for a person's download (audited by the callee). */
     readBackup?: (backupId: string, userId: string) => Promise<{ filename: string; contentType: string; content: Buffer } | null>;
+    /** The org of an active user, for a person's module calls. */
+    userOrg?: (userId: string) => Promise<string | null>;
   };
   logger?: boolean;
 }
@@ -41,7 +44,8 @@ export function buildGateServer(gate: Gate, opts: GateServerOptions) {
     // SDKs send the service token as their "API key": Bearer for OpenAI-style clients, x-api-key for Anthropic.
     const header = req.headers.authorization ?? "";
     const presented = header.startsWith("Bearer ") ? header.slice(7) : req.headers["x-api-key"];
-    const expected = req.url.startsWith("/v1/secrets") || req.url.startsWith("/v1/backups") ? opts.secrets?.token : opts.token;
+    const webRoute = req.url.startsWith("/v1/secrets") || req.url.startsWith("/v1/backups") || req.url.startsWith("/v1/web/");
+    const expected = webRoute ? opts.secrets?.token : opts.token;
     if (typeof presented !== "string" || !expected || !sameToken(presented, expected)) {
       return reply.code(401).send({ error: "unauthorized" });
     }
@@ -73,7 +77,32 @@ export function buildGateServer(gate: Gate, opts: GateServerOptions) {
     });
   }
 
+  // A person's Home Assistant calls from the module page: testing the connection, syncing the inventory now.
+  if (opts.secrets?.userOrg) {
+    const userOrg = opts.secrets.userOrg;
+    app.post<{ Params: { op: string }; Body: { userId?: string } }>("/v1/web/modules/home-assistant/:op", async (req, reply) => {
+      const op = req.params.op as HaOp;
+      if (op !== "test" && op !== "devices") return reply.code(404).send({ error: "unknown operation" });
+      const userId = req.body?.userId;
+      if (!userId || !UUID.test(userId)) return reply.code(400).send({ error: "userId (uuid) is required" });
+      const orgId = await userOrg(userId);
+      if (!orgId) return reply.code(403).send({ error: "unknown or inactive user" });
+      return gate.homeAssistant({ orgId, op, userId });
+    });
+  }
+
   app.get("/v1/health", async () => ({ ok: true }));
+
+  // The worker's Home Assistant calls: health checks, inventory sync, notifications, MOSS's sensors.
+  app.post<{ Params: { op: string }; Body: { orgId?: string; args?: Record<string, unknown> } }>("/v1/modules/home-assistant/:op", async (req, reply) => {
+    const op = req.params.op as HaOp;
+    if (!HA_OPS.includes(op) || op === "test") return reply.code(404).send({ error: "unknown operation" });
+    const orgId = req.body?.orgId;
+    if (!orgId || !UUID.test(orgId)) return reply.code(400).send({ error: "orgId (uuid) is required" });
+    const args = req.body?.args;
+    if (args !== undefined && (typeof args !== "object" || args === null || Array.isArray(args))) return reply.code(400).send({ error: "args must be an object" });
+    return gate.homeAssistant({ orgId, op, args });
+  });
 
   app.get<{ Params: { agentId: string } }>("/v1/agents/:agentId/tools", async (req, reply) => {
     if (!UUID.test(req.params.agentId)) return reply.code(400).send({ error: "invalid agent id" });

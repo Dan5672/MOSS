@@ -15,7 +15,7 @@ const KIND_OPTIONS: { value: Kind; label: string }[] = [
   { value: "generic", label: "Generic JSON (scripts, cron jobs, anything else)" },
 ];
 
-function Snippet({ children }: { children: string }) {
+export function Snippet({ children }: { children: string }) {
   return (
     <div className="relative">
       <pre className="overflow-x-auto rounded-md bg-muted p-3 pr-16 text-xs whitespace-pre-wrap break-all">{children}</pre>

@@ -1,6 +1,6 @@
 // The Policy Gate: the only path from an agent's tool call to the toolbox, and the
 // only component that can decrypt secrets. Every decision is written to the audit log.
-import { decryptSecret, redactSecrets, writeAudit } from "@moss/core";
+import { decryptSecret, isModuleEnabled, moduleForTool, redactSecrets, writeAudit } from "@moss/core";
 import type { Database } from "@moss/db";
 import { checkSecrets, evaluate, extractSecretHandles, parseRange, type DenyCode, type IpRange } from "@moss/policy";
 import {
@@ -15,6 +15,7 @@ import {
 } from "@moss/tools";
 import { storeBackup } from "./backups.js";
 import { loadAgent, loadContext, loadCustomTool, loadCustomTools, loadToolGrants } from "./context.js";
+import { runHomeAssistantOp, type HaOp } from "./home-assistant.js";
 import { runMonitorCheck } from "./monitor-check.js";
 import type { ToolboxClient } from "./toolbox-client.js";
 
@@ -81,6 +82,10 @@ export function createGate(deps: GateDeps) {
     const custom: CustomToolSpec | null = tools.has(req.tool) ? null : await loadCustomTool(deps.db, agent.orgId, req.tool);
     const def = tools.get(req.tool) ?? (custom ? customToolDefinition(custom) : undefined);
     if (!def) return deny("unknown_tool", `Unknown tool ${req.tool}`);
+    const module = moduleForTool(req.tool);
+    if (module && !(await isModuleEnabled(deps.db, agent.orgId, module))) {
+      return deny("module_disabled", `${req.tool} belongs to the ${module.replace("_", " ")} module, which is switched off`);
+    }
     const parsed = parseToolArgs(def, req.args);
     if (!parsed.ok) return deny("invalid_args", parsed.error);
     const args = parsed.args;
@@ -148,16 +153,25 @@ export function createGate(deps: GateDeps) {
   async function listAgentTools(agentId: string) {
     const agent = await loadAgent(deps.db, agentId);
     if (!agent) return [];
-    const [grants, custom] = await Promise.all([loadToolGrants(deps.db, agentId), loadCustomTools(deps.db, agent.orgId)]);
+    const [grants, custom, haOn] = await Promise.all([
+      loadToolGrants(deps.db, agentId),
+      loadCustomTools(deps.db, agent.orgId),
+      isModuleEnabled(deps.db, agent.orgId, "home_assistant"),
+    ]);
     return [...tools.values(), ...custom.filter((c) => !tools.has(c.key)).map(customToolDefinition)]
       .filter((d) => grants.has(d.manifest.name))
+      .filter((d) => moduleForTool(d.manifest.name) !== "home_assistant" || haOn)
       .map((d) => ({ name: d.manifest.name, class: d.manifest.class, description: d.description, inputSchema: toolInputSchema(d) }));
   }
 
   /** Runs one monitor's check; the gate reads the monitor itself, the caller only names it. */
   const checkMonitor = (monitorId: string) => runMonitorCheck({ db: deps.db, toolbox: deps.toolbox, tools }, monitorId);
 
-  return { handleToolCall, listAgentTools, checkMonitor };
+  /** A call MOSS makes for the Home Assistant module; the gate reads the module's config itself. */
+  const homeAssistant = (req: { orgId: string; op: HaOp; args?: Record<string, unknown>; userId?: string }) =>
+    runHomeAssistantOp({ db: deps.db, masterKey: deps.masterKey, toolbox: deps.toolbox }, req);
+
+  return { handleToolCall, listAgentTools, checkMonitor, homeAssistant };
 }
 
 export type Gate = ReturnType<typeof createGate>;
