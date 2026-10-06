@@ -72,6 +72,7 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
     expect(rows.map((s) => s.key).sort()).toEqual([
       "asset-inventory",
       "change-management",
+      "config-backups",
       "device-power",
       "home-dns-actions",
       "homelab-integrations",

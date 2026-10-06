@@ -694,6 +694,28 @@ export const secrets = pgTable(
   (t) => [uniqueIndex("secrets_org_name_idx").on(t.orgId, t.name)],
 );
 
+// Device configuration backups taken by the config_backup tool. The content is encrypted by the gate with
+// the master key (envelope encryption, like secrets) and only the gate can decrypt it, for a download.
+export const configBackups = pgTable(
+  "config_backups",
+  {
+    id: id(),
+    ...tenancy(),
+    target: text("target").notNull(),
+    source: text("source", { enum: ["ssh_file", "pihole"] }).notNull(),
+    filename: text("filename").notNull(),
+    contentType: text("content_type").notNull(),
+    bytes: integer("bytes").notNull(),
+    sha256: text("sha256").notNull(),
+    ciphertext: text("ciphertext").notNull(),
+    wrappedDataKey: text("wrapped_data_key").notNull(),
+    agentId: uuid("agent_id").references(() => agents.id, { onDelete: "set null" }),
+    runId: uuid("run_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("config_backups_org_idx").on(t.orgId, t.target, t.source, t.createdAt)],
+);
+
 export const secretGrants = pgTable(
   "secret_grants",
   {

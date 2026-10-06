@@ -1,6 +1,6 @@
 // Gate HTTP API. Two callers, two tokens, disjoint routes:
 //   worker (GATE_TOKEN): tool calls, tool listing, monitor checks, LLM proxy
-//   web    (WEB_TOKEN):  write-only secrets API
+//   web    (WEB_TOKEN):  write-only secrets API, config backup downloads
 import Fastify from "fastify";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { Readable } from "node:stream";
@@ -20,7 +20,12 @@ export interface GateServerOptions {
   token: string;
   llmProxy?: LlmProxy;
   /** Enables the secrets API, authenticated with its own token. */
-  secrets?: { token: string; write: (input: SecretWrite) => Promise<{ id: string; created: boolean }> };
+  secrets?: {
+    token: string;
+    write: (input: SecretWrite) => Promise<{ id: string; created: boolean }>;
+    /** Decrypts a config backup for a person's download (audited by the callee). */
+    readBackup?: (backupId: string, userId: string) => Promise<{ filename: string; contentType: string; content: Buffer } | null>;
+  };
   logger?: boolean;
 }
 
@@ -36,7 +41,7 @@ export function buildGateServer(gate: Gate, opts: GateServerOptions) {
     // SDKs send the service token as their "API key": Bearer for OpenAI-style clients, x-api-key for Anthropic.
     const header = req.headers.authorization ?? "";
     const presented = header.startsWith("Bearer ") ? header.slice(7) : req.headers["x-api-key"];
-    const expected = req.url.startsWith("/v1/secrets") ? opts.secrets?.token : opts.token;
+    const expected = req.url.startsWith("/v1/secrets") || req.url.startsWith("/v1/backups") ? opts.secrets?.token : opts.token;
     if (typeof presented !== "string" || !expected || !sameToken(presented, expected)) {
       return reply.code(401).send({ error: "unauthorized" });
     }
@@ -52,6 +57,19 @@ export function buildGateServer(gate: Gate, opts: GateServerOptions) {
       } catch (err) {
         return reply.code(400).send({ error: (err as Error).message });
       }
+    });
+  }
+
+  if (opts.secrets?.readBackup) {
+    const readBackup = opts.secrets.readBackup;
+    app.get<{ Params: { id: string }; Querystring: { userId?: string } }>("/v1/backups/:id", async (req, reply) => {
+      const { id } = req.params;
+      const userId = req.query.userId;
+      if (!UUID.test(id) || !userId || !UUID.test(userId)) return reply.code(400).send({ error: "backup id and userId (uuids) are required" });
+      const backup = await readBackup(id, userId);
+      if (!backup) return reply.code(404).send({ error: "no such backup" });
+      const safeName = backup.filename.replace(/[^A-Za-z0-9._-]/g, "_");
+      return reply.header("content-type", backup.contentType).header("content-disposition", `attachment; filename="${safeName}"`).send(backup.content);
     });
   }
 

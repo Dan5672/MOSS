@@ -9,6 +9,8 @@ dbUrl.pathname = `${dbUrl.pathname}_web_e2e`;
 const PORT = 3107;
 export const E2E_GATE_PORT = 3108;
 export const E2E_WEB_TOKEN = "e2e-web-token-for-the-stand-in-gate-0000";
+/** The stand-in gate's master key (hex), so tests can seed encrypted rows it can open. */
+export const E2E_MASTER_KEY_HEX = "22".repeat(32);
 
 export default defineConfig({
   testDir: "./e2e",

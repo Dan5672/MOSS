@@ -1,9 +1,10 @@
 // One story through the UI, in order: a new owner sets MOSS up and runs their IT department.
-import { createChangeRequest, dispatchEvents, handleMonitorDown, handleMonitorUp, totpCode } from "@moss/core";
-import { agents, createDb, type Database } from "@moss/db";
+import { createChangeRequest, dispatchEvents, encryptSecret, handleMonitorDown, handleMonitorUp, parseMasterKey, totpCode } from "@moss/core";
+import { agents, configBackups, createDb, type Database } from "@moss/db";
 import { expect, test, type Page } from "@playwright/test";
 import { eq } from "drizzle-orm";
-import { E2E_DATABASE_URL } from "../playwright.config";
+import { randomUUID } from "node:crypto";
+import { E2E_DATABASE_URL, E2E_MASTER_KEY_HEX } from "../playwright.config";
 
 test.describe.configure({ mode: "serial" });
 
@@ -265,6 +266,42 @@ test("agents: custom tools are uploaded as definitions, validated, granted and s
   page.once("dialog", (d) => d.accept());
   await card.getByRole("button", { name: "Delete" }).click();
   await expect(page.getByText("Deleted plex_sessions.")).toBeVisible();
+});
+
+test("settings: config backups are listed, downloaded through the gate, and deleted", async () => {
+  // Seed one backup the way the gate stores them: encrypted under the master key.
+  const db = createDb(E2E_DATABASE_URL);
+  const [nina] = await db.select().from(agents).where(eq(agents.name, "Nina"));
+  const id = randomUUID();
+  const content = "upstreams = ['1.1.1.1']\n";
+  await db.insert(configBackups).values({
+    id,
+    orgId: nina!.orgId,
+    target: "192.168.50.53",
+    source: "ssh_file",
+    filename: "pihole.toml",
+    contentType: "application/octet-stream",
+    bytes: content.length,
+    sha256: "a".repeat(64),
+    agentId: nina!.id,
+    ...encryptSecret(parseMasterKey(Buffer.from(E2E_MASTER_KEY_HEX)), `backup:${id}`, Buffer.from(content).toString("base64")),
+  });
+  await db.$client.end();
+
+  await page.goto("/settings");
+  await page.getByRole("link", { name: "Backups" }).click();
+  const row = page.getByRole("row", { name: /pihole\.toml/ });
+  await expect(row).toContainText("192.168.50.53");
+  await expect(row).toContainText("Nina");
+  const href = await row.getByRole("link", { name: "Download" }).getAttribute("href");
+  const res = await page.request.get(href!);
+  expect(res.status()).toBe(200);
+  expect(await res.text()).toBe(content);
+  expect(res.headers()["content-disposition"]).toContain("pihole.toml");
+
+  page.once("dialog", (d) => d.accept());
+  await row.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByText("Deleted the backup of pihole.toml.")).toBeVisible();
 });
 
 test("agents: hire a custom agent with chosen skills", async () => {

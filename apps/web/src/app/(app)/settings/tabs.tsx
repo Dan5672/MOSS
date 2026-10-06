@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 const TABS = [
   { href: "/settings", label: "General" },
   { href: "/settings/secrets", label: "Secrets" },
+  { href: "/settings/backups", label: "Backups" },
 ] as const;
 
 /** Sub-navigation for the Settings section. */

@@ -4,6 +4,7 @@ import {
   agents,
   agentSkills,
   auditLog,
+  configBackups,
   customToolGrants,
   customTools,
   budgets,
@@ -23,6 +24,7 @@ import { desc, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
+import { BACKUPS_KEPT, readBackup } from "./backups.js";
 import { buildGateServer } from "./server.js";
 import { createGate, type Gate } from "./service.js";
 import type { ToolboxClient } from "./toolbox-client.js";
@@ -307,6 +309,54 @@ describe.skipIf(!TEST_DATABASE_URL)("policy gate (postgres)", () => {
     expect(await gate.handleToolCall({ agentId, tool: "nas_restart_app", args: { host: "192.168.1.31" }, changeId: cr.id })).toMatchObject({ code: "call_not_in_change_plan" });
     expect(await gate.handleToolCall({ agentId, tool: "nas_restart_app", args: { host: "192.168.1.30" }, changeId: cr.id })).toMatchObject({ allowed: true, ok: true });
     expect(toolboxCalls).toEqual([{ tool: "custom_http", args: expect.objectContaining({ target: "192.168.1.30", method: "POST", path: "/api/restart" }) }]);
+  });
+
+  it("stores config backups encrypted, returns only metadata, and decrypts them for an audited download", async () => {
+    const pwId = randomUUID();
+    await db.insert(secrets).values({ id: pwId, orgId, name: "pihole-pw", type: "password", allowedHosts: ["192.168.1.40"], allowedTools: ["config_backup"], ...encryptSecret(masterKey, pwId, "pi-pw") });
+    await db.insert(secretGrants).values({ secretId: pwId, agentId });
+    await db.update(skills).set({ toolGrants: ["nmap_scan", "ping", "snmp_get", "restart_service", "config_backup"] }).where(eq(skills.orgId, orgId));
+
+    const CONFIG = "[dns]\nupstreams = ['1.1.1.1']\nwebpassword = 'hash-abc'\n";
+    const file = (content: string) => ({
+      source: "pihole",
+      target: "192.168.1.40",
+      filename: "pihole-teleporter-192.168.1.40.zip",
+      contentType: "application/zip",
+      bytes: content.length,
+      sha256: "f".repeat(64),
+      contentBase64: Buffer.from(content).toString("base64"),
+    });
+    toolboxReply = () => file(CONFIG);
+    const res = await gate.handleToolCall({ agentId, tool: "config_backup", args: { target: "192.168.1.40", source: "pihole", password: "secret:pihole-pw" } });
+    expect(res).toMatchObject({ allowed: true, ok: true, result: { stored: true, filename: "pihole-teleporter-192.168.1.40.zip", bytes: CONFIG.length } });
+    expect(JSON.stringify(res)).not.toContain(Buffer.from(CONFIG).toString("base64"));
+    expect(JSON.stringify(await lastAudit())).not.toContain("hash-abc");
+
+    const backupId = (res as { result: { backupId: string } }).result.backupId;
+    const [row] = await db.select().from(configBackups).where(eq(configBackups.id, backupId));
+    expect(row!.ciphertext).not.toContain(Buffer.from(CONFIG).toString("base64"));
+    expect(row).toMatchObject({ orgId, agentId, target: "192.168.1.40", source: "pihole" });
+
+    // Download through the web-token route; it's audited, and only for users in the backup's org.
+    const [owner] = await db.select().from(agents).where(eq(agents.id, agentId));
+    const { users } = await import("@moss/db");
+    const [user] = await db.select().from(users).where(eq(users.orgId, owner!.orgId));
+    const webToken = "w".repeat(40);
+    const server = buildGateServer(gate, { token: "g".repeat(40), secrets: { token: webToken, write: async () => ({ id: "x", created: true }), readBackup: (id, uid) => readBackup(db, masterKey, id, uid) } });
+    const dl = await server.inject({ method: "GET", url: `/v1/backups/${backupId}?userId=${user!.id}`, headers: { authorization: `Bearer ${webToken}` } });
+    expect(dl.statusCode).toBe(200);
+    expect(dl.body).toBe(CONFIG);
+    expect(dl.headers["content-disposition"]).toBe('attachment; filename="pihole-teleporter-192.168.1.40.zip"');
+    expect(await lastAudit()).toMatchObject({ action: "backup.download", actorId: user!.id, targetId: backupId });
+    expect((await server.inject({ method: "GET", url: `/v1/backups/${backupId}?userId=${user!.id}`, headers: { authorization: `Bearer ${"g".repeat(40)}` } })).statusCode).toBe(401);
+    expect((await server.inject({ method: "GET", url: `/v1/backups/${backupId}?userId=${randomUUID()}`, headers: { authorization: `Bearer ${webToken}` } })).statusCode).toBe(404);
+
+    // Only the newest backups per device, source and file are kept.
+    for (let i = 0; i < BACKUPS_KEPT + 2; i++) {
+      await gate.handleToolCall({ agentId, tool: "config_backup", args: { target: "192.168.1.40", source: "pihole", password: "secret:pihole-pw" } });
+    }
+    expect(await db.select().from(configBackups).where(eq(configBackups.target, "192.168.1.40"))).toHaveLength(BACKUPS_KEPT);
   });
 
   it("leaves an intact audit chain", async () => {

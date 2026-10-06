@@ -3,6 +3,7 @@
 import { contains, parseRange } from "@moss/policy";
 import { BUILT_IN_TOOLS, customHttp as customHttpTool, parseToolArgs, type RenderedRequest } from "@moss/tools";
 import * as actions from "./actions.js";
+import { configBackup, type BackupArgs } from "./backups.js";
 import { customHttp, sendRequest, type RawRequest } from "./custom-http.js";
 import { adguardStats, HomelabError, homeassistantStates, piholeSummary, proxmoxStatus, synologyStatus, truenasStatus } from "./homelab.js";
 import { diskUsage, dockerPs, hostFacts, ServerError, serviceStatus, sshRun, type SshRun, type SshTarget } from "./servers.js";
@@ -268,6 +269,10 @@ async function runToolInner(
       if (name === "homeassistant_states") return homeassistantStates(a, send);
       if (name === "pihole_summary") return piholeSummary(a, send);
       return adguardStats(a, send);
+    }
+    case "config_backup": {
+      assertHost(args.target as string);
+      return configBackup(args as unknown as BackupArgs, ssh, send);
     }
     // Write tools: the gate only sends these as a step of an approved change request.
     case "service_restart":

@@ -9,9 +9,11 @@ import {
   parseToolArgs,
   renderCustomRequest,
   toolInputSchema,
+  type ConfigBackupFile,
   type CustomToolSpec,
   type ToolDefinition,
 } from "@moss/tools";
+import { storeBackup } from "./backups.js";
 import { loadAgent, loadContext, loadCustomTool, loadCustomTools, loadToolGrants } from "./context.js";
 import { runMonitorCheck } from "./monitor-check.js";
 import type { ToolboxClient } from "./toolbox-client.js";
@@ -115,6 +117,15 @@ export function createGate(deps: GateDeps) {
       }
     } catch (err) {
       response = { ok: false, error: `Toolbox unavailable: ${(err as Error).message}` };
+    }
+
+    // A config backup's content is encrypted and stored here; the agent only gets its id, size and hash.
+    if (req.tool === "config_backup" && response.ok && response.result) {
+      try {
+        response.result = await storeBackup(deps.db, deps.masterKey, { orgId: agent.orgId, siteId: agent.siteId, agentId: agent.id, runId: req.runId }, response.result as ConfigBackupFile);
+      } catch (err) {
+        response = { ok: false, error: `Could not store the backup: ${(err as Error).message}`, durationMs: response.durationMs };
+      }
     }
 
     // Scrub any secret value the tool echoed back before it is logged or shown to the agent.

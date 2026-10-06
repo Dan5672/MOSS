@@ -434,6 +434,55 @@ export const unifiWlanEnable = tool(
   z.object({ ...unifiApi, ssid: z.string().min(1).max(32), enabled: z.boolean() }),
 );
 
+// --- Config backups -----------------------------------------------------------------------------
+// Copies a device's configuration into MOSS. The gate encrypts and stores the file and hands the agent
+// only its id, size and hash: configs often contain passwords, so the content never reaches a model.
+/** Config locations a backup may read from; never "..". */
+export const BACKUP_PATH = /^\/(etc|opt|srv|usr\/local\/etc|var\/lib|home\/[A-Za-z0-9._-]+)\/[A-Za-z0-9._/@+-]{1,400}$/;
+
+export const configBackup = tool(
+  { name: "config_backup", class: "read", targetArgs: ["target"], secretArgs: ["key", "password"] },
+  "Back up a device's configuration into MOSS, encrypted. Sources: 'ssh_file' copies one config file over SSH (under /etc, " +
+    "/opt, /srv, /usr/local/etc, /var/lib or a home directory; at most 512 KB); 'pihole' downloads a Pi-hole (v6) Teleporter " +
+    "export. You get back the backup's id, size and SHA-256, never its contents. Take one before changing a device's config.",
+  z
+    .object({
+      target: hostIp,
+      source: z.enum(["ssh_file", "pihole"]),
+      // ssh_file
+      user: sshArgs.user.optional(),
+      key: secretHandle.optional().describe("ssh_file: an SSH private key stored as a secret"),
+      path: z
+        .string()
+        .max(420)
+        .regex(BACKUP_PATH, "A config file path under /etc, /opt, /srv, /usr/local/etc, /var/lib or /home/<user>")
+        .refine((p) => !p.split("/").some((s) => s === ".." || s === "."), "The path may not contain . or .. segments")
+        .optional(),
+      hostKeySha256: sshArgs.hostKeySha256,
+      // pihole
+      password: secretHandle.optional().describe("pihole: the Pi-hole web or app password stored as a secret"),
+      scheme: z.enum(["http", "https"]).optional(),
+      verifyTls: z.boolean().default(false),
+      port: port.optional().describe("Default 22 for ssh_file, 80 for pihole"),
+      timeoutMs,
+    })
+    .superRefine((a, ctx) => {
+      if (a.source === "ssh_file" && (!a.user || !a.key || !a.path)) ctx.addIssue({ code: "custom", message: "ssh_file needs user, key and path" });
+      if (a.source === "pihole" && !a.password) ctx.addIssue({ code: "custom", message: "pihole needs password" });
+    }),
+);
+
+export interface ConfigBackupFile {
+  source: "ssh_file" | "pihole";
+  target: string;
+  filename: string;
+  contentType: string;
+  bytes: number;
+  sha256: string;
+  /** Present only between the toolbox and the gate; the gate stores it and removes it. */
+  contentBase64?: string;
+}
+
 export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
   [
     nmapScan,
@@ -470,6 +519,7 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     unifiClientBlock,
     unifiDhcpReservation,
     unifiWlanEnable,
+    configBackup,
   ].map((t) => [t.manifest.name, t as unknown as ToolDefinition]),
 );
 

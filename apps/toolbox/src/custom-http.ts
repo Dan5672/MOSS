@@ -19,9 +19,9 @@ export interface CustomHttpResult {
   truncated?: boolean;
 }
 
-export type RawRequest = (r: RenderedRequest) => Promise<{ status: number; contentType?: string; body: Buffer; truncated: boolean }>;
+export type RawRequest = (r: RenderedRequest, maxBytes?: number) => Promise<{ status: number; contentType?: string; body: Buffer; truncated: boolean }>;
 
-export const sendRequest: RawRequest = (r) =>
+export const sendRequest: RawRequest = (r, maxBytes = MAX_BODY) =>
   new Promise((resolve, reject) => {
     const send = r.scheme === "https" ? httpsRequest : httpRequest;
     const host = r.target.includes(":") ? `[${r.target}]` : r.target;
@@ -40,9 +40,9 @@ export const sendRequest: RawRequest = (r) =>
         res.on("data", (c: Buffer) => {
           if (truncated) return;
           size += c.length;
-          if (size > MAX_BODY) {
+          if (size > maxBytes) {
             truncated = true;
-            chunks.push(c.subarray(0, c.length - (size - MAX_BODY)));
+            chunks.push(c.subarray(0, c.length - (size - maxBytes)));
             res.destroy();
             resolve({ status: res.statusCode ?? 0, contentType: res.headers["content-type"], body: Buffer.concat(chunks), truncated });
           } else chunks.push(c);
