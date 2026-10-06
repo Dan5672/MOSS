@@ -3,6 +3,8 @@
 import { contains, parseRange } from "@moss/policy";
 import { BUILT_IN_TOOLS, customHttp as customHttpTool, parseToolArgs, type RenderedRequest } from "@moss/tools";
 import { customHttp, sendRequest, type RawRequest } from "./custom-http.js";
+import { adguardStats, HomelabError, homeassistantStates, piholeSummary, proxmoxStatus, synologyStatus, truenasStatus } from "./homelab.js";
+import { diskUsage, dockerPs, hostFacts, ServerError, serviceStatus, sshRun, type SshRun, type SshTarget } from "./servers.js";
 import { execFile } from "node:child_process";
 import { createSocket } from "node:dgram";
 import { promises as dns } from "node:dns";
@@ -126,17 +128,26 @@ export async function runTool(
   interfaces: InterfaceLister = listInterfaces,
   get: HttpGet = httpsGet,
   send: RawRequest = sendRequest,
+  ssh: SshRun = sshRun,
 ): Promise<unknown> {
   try {
-    return await runToolInner(name, rawArgs, exec, interfaces, get, send);
+    return await runToolInner(name, rawArgs, exec, interfaces, get, send, ssh);
   } catch (err) {
-    // Discovery tools report device-side problems (bad key, no answer) as tool errors, not crashes.
-    if (err instanceof DiscoveryError) throw new ToolError(err.message);
+    // Device-side problems (bad key, no answer, wrong port) are tool errors the agent can read, not crashes.
+    if (err instanceof DiscoveryError || err instanceof ServerError || err instanceof HomelabError) throw new ToolError(err.message);
     throw err;
   }
 }
 
-async function runToolInner(name: string, rawArgs: unknown, exec: Exec, interfaces: InterfaceLister, get: HttpGet, send: RawRequest): Promise<unknown> {
+async function runToolInner(
+  name: string,
+  rawArgs: unknown,
+  exec: Exec,
+  interfaces: InterfaceLister,
+  get: HttpGet,
+  send: RawRequest,
+  ssh: SshRun,
+): Promise<unknown> {
   // custom_http is internal: only the gate sends it, with a request it rendered after the policy allowed it.
   const def = name === "custom_http" ? customHttpTool : BUILT_IN_TOOLS.get(name);
   if (!def) throw new ToolError(`Unknown tool ${name}`);
@@ -230,6 +241,32 @@ async function runToolInner(name: string, rawArgs: unknown, exec: Exec, interfac
       } catch (err) {
         throw new ToolError(`Request failed: ${(err as Error).message}`);
       }
+    }
+    case "host_facts":
+    case "disk_usage":
+    case "service_status":
+    case "docker_ps": {
+      assertHost(args.target as string);
+      const t = args as unknown as SshTarget & { service: string; all: boolean };
+      if (name === "host_facts") return hostFacts(t, ssh);
+      if (name === "disk_usage") return diskUsage(t, ssh);
+      if (name === "service_status") return serviceStatus(t, ssh);
+      return dockerPs(t, ssh);
+    }
+    case "proxmox_status":
+    case "truenas_status":
+    case "synology_status":
+    case "homeassistant_states":
+    case "pihole_summary":
+    case "adguard_stats": {
+      assertHost(args.target as string);
+      const a = args as never;
+      if (name === "proxmox_status") return proxmoxStatus(a, send);
+      if (name === "truenas_status") return truenasStatus(a, send);
+      if (name === "synology_status") return synologyStatus(a, send);
+      if (name === "homeassistant_states") return homeassistantStates(a, send);
+      if (name === "pihole_summary") return piholeSummary(a, send);
+      return adguardStats(a, send);
     }
     case "unifi_clients": {
       assertHost(args.controller as string);

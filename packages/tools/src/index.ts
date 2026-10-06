@@ -169,8 +169,157 @@ export const nameLookup = tool(
   z.object({ targets: z.array(ipOrCidr).min(1).max(8).describe("IPs or small CIDRs (at most /24)") }),
 );
 
+// --- Servers over SSH ------------------------------------------------------------------------
+// Each tool runs one fixed, read-only command; nothing from the agent reaches the remote shell except a
+// validated service name. Logins are key-based only, so a device impersonating a server can't capture a
+// password. The server's host key fingerprint is always reported and can be pinned.
+const sshArgs = {
+  target: hostIp,
+  user: z
+    .string()
+    .regex(/^[A-Za-z_][A-Za-z0-9_.-]{0,31}$/, "Must be a Unix user name")
+    .describe("The account to log in as (a read-only account is best)"),
+  key: secretHandle.describe("An SSH private key stored as a secret, as secret:<name>. Passwords are not supported."),
+  port: port.default(22),
+  hostKeySha256: z
+    .string()
+    .regex(/^(SHA256:)?[A-Za-z0-9+/]{43}=?$/, "An SSH SHA256 fingerprint")
+    .optional()
+    .describe("The server's expected host key fingerprint; the connection is refused if it differs"),
+  timeoutMs,
+};
+
+export const hostFacts = tool(
+  { name: "host_facts", class: "read", targetArgs: ["target"], secretArgs: ["key"] },
+  "Log in to a Linux server over SSH and report its OS, kernel, hostname, uptime, CPU count, memory and load.",
+  z.object(sshArgs),
+);
+
+export const diskUsage = tool(
+  { name: "disk_usage", class: "read", targetArgs: ["target"], secretArgs: ["key"] },
+  "Report each mounted filesystem's size, use and free space on a Linux server, over SSH.",
+  z.object(sshArgs),
+);
+
+export const serviceStatus = tool(
+  { name: "service_status", class: "read", targetArgs: ["target"], secretArgs: ["key"] },
+  "Report a systemd service's state on a Linux server over SSH: active or failed, since when, and whether it's enabled.",
+  z.object({
+    ...sshArgs,
+    service: z
+      .string()
+      .regex(/^[A-Za-z0-9@._:-]{1,100}$/, "A systemd unit name, e.g. nginx or nginx.service")
+      .describe("The systemd unit, e.g. nginx"),
+  }),
+);
+
+export const dockerPs = tool(
+  { name: "docker_ps", class: "read", targetArgs: ["target"], secretArgs: ["key"] },
+  "List the Docker containers on a server over SSH: name, image, state and status. The account must be allowed to use Docker.",
+  z.object({ ...sshArgs, all: z.boolean().default(true).describe("Include stopped containers") }),
+);
+
+// --- Home lab APIs ---------------------------------------------------------------------------
+// Read-only calls to each product's own API. Home lab devices usually have self-signed certificates,
+// so TLS verification is off by default; the address is a literal IP the gate has scope-checked.
+const apiCommon = {
+  target: hostIp,
+  verifyTls: z.boolean().default(false).describe("Verify the device's TLS certificate (most home lab devices are self-signed)"),
+  timeoutMs,
+};
+
+export const proxmoxStatus = tool(
+  { name: "proxmox_status", class: "read", targetArgs: ["target"], secretArgs: ["token"] },
+  "Read a Proxmox VE cluster: each node's status, CPU, memory and disk, and every VM and container's state and usage.",
+  z.object({
+    ...apiCommon,
+    token: secretHandle.describe("A Proxmox API token stored as a secret, in the form USER@REALM!TOKENID=SECRET"),
+    port: port.default(8006),
+  }),
+);
+
+export const truenasStatus = tool(
+  { name: "truenas_status", class: "read", targetArgs: ["target"], secretArgs: ["apiKey"] },
+  "Read a TrueNAS system: version and uptime, each storage pool's health, and active alerts.",
+  z.object({ ...apiCommon, apiKey: secretHandle.describe("A TrueNAS API key stored as a secret"), port: port.default(443) }),
+);
+
+export const synologyStatus = tool(
+  { name: "synology_status", class: "read", targetArgs: ["target"], secretArgs: ["password"] },
+  "Read a Synology NAS (DSM): model, version and temperature, each volume's status and use, and each disk's health.",
+  z.object({
+    ...apiCommon,
+    user: z.string().min(1).max(64).regex(/^[A-Za-z0-9_.@-]+$/).describe("A DSM account (a read-only one is best)"),
+    password: secretHandle.describe("That account's password stored as a secret"),
+    port: port.default(5001),
+  }),
+);
+
+export const homeassistantStates = tool(
+  { name: "homeassistant_states", class: "read", targetArgs: ["target"], secretArgs: ["token"] },
+  "Read entity states from Home Assistant (sensors, switches, UPS, batteries...), optionally one domain such as sensor or switch.",
+  z.object({
+    ...apiCommon,
+    token: secretHandle.describe("A Home Assistant long-lived access token stored as a secret"),
+    port: port.default(8123),
+    scheme: z.enum(["http", "https"]).default("http"),
+    domain: z
+      .string()
+      .regex(/^[a-z_]{1,32}$/)
+      .optional()
+      .describe("Only this domain, e.g. sensor, switch, binary_sensor"),
+    limit: z.number().int().min(1).max(500).default(200),
+  }),
+);
+
+export const piholeSummary = tool(
+  { name: "pihole_summary", class: "read", targetArgs: ["target"], secretArgs: ["password"] },
+  "Read Pi-hole (v6) statistics: queries today, how many were blocked, active clients, and the busiest clients.",
+  z.object({
+    ...apiCommon,
+    password: secretHandle.describe("The Pi-hole web or app password stored as a secret"),
+    port: port.default(80),
+    scheme: z.enum(["http", "https"]).default("http"),
+  }),
+);
+
+export const adguardStats = tool(
+  { name: "adguard_stats", class: "read", targetArgs: ["target"], secretArgs: ["password"] },
+  "Read AdGuard Home statistics: queries, how many were blocked, average processing time, and the busiest clients.",
+  z.object({
+    ...apiCommon,
+    user: z.string().min(1).max(64).describe("The AdGuard Home user name"),
+    password: secretHandle.describe("That user's password stored as a secret"),
+    port: port.default(80),
+    scheme: z.enum(["http", "https"]).default("http"),
+  }),
+);
+
 export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
-  [nmapScan, arpScan, ping, dnsLookup, wakeOnLan, tcpConnect, httpProbe, tlsInspect, unifiClients, snmpQuery, traceroute, nameLookup].map((t) => [t.manifest.name, t as unknown as ToolDefinition]),
+  [
+    nmapScan,
+    arpScan,
+    ping,
+    dnsLookup,
+    wakeOnLan,
+    tcpConnect,
+    httpProbe,
+    tlsInspect,
+    unifiClients,
+    snmpQuery,
+    traceroute,
+    nameLookup,
+    hostFacts,
+    diskUsage,
+    serviceStatus,
+    dockerPs,
+    proxmoxStatus,
+    truenasStatus,
+    synologyStatus,
+    homeassistantStates,
+    piholeSummary,
+    adguardStats,
+  ].map((t) => [t.manifest.name, t as unknown as ToolDefinition]),
 );
 
 /** The JSON Schema handed to the LLM for a tool's input. */
