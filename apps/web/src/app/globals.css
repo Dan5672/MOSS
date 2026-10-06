@@ -216,6 +216,73 @@
   }
 }
 
+/* The Basement scene. Only transform and opacity are animated; the reduced-motion rule above stops them all. */
+@keyframes b1-led {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+@keyframes b1-scrollcode {
+  from { transform: translateY(0); }
+  to { transform: translateY(-50%); }
+}
+@keyframes b1-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+@keyframes b1-typing {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(1px); }
+}
+@keyframes b1-smoke {
+  0% { transform: translate(0, 0); opacity: 0.7; }
+  100% { transform: translate(-14px, -70px); opacity: 0; }
+}
+@keyframes b1-steam {
+  0% { transform: translateY(0); opacity: 0.8; }
+  100% { transform: translateY(-26px); opacity: 0; }
+}
+@keyframes b1-alarmtint {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+@keyframes b1-beacon {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+@keyframes b1-tube {
+  0%, 92%, 100% { opacity: 1; }
+  94% { opacity: 0.35; }
+  96% { opacity: 0.9; }
+  98% { opacity: 0.4; }
+}
+@keyframes b1-saver {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(30px, 10px); }
+  50% { transform: translate(12px, 26px); }
+  75% { transform: translate(36px, 30px); }
+  100% { transform: translate(0, 0); }
+}
+@keyframes b1-arcade-2 {
+  0%, 32.9%, 66%, 100% { opacity: 0; }
+  33%, 65.9% { opacity: 1; }
+}
+@keyframes b1-arcade-3 {
+  0%, 65.9% { opacity: 0; }
+  66%, 100% { opacity: 1; }
+}
+@keyframes b1-drip {
+  0% { transform: translateY(0); opacity: 1; }
+  90% { opacity: 1; }
+  100% { transform: translateY(640px); opacity: 0; }
+}
+@keyframes b1-sway {
+  0%, 100% { transform: rotate(-8deg); }
+  50% { transform: rotate(-4deg); }
+}
+.b1-led { animation: b1-led 1.6s steps(1) infinite; }
+.b1-bob { animation: b1-bob 2.6s ease-in-out infinite; }
+.b1-typing { animation: b1-typing 0.45s steps(2) infinite; }
+
 /* Blinking block cursor for the audit tail. */
 .cursor-block {
   animation: cursor-blink 1.1s steps(1) infinite;

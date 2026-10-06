@@ -544,6 +544,17 @@ test("users: a viewer can look but not approve or manage", async () => {
   await expect(page.getByRole("button", { name: "Add monitor" })).toHaveCount(0);
 });
 
+test("basement: shows every agent at a desk or on a break, as a scene and as a list", async () => {
+  await page.goto("/");
+  await page.getByRole("link", { name: "Basement" }).click();
+  await expect(page.getByRole("heading", { name: "The Basement" })).toBeVisible();
+  await expect(page.getByRole("img", { name: /^\d+ agents?: \d+ at desks, \d+ on break\./ })).toBeVisible();
+  const nina = page.getByRole("listitem").filter({ has: page.getByRole("link", { name: "Nina", exact: true }) });
+  await expect(nina).toContainText(/WORKING|ON BREAK|RESPONDING/);
+  await nina.getByRole("link", { name: "Nina", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Nina" })).toBeVisible();
+});
+
 test("audit: the log is intact after all of that", async () => {
   await signOut();
   await signIn(OWNER.email, OWNER.password, totpCode(ownerTotpSecret));

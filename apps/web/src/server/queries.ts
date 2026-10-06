@@ -159,6 +159,50 @@ async function dashboardExtras(orgId: string) {
   };
 }
 
+/**
+ * The Basement page: who's working (has a running run), who's on break, down monitors, and who is
+ * responding to the first one. Fired agents aren't included.
+ */
+export async function basement(orgId: string) {
+  const d = db();
+  const [team, running, down] = await Promise.all([
+    d
+      .select({ id: agents.id, name: agents.name, title: agents.title, templateKey: agents.templateKey, mascot: agents.mascot, mascotGlow: agents.mascotGlow })
+      .from(agents)
+      .where(and(eq(agents.orgId, orgId), ne(agents.status, "fired")))
+      .orderBy(agents.hiredAt),
+    d
+      .selectDistinctOn([agentRuns.agentId], { agentId: agentRuns.agentId, trigger: agentRuns.trigger, startedAt: agentRuns.startedAt })
+      .from(agentRuns)
+      .where(and(eq(agentRuns.orgId, orgId), eq(agentRuns.status, "running")))
+      .orderBy(agentRuns.agentId, desc(agentRuns.startedAt)),
+    d
+      .select({ id: monitors.id, name: monitors.name, openIncidentId: monitors.openIncidentId })
+      .from(monitors)
+      .where(and(eq(monitors.orgId, orgId), eq(monitors.state, "down")))
+      .orderBy(asc(monitors.stateChangedAt)),
+  ]);
+  // The responder: whoever is assigned to the first down monitor's open incident, else the IT Manager,
+  // else any agent.
+  let responderId: string | null = null;
+  const first = down[0];
+  if (first) {
+    if (first.openIncidentId) {
+      const [inc] = await d.select({ agentId: incidents.assignedAgentId }).from(incidents).where(eq(incidents.id, first.openIncidentId));
+      if (inc?.agentId && team.some((a) => a.id === inc.agentId)) responderId = inc.agentId;
+    }
+    responderId ??= team.find((a) => a.templateKey === "it-manager")?.id ?? team[0]?.id ?? null;
+  }
+  return {
+    team: team.map((a) => {
+      const run = running.find((r) => r.agentId === a.id);
+      return { ...a, working: !!run, trigger: run?.trigger ?? null, since: run?.startedAt ?? null };
+    }),
+    down: down.map((m) => ({ id: m.id, name: m.name })),
+    responderId,
+  };
+}
+
 export async function agentList(orgId: string) {
   const monthStart = periodStart("month");
   const rows = await db()

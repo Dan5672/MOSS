@@ -4,9 +4,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
-// Each item is labelled with a function key, F1–F12, in this order. The labels are decorative.
+// Each item is labelled with a function key in this order (F1, F2, ...). The labels are decorative.
 const ITEMS = [
   { href: "/", label: "Dashboard" },
+  { href: "/basement", label: "Basement" },
   { href: "/agents", label: "Agents" },
   { href: "/models", label: "Models" },
   { href: "/assets", label: "Assets" },
