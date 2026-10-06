@@ -11,6 +11,7 @@ import {
 import type { Database } from "@moss/db";
 import { z } from "zod";
 import type { GateClient } from "./gate-client.js";
+import { MEMORY_TOOLS } from "./memory-tools.js";
 import { MONITOR_TOOLS } from "./monitor-tools.js";
 import { TICKET_TOOLS } from "./ticket-tools.js";
 
@@ -125,7 +126,7 @@ const INVENTORY_TOOLS: PlatformTool[] = [
   },
 ];
 
-export const PLATFORM_TOOLS: PlatformTool[] = [...INVENTORY_TOOLS, ...TICKET_TOOLS, ...MONITOR_TOOLS];
+export const PLATFORM_TOOLS: PlatformTool[] = [...INVENTORY_TOOLS, ...TICKET_TOOLS, ...MONITOR_TOOLS, ...MEMORY_TOOLS];
 
 export const PLATFORM_TOOL_MAP: ReadonlyMap<string, PlatformTool> = new Map(PLATFORM_TOOLS.map((t) => [t.name, t]));
 

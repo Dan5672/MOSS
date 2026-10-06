@@ -155,6 +155,40 @@ test("agents: schedules read as words and can be edited, turned off, added and d
   await expect(page.getByText("Schedule deleted.")).toBeVisible();
 });
 
+test("agents: tool access shows who can use each tool, and the knowledge base can be edited", async () => {
+  await page.goto("/agents");
+  await page.getByRole("link", { name: "Tool access" }).click();
+  await expect(page).toHaveURL(/\/agents\/tools$/);
+  const nmap = page.getByRole("row", { name: /nmap_scan/ });
+  await expect(nmap.getByRole("link", { name: /Nina/ })).toBeVisible();
+  await expect(nmap.getByText("read", { exact: true })).toBeVisible();
+  await expect(page.getByRole("row", { name: /wake_on_lan/ }).getByText("write", { exact: true })).toBeVisible();
+  // New MOSS tools come with the Team Memory skill, which the Network Admin template now includes.
+  await expect(page.getByRole("row", { name: /kb_search/ }).getByRole("link", { name: /Nina/ })).toBeVisible();
+
+  await page.getByRole("link", { name: "Knowledge base" }).click();
+  await expect(page.getByText("No notes yet.")).toBeVisible();
+  const add = page.locator("form", { has: page.getByRole("button", { name: "Add note" }) });
+  await add.getByLabel("Title", { exact: true }).fill("ISP gateway");
+  await add.getByLabel("Subject", { exact: true }).fill("192.168.50.1");
+  await add.getByLabel("Note", { exact: true }).fill("The ISP's gateway. Its open ports are expected.");
+  await add.getByLabel("Tags", { exact: true }).fill("gateway, expected");
+  await add.getByRole("button", { name: "Add note" }).click();
+  await expect(page.getByText('Saved "ISP gateway".')).toBeVisible();
+  await expect(page.getByRole("heading", { name: "ISP gateway" })).toBeVisible();
+
+  await page.getByRole("searchbox", { name: "Search notes" }).or(page.getByLabel("Search notes")).fill("nothing-like-this");
+  await page.getByRole("button", { name: "Search" }).click();
+  await expect(page.getByText('Nothing matches "nothing-like-this".')).toBeVisible();
+  await page.getByLabel("Search notes").fill("gateway");
+  await page.getByRole("button", { name: "Search" }).click();
+  await expect(page.getByRole("heading", { name: "ISP gateway" })).toBeVisible();
+
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByText("Note deleted.")).toBeVisible();
+});
+
 test("agents: hire a custom agent with chosen skills", async () => {
   await page.goto("/agents");
   const form = page.locator("form", { has: page.getByRole("button", { name: "Hire custom agent" }) });

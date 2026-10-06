@@ -1,6 +1,6 @@
 // Agent runtime against Postgres with a scripted LLM and a fake gate. Run with MOSS_TEST_DATABASE_URL set.
 import { approveChange, bootstrapOrg, createChangeRequest, getChange, getIncident, setNetworkStatus, setSetting } from "@moss/core";
-import { agentRuns, agents, agentSkills, assets, budgets, models, providers, runSteps, tokenUsage, type Database } from "@moss/db";
+import { agentRuns, agents, agentSkills, assets, budgets, models, notifications, providers, runSteps, tokenUsage, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { MockAdapter, type ScriptedTurn } from "@moss/llm";
 import { asc, eq } from "drizzle-orm";
@@ -94,7 +94,7 @@ describe.skipIf(!TEST_DATABASE_URL)("agent runtime (postgres)", () => {
     expect(nina).toMatchObject({ name: "Nina", title: "Network Admin", templateKey: "network-admin", effort: "medium", maxStepsPerRun: 30 });
     expect(nina.reportsToAgentId).toBe(manager.id);
     expect(manager.reportsToUserId).toBe(actor.userId);
-    expect(await db.select().from(agentSkills).where(eq(agentSkills.agentId, nina.id))).toHaveLength(6);
+    expect(await db.select().from(agentSkills).where(eq(agentSkills.agentId, nina.id))).toHaveLength(7);
   });
 
   it("runs a discovery task end to end: scan, denial, inventory, classification", async () => {
@@ -170,14 +170,67 @@ describe.skipIf(!TEST_DATABASE_URL)("agent runtime (postgres)", () => {
       "inventory_add",
       "inventory_search",
       "inventory_update",
+      "kb_search",
+      "kb_write",
       "monitor_check_now",
       "monitor_get",
       "monitor_list",
       "network_report",
       "networks_list",
       "nmap_scan",
+      "notify_user",
+      "run_history",
     ]);
     expect(session.effort).toBe("medium");
+  });
+
+  it("team memory: writes and finds notes, reads run history, notifies its manager, capped per run", async () => {
+    const sam = await hire("systems-admin");
+    await db.update(agents).set({ reportsToAgentId: null, reportsToUserId: actor.userId }).where(eq(agents.id, sam.id));
+    const notify = (n: number) => ({ id: `n${n}`, name: "notify_user", input: { title: `Heads up ${n}`, link: "/incidents" } });
+    script = [
+      { toolCalls: [{ id: "k1", name: "kb_write", input: { title: "ISP gateway", body: "10.0.0.1 is the ISP gateway; its open ports are expected.", subject: "10.0.0.1", tags: ["gateway"] } }] },
+      {
+        toolCalls: [{ id: "k2", name: "kb_search", input: { subject: "10.0.0.1" } }],
+        expect: (input) => {
+          const [written] = "toolResults" in input ? input.toolResults : [];
+          expect(JSON.parse(written!.content)).toMatchObject({ created: expect.any(String), title: "ISP gateway" });
+        },
+      },
+      {
+        toolCalls: [{ id: "h1", name: "run_history", input: { limit: 5 } }],
+        expect: (input) => {
+          const [found] = "toolResults" in input ? input.toolResults : [];
+          expect(JSON.parse(found!.content)).toEqual([expect.objectContaining({ title: "ISP gateway", subject: "10.0.0.1", tags: ["gateway"], by: "agent" })]);
+        },
+      },
+      { toolCalls: [notify(1), notify(2), notify(3)] },
+      {
+        toolCalls: [notify(4)],
+        expect: (input) => {
+          const sent = "toolResults" in input ? input.toolResults : [];
+          expect(sent.map((r) => JSON.parse(r.content))).toEqual([1, 2, 3].map(() => ({ sent: true, recipients: 1 })));
+        },
+      },
+      {
+        text: "Done.",
+        expect: (input) => {
+          const [capped] = "toolResults" in input ? input.toolResults : [];
+          expect(JSON.parse(capped!.content).error).toMatch(/Notification limit reached/);
+        },
+      },
+    ];
+    const outcome = await runAgent(deps(), { agentId: sam.id, task: "Remember the gateway.", trigger: "manual" });
+    expect(outcome.status).toBe("succeeded");
+
+    const inbox = await db.select().from(notifications).where(eq(notifications.userId, actor.userId));
+    expect(inbox.filter((n) => n.title.startsWith("Sam: Heads up"))).toHaveLength(3);
+    expect(inbox[0]).toMatchObject({ kind: "agent.message", link: "/incidents" });
+
+    // Links must stay inside MOSS.
+    script = [{ toolCalls: [{ id: "x", name: "notify_user", input: { title: "Click me", link: "https://evil.example" } }] }, { text: "ok" }];
+    await runAgent(deps(), { agentId: sam.id, task: "Try an outside link.", trigger: "manual" });
+    expect((await db.select().from(notifications).where(eq(notifications.userId, actor.userId))).some((n) => n.title.includes("Click me"))).toBe(false);
   });
 
   it("refuses platform tools the agent was not granted", async () => {

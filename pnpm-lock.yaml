@@ -78,6 +78,9 @@ importers:
       '@moss/llm':
         specifier: workspace:*
         version: link:../../packages/llm
+      '@moss/tools':
+        specifier: workspace:*
+        version: link:../../packages/tools
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1

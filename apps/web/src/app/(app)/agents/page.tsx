@@ -12,6 +12,7 @@ import { db } from "@/server/db";
 import { agentList } from "@/server/queries";
 import { library } from "@/server/services";
 import { hireAction, hireCustomAction } from "./actions";
+import { AgentsTabs } from "./tabs";
 
 export const metadata = { title: "Agents" };
 
@@ -33,6 +34,7 @@ export default async function AgentsPage() {
   return (
     <>
       <PageHeader title="Agents" description="Your AI team. Hire agents from templates or design your own, give them skills, and set their budgets." />
+      <AgentsTabs current="/agents" />
 
       <Section title="Team">
         {team.length === 0 ? (

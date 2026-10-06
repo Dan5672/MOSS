@@ -16,5 +16,6 @@ export * from "./services/notifications.js";
 export * from "./services/incidents.js";
 export * from "./services/changes.js";
 export * from "./services/monitors.js";
+export * from "./services/knowledge.js";
 export * from "./monitoring/state.js";
 export * from "./monitoring/webhooks.js";

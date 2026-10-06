@@ -699,6 +699,27 @@ export const auditLog = pgTable(
   (t) => [index("audit_log_time_idx").on(t.orgId, t.createdAt)],
 );
 
+// Knowledge base: durable facts that agents and people share ("10.0.0.1 is the ISP gateway; its open
+// ports are expected"), so agents stop rediscovering or re-reporting the same thing.
+export const knowledgeNotes = pgTable(
+  "knowledge_notes",
+  {
+    id: id(),
+    ...tenancy(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    tags: jsonb("tags").$type<string[]>().notNull().default([]),
+    /** What the note is about, when it is about one thing: an IP, hostname, asset or service. */
+    subject: text("subject"),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id),
+    createdByAgentId: uuid("created_by_agent_id").references(() => agents.id),
+    updatedByUserId: uuid("updated_by_user_id").references(() => users.id),
+    updatedByAgentId: uuid("updated_by_agent_id").references(() => agents.id),
+    ...timestamps(),
+  },
+  (t) => [index("knowledge_notes_org_idx").on(t.orgId, t.updatedAt)],
+);
+
 export const notifications = pgTable("notifications", {
   id: id(),
   ...tenancy(),

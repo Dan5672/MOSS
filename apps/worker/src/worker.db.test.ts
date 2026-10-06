@@ -79,6 +79,7 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
       "security-baseline",
       "service-desk",
       "service-health",
+      "team-memory",
     ]);
   });
 
