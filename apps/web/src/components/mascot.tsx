@@ -1,5 +1,5 @@
 import { BlinkingMascot } from "./mascot-blink";
-import type { MascotVariant } from "./mascot-sprites";
+import type { MascotVariant } from "./mascots";
 import { MascotSvg } from "./mascot-svg";
 
 export type { MascotVariant };

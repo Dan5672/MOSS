@@ -8,7 +8,7 @@ import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { crc32, deflateSync } from "node:zlib";
-import { SPRITES } from "../src/components/mascot-sprites";
+import { MASCOTS } from "../src/components/mascots";
 
 const APP_DIR = join(dirname(fileURLToPath(import.meta.url)), "../src/app");
 const TILE = "#1a2420";
@@ -16,7 +16,7 @@ const GLOW = "#4dff9a";
 const RADIUS = 0.22; // of the tile size
 const SPRITE_SCALE = 0.75; // of the tile size
 
-const sprite = SPRITES.monitor;
+const sprite = MASCOTS.monitor;
 const pal = sprite.pal as Record<string, string>;
 const colorAt = (x: number, y: number): string | null => {
   const ch = sprite.map[y]![x]!;

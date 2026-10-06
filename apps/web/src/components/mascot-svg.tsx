@@ -1,4 +1,4 @@
-import { spritePixels, type MascotVariant } from "./mascot-sprites";
+import { spritePixels, type MascotVariant } from "./mascots";
 
 export interface MascotSvgProps {
   variant?: MascotVariant;
