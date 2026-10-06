@@ -115,8 +115,10 @@ test("agents: hire, budget, pause and resume", async () => {
 });
 
 test("agents: each agent's mascot can be picked from the registry, defaulting by role", async () => {
+  // The Agents list shows each mascot, linking to where it's changed.
   await page.goto("/agents");
-  await page.getByRole("link", { name: "Nina" }).click();
+  await page.getByRole("link", { name: "Change Nina's mascot" }).click();
+  await expect(page).toHaveURL(/#mascot$/);
   // A Network Admin defaults to the Desk Lead mascot.
   await expect(page.getByRole("radio", { name: "Role default (Desk Lead)" })).toBeChecked();
   await page.getByRole("radio", { name: "Night Shift" }).check({ force: true });
@@ -134,7 +136,7 @@ test("agents: each agent's mascot can be picked from the registry, defaulting by
 
 test("agents: schedules read as words and can be edited, turned off, added and deleted", async () => {
   await page.goto("/agents");
-  await page.getByRole("link", { name: "Nina" }).click();
+  await page.getByRole("link", { name: "Nina", exact: true }).click();
   // The Network Admin template's "30 2 * * *".
   await expect(page.getByText("Every day at 02:30", { exact: true })).toBeVisible();
   await expect(page.getByText("30 2 * * *")).toHaveCount(0);

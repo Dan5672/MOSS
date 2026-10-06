@@ -11,6 +11,8 @@ import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { agentList } from "@/server/queries";
 import { library } from "@/server/services";
+import { MascotSvg } from "@/components/mascot-svg";
+import { agentGlow, agentMascot } from "@/lib/agent-look";
 import { hireAction, hireCustomAction } from "./actions";
 import { AgentsTabs } from "./tabs";
 
@@ -54,10 +56,18 @@ export default async function AgentsPage() {
               {team.map((a) => (
                 <TableRow key={a.id}>
                   <TableCell>
-                    <Link href={`/agents/${a.id}`} className="font-medium hover:underline">
-                      {a.name}
-                    </Link>
-                    <div className="text-xs text-muted-foreground">{a.title}</div>
+                    <div className="flex items-center gap-3">
+                      <Link href={`/agents/${a.id}#mascot`} title={`Change ${a.name}'s mascot`} className="shrink-0">
+                        <MascotSvg variant={agentMascot(a)} size={40} glow={agentGlow(a)} />
+                        <span className="sr-only">Change {a.name}&apos;s mascot</span>
+                      </Link>
+                      <div>
+                        <Link href={`/agents/${a.id}`} className="font-medium hover:underline">
+                          {a.name}
+                        </Link>
+                        <div className="text-xs text-muted-foreground">{a.title}</div>
+                      </div>
+                    </div>
                   </TableCell>
                   <TableCell>
                     <StatusBadge status={a.status} />

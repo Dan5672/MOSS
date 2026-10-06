@@ -69,6 +69,10 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
         title={agent.name}
         description={
           <span className="flex items-center gap-2">
+            <a href="#mascot" title="Change mascot" className="shrink-0">
+              <MascotSvg variant={agentMascot(agent)} size={32} glow={agentGlow(agent)} />
+              <span className="sr-only">Change mascot</span>
+            </a>
             {agent.title} <StatusBadge status={agent.status} />
             {agent.pausedReason && agent.status === "paused" && <span className="text-xs">({agent.pausedReason})</span>}
           </span>
@@ -162,7 +166,7 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
         </div>
 
         <div className="space-y-6">
-          <Card>
+          <Card id="mascot" className="scroll-mt-6">
             <CardHeader>
               <CardTitle>Mascot</CardTitle>
             </CardHeader>
