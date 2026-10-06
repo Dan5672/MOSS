@@ -1,6 +1,6 @@
-import { getBudgetStatus } from "@moss/core";
-import { agentRuns, agents, agentSchedules, agentSkills, budgets, models, skills } from "@moss/db";
-import { and, desc, eq } from "drizzle-orm";
+import { getBudgetStatus, incidentRef } from "@moss/core";
+import { agentRuns, agents, agentSchedules, agentSkills, budgets, incidents, models, monitors, skills } from "@moss/db";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
@@ -14,6 +14,7 @@ import { isMascot, MASCOT_IDS, MASCOTS } from "@/components/mascots";
 import { MascotSvg } from "@/components/mascot-svg";
 import { agentGlow, agentMascot, GLOW_CHOICES, roleMascot } from "@/lib/agent-look";
 import { describeCron } from "@/lib/schedule";
+import { taskSuggestions } from "@/lib/task-suggestions";
 import { db } from "@/server/db";
 import {
   addScheduleAction,
@@ -30,6 +31,7 @@ import {
   updateScheduleAction,
 } from "../actions";
 import { ScheduleFields } from "./schedule-fields";
+import { TaskSuggestionButtons } from "./task-suggestions";
 
 export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
   const { id } = await params;
@@ -37,7 +39,7 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
   const [agent] = await db().select().from(agents).where(and(eq(agents.id, id), eq(agents.orgId, user.orgId)));
   if (!agent) notFound();
 
-  const [agentSkillRows, allSkills, runs, budgetRows, schedules, modelRows, budgetStatus, lastScheduledRuns] = await Promise.all([
+  const [agentSkillRows, allSkills, runs, budgetRows, schedules, modelRows, budgetStatus, lastScheduledRuns, myIncidents, downMonitors] = await Promise.all([
     db()
       .select({ key: skills.key, name: skills.name, description: skills.description, tools: skills.toolGrants })
       .from(agentSkills)
@@ -55,7 +57,25 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
       .from(agentRuns)
       .where(and(eq(agentRuns.agentId, id), eq(agentRuns.trigger, "schedule")))
       .orderBy(agentRuns.triggerRef, desc(agentRuns.startedAt)),
+    // For task suggestions: this agent's open incidents, and monitors that are down.
+    db()
+      .select({ number: incidents.number, title: incidents.title })
+      .from(incidents)
+      .where(and(eq(incidents.orgId, user.orgId), eq(incidents.assignedAgentId, id), inArray(incidents.status, ["new", "in_progress", "on_hold"])))
+      .orderBy(incidents.createdAt)
+      .limit(2),
+    db()
+      .select({ name: monitors.name })
+      .from(monitors)
+      .where(and(eq(monitors.orgId, user.orgId), eq(monitors.state, "down")))
+      .orderBy(monitors.stateChangedAt)
+      .limit(2),
   ]);
+  const suggestions = taskSuggestions({
+    skills: agentSkillRows.map((s) => s.key),
+    incidents: myIncidents.map((i) => ({ ref: incidentRef(i.number), title: i.title })),
+    downMonitors,
+  });
   const lastRunOf = (scheduleId: string) => lastScheduledRuns.find((r) => r.scheduleId === scheduleId)?.startedAt;
   // The worker runs schedules in its time zone; web and worker share TZ in the stack.
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -112,6 +132,7 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
               </CardHeader>
               <CardContent>
                 <ActionForm action={runNowAction.bind(null, id)} submitLabel="Start" resetOnSuccess>
+                  <TaskSuggestionButtons suggestions={suggestions} />
                   <TextAreaField label="Task" name="task" rows={3} placeholder="e.g. Find any new devices on the network and identify them." required />
                 </ActionForm>
               </CardContent>

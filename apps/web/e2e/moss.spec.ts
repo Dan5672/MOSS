@@ -101,6 +101,12 @@ test("agents: hire, budget, pause and resume", async () => {
   await expect(page.getByRole("heading", { name: "Nina" })).toBeVisible();
   await expect(page.getByText("Network Discovery")).toBeVisible();
 
+  // Three task ideas fit the agent; clicking one fills the task box without starting anything.
+  const ideas = page.locator("form", { has: page.getByRole("button", { name: "Start" }) }).getByRole("listitem");
+  await expect(ideas).toHaveCount(3);
+  await page.getByRole("button", { name: /^Discover devices on all allowed networks/ }).click();
+  await expect(page.getByRole("textbox", { name: "Task", exact: true })).toHaveValue(/^Discover devices on all allowed networks/);
+
   await page.getByLabel("Per").selectOption("day");
   await page.getByLabel("Hard limit").fill("2");
   await page.getByRole("button", { name: "Set budget" }).click();
