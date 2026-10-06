@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "motion" text DEFAULT 'system' NOT NULL;

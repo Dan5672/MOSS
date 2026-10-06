@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { MascotSvg } from "@/components/mascot-svg";
 import { agentGlow, agentMascot } from "@/lib/agent-look";
+import { motionAllowed } from "@/lib/motion";
 import { assign, CODE_LINES, DESKS, FIRE_MAPS, FIRE_PALETTE, shortName, SPOTS } from "./layout";
 
 const MONO = "var(--font-plex-mono), monospace";
@@ -33,7 +34,7 @@ const DOING: Record<string, string> = {
 function useFireFrame(active: boolean) {
   const [frame, setFrame] = useState(0);
   useEffect(() => {
-    if (!active || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (!active || !motionAllowed()) return;
     const timer = setInterval(() => setFrame((f) => (f + 1) % 2), 180);
     return () => clearInterval(timer);
   }, [active]);

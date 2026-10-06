@@ -54,7 +54,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   );
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen" data-motion={user.motion}>
       <aside className="sticky top-0 hidden h-screen w-62 shrink-0 flex-col gap-4 overflow-y-auto border-r-2 bg-card p-3 md:flex">
         <Link href="/" className="px-2 pt-2">
           <Logo variant="horizontal" />

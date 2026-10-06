@@ -59,6 +59,8 @@ export const users = pgTable(
     passwordHash: text("password_hash"),
     totpSecretRef: text("totp_secret_ref"),
     oidcSubject: text("oidc_subject"),
+    /** Animation preference: follow the OS's reduced-motion setting, or always on / always off. */
+    motion: text("motion", { enum: ["system", "on", "off"] }).notNull().default("system"),
     status: text("status", { enum: ["active", "invited", "disabled"] }).notNull().default("active"),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     ...timestamps(),

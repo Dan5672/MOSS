@@ -205,18 +205,27 @@
   outline-offset: 2px;
 }
 
-/* No animation for people who ask for less motion. */
+/* Motion. By default, no animation for people whose system asks for less motion. A person's own Motion
+   setting (data-motion on the app shell) overrides that: "on" always animates, "off" never does. */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  :not([data-motion="on"], [data-motion="on"] *),
+  :not([data-motion="on"], [data-motion="on"] *)::before,
+  :not([data-motion="on"], [data-motion="on"] *)::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
 }
+[data-motion="off"],
+[data-motion="off"] *,
+[data-motion="off"] *::before,
+[data-motion="off"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
 
-/* The Basement scene. Only transform and opacity are animated; the reduced-motion rule above stops them all. */
+/* The Basement scene. Only transform and opacity are animated; the motion rules above apply to all of it. */
 @keyframes b1-led {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.25; }
@@ -290,11 +299,6 @@
 @keyframes cursor-blink {
   50% {
     opacity: 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .cursor-block {
-    animation: none;
   }
 }
 

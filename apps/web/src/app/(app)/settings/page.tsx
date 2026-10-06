@@ -2,12 +2,12 @@ import { getSetting, totpUri, type SettingKey } from "@moss/core";
 import { cookies } from "next/headers";
 import QRCode from "qrcode";
 import { ActionForm } from "@/components/action-form";
-import { TextField } from "@/components/field";
+import { SelectField, TextField } from "@/components/field";
 import { PageHeader } from "@/components/page";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
-import { confirmTotpAction, disableTotpAction, startTotpAction, toggleSettingAction } from "./actions";
+import { confirmTotpAction, disableTotpAction, setMotionAction, startTotpAction, toggleSettingAction } from "./actions";
 import { SettingsTabs } from "./tabs";
 
 export const metadata = { title: "Settings" };
@@ -52,6 +52,26 @@ export default async function SettingsPage() {
       <PageHeader title="Settings" />
       <SettingsTabs current="/settings" />
       <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Display</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ActionForm action={setMotionAction} submitLabel="Save">
+              <SelectField
+                label="Motion"
+                name="motion"
+                defaultValue={user.motion}
+                hint="Animations such as the Basement, blinking mascots and the alarm. Follow system turns them off when your device asks for less motion."
+                options={[
+                  { value: "system", label: "Follow system" },
+                  { value: "on", label: "Always on" },
+                  { value: "off", label: "Always off" },
+                ]}
+              />
+            </ActionForm>
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader>
             <CardTitle>Safety</CardTitle>

@@ -353,6 +353,30 @@ test("settings: config backups are listed, downloaded through the gate, and dele
   await expect(page.getByText("Deleted the backup of pihole.toml.")).toBeVisible();
 });
 
+test("settings: the Motion setting can override the device's reduced-motion preference", async () => {
+  const ledSpeed = async () => {
+    await page.goto("/basement");
+    return page.locator(".b1-led").first().evaluate((el) => getComputedStyle(el).animationDuration);
+  };
+  const setMotion = async (value: string, message: string) => {
+    await page.goto("/settings");
+    await page.getByRole("combobox", { name: "Motion", exact: true }).selectOption(value);
+    await page.locator("form", { has: page.getByRole("combobox", { name: "Motion", exact: true }) }).getByRole("button", { name: "Save" }).click();
+    await expect(page.getByText(message)).toBeVisible();
+  };
+
+  // The device asks for less motion: by default, MOSS follows it.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  expect(await ledSpeed()).toBe("1e-05s");
+  await setMotion("on", "Animations always on.");
+  expect(await ledSpeed()).toBe("1.6s");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await setMotion("off", "Animations always off.");
+  expect(await ledSpeed()).toBe("1e-05s");
+  await setMotion("system", "Animations follow your system setting.");
+  expect(await ledSpeed()).toBe("1.6s");
+});
+
 test("agents: hire a custom agent with chosen skills", async () => {
   await page.goto("/agents");
   const form = page.locator("form", { has: page.getByRole("button", { name: "Hire custom agent" }) });

@@ -78,6 +78,13 @@
       "when": 1791259690809,
       "tag": "0010_agent_tool_overrides",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791279426524,
+      "tag": "0011_user_motion",
+      "breakpoints": true
     }
   ]
 }
