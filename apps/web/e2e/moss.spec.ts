@@ -185,6 +185,18 @@ test("agents: tool access shows who can use each tool, and the knowledge base ca
   // New MOSS tools come with the Team Memory skill, which the Network Admin template now includes.
   await expect(page.getByRole("row", { name: /kb_search/ }).getByRole("link", { name: /Nina/ })).toBeVisible();
 
+  // Access can be changed here: remove a skill's tool from one agent, then give it back.
+  await nmap.getByText("Change access").click();
+  await nmap.getByRole("checkbox", { name: /^Nina/ }).uncheck();
+  await nmap.getByRole("button", { name: "Save access" }).click();
+  await expect(page.getByText("Updated who can use nmap_scan.")).toBeVisible();
+  await expect(nmap.getByRole("link", { name: /Nina/ })).toHaveCount(0);
+  await expect(nmap.getByText("(access removed)")).toHaveCount(1);
+  // The section stays open after saving.
+  await nmap.getByRole("checkbox", { name: /^Nina/ }).check();
+  await nmap.getByRole("button", { name: "Save access" }).click();
+  await expect(nmap.getByRole("link", { name: /Nina/ })).toBeVisible();
+
   await page.getByRole("link", { name: "Knowledge base" }).click();
   await expect(page.getByText("No notes yet.")).toBeVisible();
   const add = page.locator("form", { has: page.getByRole("button", { name: "Add note" }) });

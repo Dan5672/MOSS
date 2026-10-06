@@ -4,7 +4,10 @@ import { Empty, NoPermission, PageHeader, Section, timeAgo } from "@/components/
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireUser } from "@/server/auth";
 import { recentDenials, toolAccess } from "@/server/tool-catalog";
+import { ActionForm } from "@/components/action-form";
+import { CheckboxField } from "@/components/field";
 import { AgentsTabs } from "../tabs";
+import { setToolAccessAction } from "./actions";
 
 export const metadata = { title: "Tool access" };
 
@@ -19,6 +22,7 @@ export default async function ToolAccessPage() {
   if (!user.permissions.has("agents.read")) return <NoPermission />;
   const [{ tools, agents, sinceDays }, denials] = await Promise.all([toolAccess(user.orgId), recentDenials(user.orgId)]);
   const unused = tools.filter((t) => t.holders.length === 0).length;
+  const canManage = user.permissions.has("agents.manage");
 
   return (
     <>
@@ -72,7 +76,7 @@ export default async function ToolAccessPage() {
                           <Pill tone={t.kind === "write" ? "orange" : "gray"}>{t.kind}</Pill>
                         </TableCell>
                         <TableCell className="align-top whitespace-normal">
-                          {t.holders.length === 0 ? (
+                          {t.holders.length === 0 && !t.holdings.some((h) => h.override === "removed") ? (
                             <span className="text-xs text-dim">Nobody</span>
                           ) : (
                             <ul className="flex flex-wrap gap-1.5">
@@ -84,12 +88,49 @@ export default async function ToolAccessPage() {
                                     className="inline-flex items-center gap-1 border-2 px-2 py-0.5 text-xs hover:bg-accent"
                                   >
                                     {h.name}
+                                    {h.override === "granted" && <span className="text-phosphor">(added)</span>}
                                     {h.status === "paused" && <span className="text-amber">(paused)</span>}
                                     <span className="sr-only"> through {h.via.join(", ")}</span>
                                   </Link>
                                 </li>
                               ))}
+                              {t.holdings
+                                .filter((h) => h.override === "removed")
+                                .map((h) => (
+                                  <li key={`removed-${h.id}`}>
+                                    <span title="Removed on this page, though a skill grants it" className="inline-flex items-center gap-1 border-2 border-dashed px-2 py-0.5 text-xs text-dim line-through">
+                                      {h.name}
+                                    </span>
+                                    <span className="sr-only"> (access removed)</span>
+                                  </li>
+                                ))}
                             </ul>
+                          )}
+                          {t.holdings.some((h) => h.blockedByRole) && (
+                            <p className="mt-1 text-xs text-amber">
+                              Granted but blocked by role permission: {t.holdings.filter((h) => h.blockedByRole).map((h) => h.name).join(", ")}
+                            </p>
+                          )}
+                          {canManage && t.holdings.length > 0 && (
+                            <details className="mt-2">
+                              <summary className="cursor-pointer text-xs text-muted-foreground">Change access</summary>
+                              <ActionForm action={setToolAccessAction.bind(null, t.name)} submitLabel="Save access" submitVariant="outline" className="mt-2 gap-2">
+                                <fieldset className="grid gap-1.5">
+                                  <legend className="sr-only">Agents that may use {t.name}</legend>
+                                  {t.holdings.map((h) => (
+                                    <CheckboxField
+                                      key={h.id}
+                                      label={h.name}
+                                      name="agents"
+                                      value={h.id}
+                                      defaultChecked={h.override ? h.override === "granted" : h.base}
+                                      hint={h.base ? `Given by ${h.via.join(", ")}` : undefined}
+                                    />
+                                  ))}
+                                </fieldset>
+                                {t.kind === "write" && <p className="text-xs text-muted-foreground">A write tool still only runs as part of an approved change request.</p>}
+                              </ActionForm>
+                            </details>
                           )}
                         </TableCell>
                         <TableCell className="text-right align-top font-mono tabular-nums">{t.calls || "—"}</TableCell>

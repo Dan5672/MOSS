@@ -5,7 +5,7 @@
 //   - API providers: MOSS drives the model turn by turn (runApiLoop, below).
 //   - Claude subscription: the Claude Code CLI drives the model, and calls MOSS's tools through a
 //     local MCP server that runs the same execute() path (see claude-code.ts).
-import { effectivePermissions, getBudgetStatus, getSetting, ingestDiscoveredHosts, writeAudit, type DiscoveredHost } from "@moss/core";
+import { agentToolGrants, effectivePermissions, getBudgetStatus, getSetting, ingestDiscoveredHosts, writeAudit, type DiscoveredHost } from "@moss/core";
 import {
   agentRuns,
   agents,
@@ -132,7 +132,8 @@ async function prepareRun(deps: RunDeps, input: RunInput): Promise<PreparedRun |
     .from(agentSkills)
     .innerJoin(skills, eq(agentSkills.skillId, skills.id))
     .where(eq(agentSkills.agentId, agent.id));
-  const grants = new Set(skillRows.flatMap((s) => s.toolGrants));
+  // Skills give instructions; which tools the agent has also counts per-agent overrides (see agentToolGrants).
+  const grants = await agentToolGrants(db, agent.id);
   const permRows = agent.roleId
     ? await db.select({ p: rolePermissions.permission }).from(rolePermissions).where(eq(rolePermissions.roleId, agent.roleId))
     : [];

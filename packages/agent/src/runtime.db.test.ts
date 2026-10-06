@@ -1,6 +1,6 @@
 // Agent runtime against Postgres with a scripted LLM and a fake gate. Run with MOSS_TEST_DATABASE_URL set.
 import { approveChange, bootstrapOrg, createChangeRequest, getChange, getIncident, setNetworkStatus, setSetting } from "@moss/core";
-import { agentRuns, agents, agentSkills, assets, budgets, models, notifications, providers, runSteps, tokenUsage, type Database } from "@moss/db";
+import { agentRuns, agents, agentSkills, agentToolOverrides, assets, budgets, models, notifications, providers, runSteps, tokenUsage, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { MockAdapter, type ScriptedTurn } from "@moss/llm";
 import { asc, eq } from "drizzle-orm";
@@ -231,6 +231,18 @@ describe.skipIf(!TEST_DATABASE_URL)("agent runtime (postgres)", () => {
     script = [{ toolCalls: [{ id: "x", name: "notify_user", input: { title: "Click me", link: "https://evil.example" } }] }, { text: "ok" }];
     await runAgent(deps(), { agentId: sam.id, task: "Try an outside link.", trigger: "manual" });
     expect((await db.select().from(notifications).where(eq(notifications.userId, actor.userId))).some((n) => n.title.includes("Click me"))).toBe(false);
+  });
+
+  it("leaves out MOSS tools removed by a per-agent override, and refuses them if called", async () => {
+    const sam = await hire("systems-admin");
+    await db.insert(agentToolOverrides).values({ agentId: sam.id, tool: "kb_write", granted: false });
+    script = [{ toolCalls: [{ id: "w", name: "kb_write", input: { title: "x", body: "y" } }] }, { text: "ok" }];
+    const outcome = await runAgent(deps(), { agentId: sam.id, task: "Write a note.", trigger: "manual" });
+    const offered = adapter.received[0]!.opts.tools.map((t) => t.name);
+    expect(offered).toContain("kb_search");
+    expect(offered).not.toContain("kb_write");
+    const results = (await db.select().from(runSteps).where(eq(runSteps.runId, outcome.runId!))).filter((st) => st.kind === "tool_result");
+    expect(results[0]!.content).toMatchObject({ isError: true, content: expect.stringContaining("not available to you") });
   });
 
   it("refuses platform tools the agent was not granted", async () => {

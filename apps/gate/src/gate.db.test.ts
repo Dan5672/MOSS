@@ -3,6 +3,7 @@ import { approveChange, bootstrapOrg, createChangeRequest, encryptSecret, genera
 import {
   agents,
   agentSkills,
+  agentToolOverrides,
   auditLog,
   configBackups,
   customToolGrants,
@@ -198,6 +199,19 @@ describe.skipIf(!TEST_DATABASE_URL)("policy gate (postgres)", () => {
     ).toMatchObject({ code: "call_not_in_change_plan" });
     expect(await gate.handleToolCall({ agentId, tool: "restart_service", args, changeId: cr!.id })).toMatchObject({ allowed: true });
     expect(toolboxCalls).toEqual([{ tool: "restart_service", args }]);
+  });
+
+  it("applies per-agent tool overrides: removing a skill's tool and adding one", async () => {
+    // ping comes from the agent's skill; removing it denies the call and drops it from the tool list.
+    await db.insert(agentToolOverrides).values({ agentId, tool: "ping", granted: false });
+    expect(await gate.handleToolCall({ agentId, tool: "ping", args: { target: "192.168.1.1" } })).toMatchObject({ code: "tool_not_granted" });
+    expect((await gate.listAgentTools(agentId)).map((t) => t.name)).not.toContain("ping");
+    // arp_scan isn't in any skill; granting it lets the call through (still scope-checked).
+    await db.insert(agentToolOverrides).values({ agentId, tool: "arp_scan", granted: true });
+    expect(await gate.handleToolCall({ agentId, tool: "arp_scan", args: { targets: ["192.168.1.0/24"] } })).toMatchObject({ allowed: true });
+    expect(await gate.handleToolCall({ agentId, tool: "arp_scan", args: { targets: ["192.168.66.0/24"] } })).toMatchObject({ code: "target_off_limits" });
+    await db.delete(agentToolOverrides).where(eq(agentToolOverrides.agentId, agentId));
+    expect(await gate.handleToolCall({ agentId, tool: "ping", args: { target: "192.168.1.1" } })).toMatchObject({ allowed: true });
   });
 
   it("stops agents that are over budget or halted by the kill switch", async () => {

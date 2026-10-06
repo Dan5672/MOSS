@@ -71,6 +71,13 @@
       "when": 1791257540546,
       "tag": "0009_agent_mascot",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791259690809,
+      "tag": "0010_agent_tool_overrides",
+      "breakpoints": true
     }
   ]
 }

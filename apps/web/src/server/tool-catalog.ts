@@ -1,6 +1,6 @@
 import "server-only";
 import { PLATFORM_TOOLS } from "@moss/agent";
-import { agents, agentRuns, agentSkills, customToolGrants, customTools, rolePermissions, runSteps, skills } from "@moss/db";
+import { agents, agentRuns, agentSkills, agentToolOverrides, customToolGrants, customTools, rolePermissions, runSteps, skills } from "@moss/db";
 import { BUILT_IN_TOOLS, customToolSpecSchema } from "@moss/tools";
 import { and, eq, gte, inArray, max, ne, sql } from "drizzle-orm";
 import { db } from "./db";
@@ -34,13 +34,28 @@ export function toolCatalog(): CatalogTool[] {
 
 const PLATFORM_PERMISSION = new Map(PLATFORM_TOOLS.map((t) => [t.name, t.permission]));
 
+/** How one agent stands with one tool. */
+export interface ToolHolding {
+  id: string;
+  name: string;
+  status: string;
+  /** Effective access: the rule in @moss/core agentToolGrants, plus the role permission for MOSS tools. */
+  access: boolean;
+  /** What the agent's skills (or, for custom tools, a direct grant) give, before any override. */
+  base: boolean;
+  via: string[];
+  override: "granted" | "removed" | null;
+  /** A MOSS tool the agent is granted but whose permission its role lacks. */
+  blockedByRole: boolean;
+}
+
 /**
- * Which agents can use which tools, and how much they have. An agent has a tool when one of its skills
- * grants it and, for MOSS tools, its role holds the tool's permission (the same rule the runtime uses).
+ * Which agents can use which tools, and how much they use them. Mirrors agentToolGrants (skills + direct
+ * custom grants + per-agent overrides) and the runtime's role-permission check for MOSS tools.
  */
 export async function toolAccess(orgId: string, sinceDays = 30) {
   const since = new Date(Date.now() - sinceDays * 86_400_000);
-  const [agentRows, grants, usage, customRows, customGrants] = await Promise.all([
+  const [agentRows, grants, usage, customRows, customGrants, overrides] = await Promise.all([
     db()
       .select({ id: agents.id, name: agents.name, title: agents.title, status: agents.status, roleId: agents.roleId })
       .from(agents)
@@ -71,6 +86,11 @@ export async function toolAccess(orgId: string, sinceDays = 30) {
       .from(customToolGrants)
       .innerJoin(customTools, eq(customTools.id, customToolGrants.toolId))
       .where(eq(customTools.orgId, orgId)),
+    db()
+      .select({ agentId: agentToolOverrides.agentId, tool: agentToolOverrides.tool, granted: agentToolOverrides.granted })
+      .from(agentToolOverrides)
+      .innerJoin(agents, eq(agents.id, agentToolOverrides.agentId))
+      .where(eq(agents.orgId, orgId)),
   ]);
   const roleIds = [...new Set(agentRows.map((a) => a.roleId).filter((r): r is string => !!r))];
   const rolePerms = roleIds.length
@@ -87,20 +107,33 @@ export async function toolAccess(orgId: string, sinceDays = 30) {
   const catalog = [...toolCatalog(), ...custom.map((c) => c.tool)];
   const tools = catalog.map((tool) => {
     const customRow = custom.find((c) => c.tool.name === tool.name && tool.source === "custom");
-    const holders = agentRows.flatMap((a) => {
-      if (customRow) {
-        const granted = customRow.enabled && customGrants.some((g) => g.toolId === customRow.id && g.agentId === a.id);
-        return granted ? [{ id: a.id, name: a.name, status: a.status, via: ["a direct grant"] }] : [];
-      }
-      const via = grants.filter((g) => g.agentId === a.id && g.tools.includes(tool.name)).map((g) => g.skill);
+    const holdings: ToolHolding[] = agentRows.map((a) => {
+      const via = customRow
+        ? customGrants.some((g) => g.toolId === customRow.id && g.agentId === a.id) && customRow.enabled
+          ? ["a direct grant"]
+          : []
+        : grants.filter((g) => g.agentId === a.id && g.tools.includes(tool.name)).map((g) => g.skill);
+      const o = overrides.find((x) => x.agentId === a.id && x.tool === tool.name);
+      const granted = o ? o.granted : via.length > 0;
       const permission = PLATFORM_PERMISSION.get(tool.name);
-      if (!via.length || (permission && !permsOf(a.roleId).has(permission))) return [];
-      return [{ id: a.id, name: a.name, status: a.status, via }];
+      const blockedByRole = granted && !!permission && !permsOf(a.roleId).has(permission);
+      return {
+        id: a.id,
+        name: a.name,
+        status: a.status,
+        access: granted && !blockedByRole && (!customRow || customRow.enabled),
+        base: via.length > 0,
+        via,
+        override: o ? (o.granted ? "granted" : "removed") : null,
+        blockedByRole,
+      };
     });
+    const holders = holdings.filter((h) => h.access).map((h) => ({ ...h, via: h.override === "granted" ? ["a grant on this page"] : h.via }));
     const used = usage.filter((u) => u.tool === tool.name);
     return {
       ...tool,
       holders,
+      holdings,
       calls: used.reduce((n, u) => n + u.calls, 0),
       denied: used.reduce((n, u) => n + u.denied, 0),
       lastUsed: used.reduce<Date | null>((d, u) => (u.lastUsed && (!d || u.lastUsed > d) ? u.lastUsed : d), null),

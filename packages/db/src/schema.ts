@@ -203,6 +203,20 @@ export const agentSchedules = pgTable("agent_schedules", {
   enabled: boolean("enabled").notNull().default(true),
 });
 
+// Per-agent tool overrides on top of what the agent's skills grant: granted = true adds a tool the skills
+// don't give, granted = false removes one they do. The gate and the runtime both apply them.
+export const agentToolOverrides = pgTable(
+  "agent_tool_overrides",
+  {
+    agentId: uuid("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+    tool: text("tool").notNull(),
+    granted: boolean("granted").notNull(),
+    setBy: uuid("set_by").references(() => users.id),
+    setAt: timestamp("set_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.agentId, t.tool] })],
+);
+
 // Custom tools: declarative HTTP tools uploaded by owners (see @moss/tools custom.ts). The validated
 // definition is kept with the original text, and agents get a custom tool only through a grant here.
 export const customTools = pgTable(
