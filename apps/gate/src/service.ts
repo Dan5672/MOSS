@@ -2,9 +2,17 @@
 // only component that can decrypt secrets. Every decision is written to the audit log.
 import { decryptSecret, redactSecrets, writeAudit } from "@moss/core";
 import type { Database } from "@moss/db";
-import { evaluate, extractSecretHandles, type DenyCode } from "@moss/policy";
-import { BUILT_IN_TOOLS, parseToolArgs, toolInputSchema, type ToolDefinition } from "@moss/tools";
-import { loadAgent, loadContext, loadToolGrants } from "./context.js";
+import { checkSecrets, evaluate, extractSecretHandles, parseRange, type DenyCode, type IpRange } from "@moss/policy";
+import {
+  BUILT_IN_TOOLS,
+  customToolDefinition,
+  parseToolArgs,
+  renderCustomRequest,
+  toolInputSchema,
+  type CustomToolSpec,
+  type ToolDefinition,
+} from "@moss/tools";
+import { loadAgent, loadContext, loadCustomTool, loadCustomTools, loadToolGrants } from "./context.js";
 import { runMonitorCheck } from "./monitor-check.js";
 import type { ToolboxClient } from "./toolbox-client.js";
 
@@ -67,16 +75,27 @@ export function createGate(deps: GateDeps) {
       return { allowed: false as const, code, reason };
     };
 
-    const def = tools.get(req.tool);
+    // Built-in tools first; a name that isn't built in may be one of the org's custom tools.
+    const custom: CustomToolSpec | null = tools.has(req.tool) ? null : await loadCustomTool(deps.db, agent.orgId, req.tool);
+    const def = tools.get(req.tool) ?? (custom ? customToolDefinition(custom) : undefined);
     if (!def) return deny("unknown_tool", `Unknown tool ${req.tool}`);
     const parsed = parseToolArgs(def, req.args);
     if (!parsed.ok) return deny("invalid_args", parsed.error);
     const args = parsed.args;
 
-    const secretNames = [...new Set(extractSecretHandles(args))];
+    // A custom tool's only credential is the one its definition declares. A handle passed as an argument
+    // would be substituted into a request the owner never scoped it for.
+    if (custom && extractSecretHandles(args).length > 0) return deny("invalid_args", "Custom tool arguments can't contain secret handles");
+    const secretNames = custom ? (custom.secret ? [custom.secret] : []) : [...new Set(extractSecretHandles(args))];
     const ctx = await loadContext(deps.db, agent, { changeId: req.changeId, secretNames, now: now() });
     const decision = evaluate({ tool: req.tool, args, changeId: req.changeId }, def.manifest, ctx.policy);
     if (!decision.allow) return deny(decision.code, decision.reason);
+    if (custom?.secret) {
+      const ranges = decision.targets.map(parseRange).filter((r): r is IpRange => r !== null);
+      const denied = checkSecrets([custom.secret], req.tool, decision.targets, ranges, ctx.policy);
+      if (denied && !denied.allow) return deny(denied.code, denied.reason);
+      decision.secretHandles.push(custom.secret);
+    }
 
     // Decrypt only after the policy allowed the call, and only the secrets it references.
     const secretValues = new Map<string, string>();
@@ -87,7 +106,13 @@ export function createGate(deps: GateDeps) {
 
     let response: { ok: boolean; result?: unknown; error?: string; durationMs?: number };
     try {
-      response = await deps.toolbox.call(req.tool, substituteSecrets(args, secretValues) as Record<string, unknown>);
+      if (custom) {
+        // Rendered only now, after the policy allowed the call; the toolbox checks the result again.
+        const rendered = renderCustomRequest(custom, args, custom.secret ? secretValues.get(custom.secret) : undefined);
+        response = await deps.toolbox.call("custom_http", rendered as unknown as Record<string, unknown>);
+      } else {
+        response = await deps.toolbox.call(req.tool, substituteSecrets(args, secretValues) as Record<string, unknown>);
+      }
     } catch (err) {
       response = { ok: false, error: `Toolbox unavailable: ${(err as Error).message}` };
     }
@@ -110,8 +135,10 @@ export function createGate(deps: GateDeps) {
 
   /** Tool specs (for the LLM) for every tool the agent is currently granted. */
   async function listAgentTools(agentId: string) {
-    const grants = await loadToolGrants(deps.db, agentId);
-    return [...tools.values()]
+    const agent = await loadAgent(deps.db, agentId);
+    if (!agent) return [];
+    const [grants, custom] = await Promise.all([loadToolGrants(deps.db, agentId), loadCustomTools(deps.db, agent.orgId)]);
+    return [...tools.values(), ...custom.filter((c) => !tools.has(c.key)).map(customToolDefinition)]
       .filter((d) => grants.has(d.manifest.name))
       .map((d) => ({ name: d.manifest.name, class: d.manifest.class, description: d.description, inputSchema: toolInputSchema(d) }));
   }

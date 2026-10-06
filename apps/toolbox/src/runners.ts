@@ -1,7 +1,8 @@
 // Executes built-in tools. Binaries are invoked with execFile and fixed argument lists:
 // no shell, and every user-supplied value has already passed strict schema validation.
 import { contains, parseRange } from "@moss/policy";
-import { BUILT_IN_TOOLS, parseToolArgs } from "@moss/tools";
+import { BUILT_IN_TOOLS, customHttp as customHttpTool, parseToolArgs, type RenderedRequest } from "@moss/tools";
+import { customHttp, sendRequest, type RawRequest } from "./custom-http.js";
 import { execFile } from "node:child_process";
 import { createSocket } from "node:dgram";
 import { promises as dns } from "node:dns";
@@ -124,9 +125,10 @@ export async function runTool(
   exec: Exec = defaultExec,
   interfaces: InterfaceLister = listInterfaces,
   get: HttpGet = httpsGet,
+  send: RawRequest = sendRequest,
 ): Promise<unknown> {
   try {
-    return await runToolInner(name, rawArgs, exec, interfaces, get);
+    return await runToolInner(name, rawArgs, exec, interfaces, get, send);
   } catch (err) {
     // Discovery tools report device-side problems (bad key, no answer) as tool errors, not crashes.
     if (err instanceof DiscoveryError) throw new ToolError(err.message);
@@ -134,8 +136,9 @@ export async function runTool(
   }
 }
 
-async function runToolInner(name: string, rawArgs: unknown, exec: Exec, interfaces: InterfaceLister, get: HttpGet): Promise<unknown> {
-  const def = BUILT_IN_TOOLS.get(name);
+async function runToolInner(name: string, rawArgs: unknown, exec: Exec, interfaces: InterfaceLister, get: HttpGet, send: RawRequest): Promise<unknown> {
+  // custom_http is internal: only the gate sends it, with a request it rendered after the policy allowed it.
+  const def = name === "custom_http" ? customHttpTool : BUILT_IN_TOOLS.get(name);
   if (!def) throw new ToolError(`Unknown tool ${name}`);
   const parsed = parseToolArgs(def, rawArgs);
   if (!parsed.ok) throw new ToolError(`Invalid arguments: ${parsed.error}`);
@@ -219,6 +222,14 @@ async function runToolInner(name: string, rawArgs: unknown, exec: Exec, interfac
       const target = args.target as string;
       assertHost(target);
       return tlsInspect(target, args.port as number, args.servername as string | undefined, args.timeoutMs as number);
+    }
+    case "custom_http": {
+      assertHost(args.target as string);
+      try {
+        return await customHttp(args as unknown as RenderedRequest, send);
+      } catch (err) {
+        throw new ToolError(`Request failed: ${(err as Error).message}`);
+      }
     }
     case "unifi_clients": {
       assertHost(args.controller as string);

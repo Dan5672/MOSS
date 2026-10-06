@@ -116,6 +116,40 @@ When a monitor goes down, after a configurable number of failed checks:
 - Outages during an approved change on the same asset (a planned restart, for example) don't open
   incidents.
 
+## Custom tools
+
+You can give agents your own HTTP tools under **Agents → Custom tools**. A custom tool is a definition,
+not code: typed parameters, one request template, an optional stored secret, and an optional filter
+on the JSON result.
+
+```yaml
+key: plex_sessions
+description: Active Plex streams on a media server
+class: read                     # read tools use GET; anything that changes state is "write"
+params:
+  host: { type: ip, target: true }
+secret: plex-token              # stored under Settings → Secrets
+request:
+  method: GET
+  scheme: http
+  port: 32400
+  path: /status/sessions
+  headers: { X-Plex-Token: "{{secret}}", Accept: application/json }
+result:
+  pick: $.MediaContainer.Metadata[*].title
+```
+
+Custom tools follow the same rules as built-in ones:
+
+- Requests only go to the target IP, which must be inside an allowed network. A hostname can only be
+  sent as the Host header.
+- Write tools need an approved change request for each call.
+- The gate fills in `{{secret}}` only if the agent was granted the secret and the host and tool are
+  within its scope. The secret never goes in the URL path, and it is removed from results and the
+  audit log.
+- Parameter values are encoded for where they land, and line breaks in headers are refused.
+  Responses are size- and time-limited and returned to the agent as untrusted data.
+
 ## Using a Claude subscription
 
 Agents can run on your Claude Pro or Max plan instead of an API key. MOSS drives them through the

@@ -224,11 +224,23 @@ export function evaluate(call: ToolCall, manifest: ToolManifest, ctx: PolicyCont
     }
   }
   const secretHandles = [...new Set(extractSecretHandles(call.args))];
-  for (const name of secretHandles) {
+  const secretDenied = checkSecrets(secretHandles, call.tool, targets, targetRanges, ctx);
+  if (secretDenied) return secretDenied;
+
+  return { allow: true, targets, secretHandles };
+}
+
+/**
+ * Secret use: the agent must be granted each secret, the tool must be within the secret's tool scope, and
+ * every target within its host scope. Used for handles in arguments, and by the gate for a custom tool's
+ * declared secret. Returns a denial, or null when every secret may be used.
+ */
+export function checkSecrets(names: string[], tool: string, targets: string[], targetRanges: IpRange[], ctx: PolicyContext): PolicyDecision | null {
+  for (const name of names) {
     const secret = ctx.secrets.get(name);
     if (!secret || !ctx.agent.secretGrants.has(name)) return deny("secret_not_granted", `Agent has no grant for secret ${name}`);
-    if (secret.allowedTools.length > 0 && !secret.allowedTools.includes(call.tool)) {
-      return deny("secret_scope", `Secret ${name} may not be used with ${call.tool}`);
+    if (secret.allowedTools.length > 0 && !secret.allowedTools.includes(tool)) {
+      return deny("secret_scope", `Secret ${name} may not be used with ${tool}`);
     }
     if (secret.allowedHosts.length > 0) {
       const hostRanges = secret.allowedHosts.map(parseRange).filter((r): r is IpRange => r !== null);
@@ -237,6 +249,5 @@ export function evaluate(call: ToolCall, manifest: ToolManifest, ctx: PolicyCont
       if (outside !== -1) return deny("secret_scope", `Secret ${name} may not be used against ${targets[outside]}`);
     }
   }
-
-  return { allow: true, targets, secretHandles };
+  return null;
 }

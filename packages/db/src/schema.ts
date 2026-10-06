@@ -199,6 +199,34 @@ export const agentSchedules = pgTable("agent_schedules", {
   enabled: boolean("enabled").notNull().default(true),
 });
 
+// Custom tools: declarative HTTP tools uploaded by owners (see @moss/tools custom.ts). The validated
+// definition is kept with the original text, and agents get a custom tool only through a grant here.
+export const customTools = pgTable(
+  "custom_tools",
+  {
+    id: id(),
+    ...tenancy(),
+    key: text("key").notNull(),
+    spec: jsonb("spec").$type<Record<string, unknown>>().notNull(),
+    source: text("source").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("custom_tools_org_key_idx").on(t.orgId, t.key)],
+);
+
+export const customToolGrants = pgTable(
+  "custom_tool_grants",
+  {
+    toolId: uuid("tool_id").notNull().references(() => customTools.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+    grantedBy: uuid("granted_by").references(() => users.id),
+    grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.toolId, t.agentId] })],
+);
+
 export const budgets = pgTable("budgets", {
   id: id(),
   ...tenancy(),

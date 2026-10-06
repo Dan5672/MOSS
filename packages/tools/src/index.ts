@@ -317,3 +317,4 @@ export interface DnsLookupResult {
   type: "A" | "AAAA" | "PTR";
   answers: string[];
 }
+export * from "./custom.js";

@@ -4,6 +4,8 @@ import {
   agents,
   agentSkills,
   auditLog,
+  customToolGrants,
+  customTools,
   budgets,
   changeRequests,
   models,
@@ -225,6 +227,65 @@ describe.skipIf(!TEST_DATABASE_URL)("policy gate (postgres)", () => {
       payload: { agentId: "not-a-uuid", tool: "ping" },
     });
     expect(bad.statusCode).toBe(400);
+  });
+
+  it("runs custom tools through the same policy: grants, scope, declared secret only, writes need a change", async () => {
+    const PLEX_TOKEN = "plex-token-value-123";
+    const plexId = randomUUID();
+    await db.insert(secrets).values({ id: plexId, orgId, name: "plex-token", type: "api_token", allowedHosts: ["192.168.1.20"], allowedTools: ["plex_sessions"], ...encryptSecret(masterKey, plexId, PLEX_TOKEN) });
+    const spec = {
+      key: "plex_sessions",
+      description: "Active Plex streams on a media server",
+      class: "read",
+      params: { host: { type: "ip", target: true }, user: { type: "string", required: false } },
+      secret: "plex-token",
+      request: { method: "GET", scheme: "http", port: 32400, path: "/status/sessions", headers: { "X-Plex-Token": "{{secret}}" }, query: { user: "{{user}}" } },
+      result: { pick: "$.MediaContainer.Metadata[*].title" },
+    };
+    const [tool] = await db.insert(customTools).values({ orgId, key: "plex_sessions", spec, source: "{}" }).returning();
+    const call = (args: Record<string, unknown>) => gate.handleToolCall({ agentId, tool: "plex_sessions", args });
+
+    // Not granted to the agent yet.
+    expect(await call({ host: "192.168.1.20" })).toMatchObject({ code: "tool_not_granted" });
+    await db.insert(customToolGrants).values({ toolId: tool!.id, agentId });
+    expect((await gate.listAgentTools(agentId)).map((t) => t.name)).toContain("plex_sessions");
+
+    // The secret is granted? Not yet: the declared secret is checked like any other.
+    expect(await call({ host: "192.168.1.20" })).toMatchObject({ code: "secret_not_granted" });
+    await db.insert(secretGrants).values({ secretId: plexId, agentId });
+
+    toolboxReply = (_t, args) => ({ status: 200, ok: true, data: ["Film"], echo: (args.headers as Record<string, string>)["X-Plex-Token"] });
+    const res = await call({ host: "192.168.1.20", user: "a b" });
+    expect(toolboxCalls[0]).toEqual({
+      tool: "custom_http",
+      args: expect.objectContaining({ target: "192.168.1.20", port: 32400, method: "GET", path: "/status/sessions?user=a%20b", headers: { "X-Plex-Token": PLEX_TOKEN } }),
+    });
+    expect(res).toMatchObject({ allowed: true, result: { data: ["Film"], echo: "[REDACTED]" } });
+    expect(JSON.stringify(await lastAudit())).not.toContain(PLEX_TOKEN);
+    expect((await lastAudit()).details).toMatchObject({ secretsUsed: ["plex-token"] });
+
+    toolboxCalls.length = 0;
+    // Scope: outside the allowed networks, outside the secret's hosts, or a smuggled handle.
+    expect(await call({ host: "192.168.66.20" })).toMatchObject({ code: "target_off_limits" });
+    expect(await call({ host: "192.168.1.21" })).toMatchObject({ code: "secret_scope" });
+    expect(await call({ host: "192.168.1.20", user: "secret:switch-snmp" })).toMatchObject({ code: "invalid_args" });
+    expect(await gate.handleToolCall({ agentId, tool: "custom_http", args: { target: "192.168.1.20" } })).toMatchObject({ code: "unknown_tool" });
+
+    // Disabled tools vanish, and a write tool needs an approved change.
+    await db.update(customTools).set({ enabled: false }).where(eq(customTools.id, tool!.id));
+    expect(await call({ host: "192.168.1.20" })).toMatchObject({ code: "unknown_tool" });
+    const [restart] = await db
+      .insert(customTools)
+      .values({
+        orgId,
+        key: "nas_restart_app",
+        source: "{}",
+        spec: { key: "nas_restart_app", description: "Restart an app on the NAS", class: "write", params: { host: { type: "ip", target: true } }, request: { method: "POST", path: "/api/restart" } },
+      })
+      .returning();
+    await db.insert(customToolGrants).values({ toolId: restart!.id, agentId });
+    expect(await gate.handleToolCall({ agentId, tool: "nas_restart_app", args: { host: "192.168.1.30" } })).toMatchObject({ code: "change_required" });
+    expect(toolboxCalls).toHaveLength(0);
   });
 
   it("leaves an intact audit chain", async () => {

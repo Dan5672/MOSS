@@ -1,8 +1,9 @@
 // Loads everything the policy needs for one tool call, straight from the database.
 // Nothing here comes from the agent except the ids it supplied.
 import { getBudgetStatus, getSetting } from "@moss/core";
-import { agents, agentSkills, changeRequests, networks, secretGrants, secrets, skills, type Database } from "@moss/db";
+import { agents, agentSkills, changeRequests, customToolGrants, customTools, networks, secretGrants, secrets, skills, type Database } from "@moss/db";
 import type { PolicyContext, SecretPolicy } from "@moss/policy";
+import { customToolSpecSchema } from "@moss/tools";
 import { and, eq, inArray } from "drizzle-orm";
 
 export type SecretRow = typeof secrets.$inferSelect;
@@ -20,13 +21,41 @@ export async function loadAgent(db: Database, agentId: string) {
   return agent;
 }
 
+/** Tools the agent may call: those its skills grant, plus enabled custom tools granted to it directly. */
 export async function loadToolGrants(db: Database, agentId: string): Promise<Set<string>> {
-  const rows = await db
-    .select({ toolGrants: skills.toolGrants })
-    .from(agentSkills)
-    .innerJoin(skills, eq(agentSkills.skillId, skills.id))
-    .where(eq(agentSkills.agentId, agentId));
-  return new Set(rows.flatMap((r) => r.toolGrants));
+  const [rows, custom] = await Promise.all([
+    db
+      .select({ toolGrants: skills.toolGrants })
+      .from(agentSkills)
+      .innerJoin(skills, eq(agentSkills.skillId, skills.id))
+      .where(eq(agentSkills.agentId, agentId)),
+    db
+      .select({ key: customTools.key })
+      .from(customToolGrants)
+      .innerJoin(customTools, eq(customTools.id, customToolGrants.toolId))
+      .where(and(eq(customToolGrants.agentId, agentId), eq(customTools.enabled, true))),
+  ]);
+  return new Set([...rows.flatMap((r) => r.toolGrants), ...custom.map((c) => c.key)]);
+}
+
+/** An org's enabled custom tool by name, validated again on load (the stored spec is never trusted blindly). */
+export async function loadCustomTool(db: Database, orgId: string, key: string) {
+  const [row] = await db
+    .select({ spec: customTools.spec })
+    .from(customTools)
+    .where(and(eq(customTools.orgId, orgId), eq(customTools.key, key), eq(customTools.enabled, true)));
+  if (!row) return null;
+  const parsed = customToolSpecSchema.safeParse(row.spec);
+  return parsed.success ? parsed.data : null;
+}
+
+/** All of an org's enabled custom tools. */
+export async function loadCustomTools(db: Database, orgId: string) {
+  const rows = await db.select({ spec: customTools.spec }).from(customTools).where(and(eq(customTools.orgId, orgId), eq(customTools.enabled, true)));
+  return rows.flatMap((r) => {
+    const parsed = customToolSpecSchema.safeParse(r.spec);
+    return parsed.success ? [parsed.data] : [];
+  });
 }
 
 export async function loadContext(

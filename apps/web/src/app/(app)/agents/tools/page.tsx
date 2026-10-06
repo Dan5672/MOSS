@@ -11,6 +11,7 @@ export const metadata = { title: "Tool access" };
 const SOURCES = [
   { key: "network", title: "Network tools", blurb: "Run in the toolbox. Every call is checked by the policy gate: allowed networks, budgets, and an approved change for writes." },
   { key: "moss", title: "MOSS tools", blurb: "Work on MOSS's own records: inventory, tickets, monitors, the knowledge base. Limited by the agent's role permissions." },
+  { key: "custom", title: "Custom tools", blurb: "Your own HTTP tools, granted to agents directly. They go through the policy gate like network tools." },
 ] as const;
 
 export default async function ToolAccessPage() {
@@ -43,7 +44,7 @@ export default async function ToolAccessPage() {
       </div>
 
       <div className="grid gap-8">
-        {SOURCES.map((src) => (
+        {SOURCES.filter((src) => src.key !== "custom" || tools.some((t) => t.source === "custom")).map((src) => (
           <Section key={src.key} title={src.title}>
             <p className="text-sm text-muted-foreground">{src.blurb}</p>
             <div className="px-frame overflow-x-auto">

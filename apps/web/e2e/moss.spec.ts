@@ -229,6 +229,44 @@ test("settings: secrets are scoped to hosts and tools, granted to agents, and ne
   await expect(page.getByText("Deleted secret:unifi-api.")).toBeVisible();
 });
 
+test("agents: custom tools are uploaded as definitions, validated, granted and shown in tool access", async () => {
+  await page.goto("/agents/custom-tools");
+  await expect(page.getByText("No custom tools yet.")).toBeVisible();
+  const add = page.locator("form", { has: page.getByRole("button", { name: "Add tool" }) });
+  const definition = add.getByRole("textbox", { name: "Definition" });
+  const example = await definition.inputValue();
+
+  // Problems are explained, not stored.
+  await definition.fill(example.replace("method: GET", "method: POST"));
+  await add.getByRole("button", { name: "Add tool" }).click();
+  await expect(add.getByRole("alert")).toContainText("request.method: read tools must use GET");
+  await definition.fill(example.replace("key: plex_sessions", "key: nmap_scan"));
+  await add.getByRole("button", { name: "Add tool" }).click();
+  await expect(add.getByRole("alert")).toContainText('"nmap_scan" is the name of a built-in tool');
+
+  await definition.fill(example);
+  await add.getByRole("checkbox", { name: /^Nina/ }).check();
+  await add.getByRole("button", { name: "Add tool" }).click();
+  await expect(page.getByText("Added plex_sessions.")).toBeVisible();
+  const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: "plex_sessions" }) });
+  await expect(card).toContainText("GET http://{host}:32400/status/sessions");
+  await expect(card).toContainText("not stored yet");
+  await expect(card).toContainText("Nina");
+
+  await page.getByRole("link", { name: "Tool access" }).click();
+  await expect(page.getByRole("heading", { name: "Custom tools" })).toBeVisible();
+  await expect(page.getByRole("row", { name: /plex_sessions/ }).getByRole("link", { name: /Nina/ })).toBeVisible();
+
+  await page.getByRole("link", { name: "Custom tools" }).click();
+  await card.getByRole("button", { name: "Turn off" }).click();
+  await expect(page.getByText("plex_sessions turned off.")).toBeVisible();
+  await expect(card.getByText("off", { exact: true })).toBeVisible();
+  await page.waitForLoadState("networkidle");
+  page.once("dialog", (d) => d.accept());
+  await card.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByText("Deleted plex_sessions.")).toBeVisible();
+});
+
 test("agents: hire a custom agent with chosen skills", async () => {
   await page.goto("/agents");
   const form = page.locator("form", { has: page.getByRole("button", { name: "Hire custom agent" }) });

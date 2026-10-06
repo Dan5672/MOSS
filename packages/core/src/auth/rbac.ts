@@ -9,6 +9,7 @@ export const PERMISSIONS = [
   "agents.budget",
   "models.manage",
   "skills.manage",
+  "tools.manage", // upload, edit and grant custom tools
   "assets.read",
   "assets.manage",
   "networks.read",
@@ -47,6 +48,7 @@ export const HUMAN_ONLY_PERMISSIONS: ReadonlySet<Permission> = new Set<Permissio
   "agents.budget",
   "models.manage",
   "skills.manage",
+  "tools.manage",
   "integrations.manage",
   "killswitch.use",
 ]);

@@ -1,15 +1,15 @@
 import "server-only";
 import { PLATFORM_TOOLS } from "@moss/agent";
-import { agents, agentRuns, agentSkills, rolePermissions, runSteps, skills } from "@moss/db";
-import { BUILT_IN_TOOLS } from "@moss/tools";
+import { agents, agentRuns, agentSkills, customToolGrants, customTools, rolePermissions, runSteps, skills } from "@moss/db";
+import { BUILT_IN_TOOLS, customToolSpecSchema } from "@moss/tools";
 import { and, eq, gte, inArray, max, ne, sql } from "drizzle-orm";
 import { db } from "./db";
 
 export interface CatalogTool {
   name: string;
   description: string;
-  /** "network": runs in the toolbox through the policy gate; "moss": works on MOSS's own records. */
-  source: "network" | "moss";
+  /** "network": runs in the toolbox through the policy gate; "moss": works on MOSS's own records; "custom": uploaded. */
+  source: "network" | "moss" | "custom";
   /** Write tools change something: network writes need an approved change request. */
   kind: "read" | "write";
 }
@@ -40,7 +40,7 @@ const PLATFORM_PERMISSION = new Map(PLATFORM_TOOLS.map((t) => [t.name, t.permiss
  */
 export async function toolAccess(orgId: string, sinceDays = 30) {
   const since = new Date(Date.now() - sinceDays * 86_400_000);
-  const [agentRows, grants, usage] = await Promise.all([
+  const [agentRows, grants, usage, customRows, customGrants] = await Promise.all([
     db()
       .select({ id: agents.id, name: agents.name, title: agents.title, status: agents.status, roleId: agents.roleId })
       .from(agents)
@@ -65,6 +65,12 @@ export async function toolAccess(orgId: string, sinceDays = 30) {
       .innerJoin(agentRuns, eq(agentRuns.id, runSteps.runId))
       .where(and(eq(agentRuns.orgId, orgId), inArray(runSteps.kind, ["tool_call", "policy_denied"]), gte(runSteps.createdAt, since)))
       .groupBy(agentRuns.agentId, sql`${runSteps.content}->>'name'`),
+    db().select().from(customTools).where(eq(customTools.orgId, orgId)),
+    db()
+      .select({ toolId: customToolGrants.toolId, agentId: customToolGrants.agentId })
+      .from(customToolGrants)
+      .innerJoin(customTools, eq(customTools.id, customToolGrants.toolId))
+      .where(eq(customTools.orgId, orgId)),
   ]);
   const roleIds = [...new Set(agentRows.map((a) => a.roleId).filter((r): r is string => !!r))];
   const rolePerms = roleIds.length
@@ -72,9 +78,20 @@ export async function toolAccess(orgId: string, sinceDays = 30) {
     : [];
   const permsOf = (roleId: string | null) => new Set(rolePerms.filter((p) => p.roleId === roleId).map((p) => p.permission));
 
-  const catalog = toolCatalog();
+  // Custom tools reach agents through a direct grant rather than a skill.
+  const custom = customRows.flatMap((row) => {
+    const spec = customToolSpecSchema.safeParse(row.spec);
+    if (!spec.success) return [];
+    return [{ id: row.id, enabled: row.enabled, tool: { name: row.key, description: spec.data.description, source: "custom" as const, kind: spec.data.class } }];
+  });
+  const catalog = [...toolCatalog(), ...custom.map((c) => c.tool)];
   const tools = catalog.map((tool) => {
+    const customRow = custom.find((c) => c.tool.name === tool.name && tool.source === "custom");
     const holders = agentRows.flatMap((a) => {
+      if (customRow) {
+        const granted = customRow.enabled && customGrants.some((g) => g.toolId === customRow.id && g.agentId === a.id);
+        return granted ? [{ id: a.id, name: a.name, status: a.status, via: ["a direct grant"] }] : [];
+      }
       const via = grants.filter((g) => g.agentId === a.id && g.tools.includes(tool.name)).map((g) => g.skill);
       const permission = PLATFORM_PERMISSION.get(tool.name);
       if (!via.length || (permission && !permsOf(a.roleId).has(permission))) return [];
