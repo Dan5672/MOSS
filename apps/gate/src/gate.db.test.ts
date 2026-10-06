@@ -1,5 +1,5 @@
 // End-to-end gate tests against Postgres with a fake toolbox. Run with MOSS_TEST_DATABASE_URL set.
-import { bootstrapOrg, encryptSecret, generateMasterKey, setSetting, verifyAuditLog } from "@moss/core";
+import { approveChange, bootstrapOrg, createChangeRequest, encryptSecret, generateMasterKey, setSetting, verifyAuditLog } from "@moss/core";
 import {
   agents,
   agentSkills,
@@ -47,6 +47,7 @@ describe.skipIf(!TEST_DATABASE_URL)("policy gate (postgres)", () => {
   let close: () => Promise<void>;
   let gate: Gate;
   let orgId: string;
+  let ownerId: string;
   let agentId: string;
   let modelId: string;
   const masterKey = generateMasterKey();
@@ -64,7 +65,7 @@ describe.skipIf(!TEST_DATABASE_URL)("policy gate (postgres)", () => {
 
   beforeAll(async () => {
     ({ db, close } = await createTestDb("gate"));
-    ({ org: { id: orgId } } = await bootstrapOrg(db, {
+    ({ org: { id: orgId }, owner: { id: ownerId } } = await bootstrapOrg(db, {
       orgName: "Lab",
       ownerEmail: "owner@lab.test",
       ownerName: "Owner",
@@ -286,6 +287,26 @@ describe.skipIf(!TEST_DATABASE_URL)("policy gate (postgres)", () => {
     await db.insert(customToolGrants).values({ toolId: restart!.id, agentId });
     expect(await gate.handleToolCall({ agentId, tool: "nas_restart_app", args: { host: "192.168.1.30" } })).toMatchObject({ code: "change_required" });
     expect(toolboxCalls).toHaveLength(0);
+
+    // A change request can plan a custom write tool, and once approved, exactly that call runs.
+    const cr = await createChangeRequest(
+      db,
+      orgId,
+      {
+        type: "normal",
+        title: "Restart the NAS app",
+        description: "It stopped answering",
+        plannedCalls: [{ tool: "nas_restart_app", args: { host: "192.168.1.30" } }],
+        rollbackPlan: "None needed",
+        verificationPlan: "The app answers again",
+      },
+      { type: "agent", id: agentId },
+    );
+    await approveChange(db, orgId, cr.id, ownerId);
+    toolboxReply = () => ({ status: 200, ok: true });
+    expect(await gate.handleToolCall({ agentId, tool: "nas_restart_app", args: { host: "192.168.1.31" }, changeId: cr.id })).toMatchObject({ code: "call_not_in_change_plan" });
+    expect(await gate.handleToolCall({ agentId, tool: "nas_restart_app", args: { host: "192.168.1.30" }, changeId: cr.id })).toMatchObject({ allowed: true, ok: true });
+    expect(toolboxCalls).toEqual([{ tool: "custom_http", args: expect.objectContaining({ target: "192.168.1.30", method: "POST", path: "/api/restart" }) }]);
   });
 
   it("leaves an intact audit chain", async () => {

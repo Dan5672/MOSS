@@ -83,13 +83,13 @@ export const sshRun: SshRun = (t, command) =>
       });
   });
 
-async function run(t: SshTarget, command: string, ssh: SshRun) {
+export async function run(t: SshTarget, command: string, ssh: SshRun) {
   if (!/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(t.key)) throw new ServerError("The secret isn't an SSH private key (only key-based logins are supported)");
   const res = await ssh(t, command);
   return res;
 }
 
-const pinNote = (t: SshTarget, seen: string) => ({
+export const pinNote = (t: SshTarget, seen: string) => ({
   hostKeySha256: seen,
   ...(t.hostKeySha256 ? {} : { note: "Host key not pinned. Record this fingerprint (after checking it on the server) and pass it as hostKeySha256." }),
 });

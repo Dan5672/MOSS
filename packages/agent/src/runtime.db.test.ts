@@ -94,7 +94,7 @@ describe.skipIf(!TEST_DATABASE_URL)("agent runtime (postgres)", () => {
     expect(nina).toMatchObject({ name: "Nina", title: "Network Admin", templateKey: "network-admin", effort: "medium", maxStepsPerRun: 30 });
     expect(nina.reportsToAgentId).toBe(manager.id);
     expect(manager.reportsToUserId).toBe(actor.userId);
-    expect(await db.select().from(agentSkills).where(eq(agentSkills.agentId, nina.id))).toHaveLength(8);
+    expect(await db.select().from(agentSkills).where(eq(agentSkills.agentId, nina.id))).toHaveLength(9);
   });
 
   it("runs a discovery task end to end: scan, denial, inventory, classification", async () => {

@@ -2,6 +2,7 @@
 // no shell, and every user-supplied value has already passed strict schema validation.
 import { contains, parseRange } from "@moss/policy";
 import { BUILT_IN_TOOLS, customHttp as customHttpTool, parseToolArgs, type RenderedRequest } from "@moss/tools";
+import * as actions from "./actions.js";
 import { customHttp, sendRequest, type RawRequest } from "./custom-http.js";
 import { adguardStats, HomelabError, homeassistantStates, piholeSummary, proxmoxStatus, synologyStatus, truenasStatus } from "./homelab.js";
 import { diskUsage, dockerPs, hostFacts, ServerError, serviceStatus, sshRun, type SshRun, type SshTarget } from "./servers.js";
@@ -267,6 +268,40 @@ async function runToolInner(
       if (name === "homeassistant_states") return homeassistantStates(a, send);
       if (name === "pihole_summary") return piholeSummary(a, send);
       return adguardStats(a, send);
+    }
+    // Write tools: the gate only sends these as a step of an approved change request.
+    case "service_restart":
+    case "container_restart":
+    case "host_reboot": {
+      assertHost(args.target as string);
+      const t = args as never;
+      if (name === "service_restart") return actions.serviceRestart(t, ssh);
+      if (name === "container_restart") return actions.containerRestart(t, ssh);
+      return actions.hostReboot(t, ssh);
+    }
+    case "homeassistant_switch":
+    case "homeassistant_power_cycle":
+    case "pihole_domain_rule":
+    case "pihole_local_dns":
+    case "adguard_rule":
+    case "adguard_rewrite": {
+      assertHost(args.target as string);
+      const a = args as never;
+      if (name === "homeassistant_switch") return actions.homeassistantSwitch(a, send);
+      if (name === "homeassistant_power_cycle") return actions.homeassistantPowerCycle(a, send);
+      if (name === "pihole_domain_rule") return actions.piholeDomainRule(a, send);
+      if (name === "pihole_local_dns") return actions.piholeLocalDns(a, send);
+      if (name === "adguard_rule") return actions.adguardRule(a, send);
+      return actions.adguardRewrite(a, send);
+    }
+    case "unifi_client_block":
+    case "unifi_dhcp_reservation":
+    case "unifi_wlan_enable": {
+      assertHost(args.controller as string);
+      const a = args as never;
+      if (name === "unifi_client_block") return actions.unifiClientBlock(a, send);
+      if (name === "unifi_dhcp_reservation") return actions.unifiDhcpReservation(a, send);
+      return actions.unifiWlanEnable(a, send);
     }
     case "unifi_clients": {
       assertHost(args.controller as string);

@@ -295,6 +295,145 @@ export const adguardStats = tool(
   }),
 );
 
+// --- Write tools ------------------------------------------------------------------------------
+// Everything below changes something, so the gate only runs a call that exactly matches a step of an
+// approved change request, inside its window. Arguments are strict so the plan a human approves is the
+// exact request that runs.
+const unitName = z.string().regex(/^[A-Za-z0-9@._:-]{1,100}$/, "A systemd unit name, e.g. nginx or nginx.service");
+const containerName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/, "A Docker container name");
+const dnsName = z
+  .string()
+  .min(1)
+  .max(253)
+  .regex(/^([A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9])?$/, "A domain name, e.g. ads.example.com");
+const ipv4 = z.string().regex(/^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/, "An IPv4 address");
+const macAddress = z
+  .string()
+  .regex(/^([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$/, "A MAC address")
+  .transform((m) => m.toLowerCase().replace(/-/g, ":"));
+const haApi = {
+  ...apiCommon,
+  token: secretHandle.describe("A Home Assistant long-lived access token stored as a secret"),
+  port: port.default(8123),
+  scheme: z.enum(["http", "https"]).default("http"),
+};
+const piholeApi = {
+  ...apiCommon,
+  password: secretHandle.describe("The Pi-hole web or app password stored as a secret"),
+  port: port.default(80),
+  scheme: z.enum(["http", "https"]).default("http"),
+};
+const adguardApi = {
+  ...apiCommon,
+  user: z.string().min(1).max(64).describe("The AdGuard Home user name"),
+  password: secretHandle.describe("That user's password stored as a secret"),
+  port: port.default(80),
+  scheme: z.enum(["http", "https"]).default("http"),
+};
+const unifiApi = {
+  controller: hostIp.describe("The UniFi console or gateway"),
+  apiKey: secretHandle,
+  port: port.default(443),
+  site: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[A-Za-z0-9_-]+$/)
+    .default("default"),
+  timeoutMs,
+};
+
+export const serviceRestart = tool(
+  { name: "service_restart", class: "write", targetArgs: ["target"], secretArgs: ["key"] },
+  "Restart, start or stop a systemd service over SSH (sudo -n systemctl), then report its new state. Needs passwordless sudo " +
+    "for systemctl on that server. Only runs as part of an approved change.",
+  z.object({ ...sshArgs, service: unitName, action: z.enum(["restart", "start", "stop"]).default("restart") }),
+);
+
+export const containerRestart = tool(
+  { name: "container_restart", class: "write", targetArgs: ["target"], secretArgs: ["key"] },
+  "Restart, start or stop a Docker container over SSH, then report its new state. Only runs as part of an approved change.",
+  z.object({ ...sshArgs, container: containerName, action: z.enum(["restart", "start", "stop"]).default("restart") }),
+);
+
+export const hostReboot = tool(
+  { name: "host_reboot", class: "write", targetArgs: ["target"], secretArgs: ["key"] },
+  "Schedule a reboot of a Linux server over SSH (sudo -n shutdown -r), a minute or more ahead so the session ends cleanly. " +
+    "Needs passwordless sudo for shutdown. Only runs as part of an approved change.",
+  z.object({ ...sshArgs, delayMinutes: z.number().int().min(1).max(60).default(1) }),
+);
+
+export const homeassistantSwitch = tool(
+  { name: "homeassistant_switch", class: "write", targetArgs: ["target"], secretArgs: ["token"] },
+  "Turn a Home Assistant switch, light, fan or input_boolean on or off (or toggle it), then report its new state. Only runs " +
+    "as part of an approved change.",
+  z.object({
+    ...haApi,
+    entity: z
+      .string()
+      .regex(/^(switch|light|fan|input_boolean)\.[a-z0-9_]{1,100}$/, "A switch, light, fan or input_boolean entity id")
+      .describe("e.g. switch.modem_plug"),
+    action: z.enum(["turn_on", "turn_off", "toggle"]),
+  }),
+);
+
+export const homeassistantPowerCycle = tool(
+  { name: "homeassistant_power_cycle", class: "write", targetArgs: ["target"], secretArgs: ["token"] },
+  "Power-cycle a device on a Home Assistant smart plug: turn the switch off, wait, turn it back on, and report each state. " +
+    "For a hung modem or access point. Only runs as part of an approved change.",
+  z.object({
+    ...haApi,
+    entity: z.string().regex(/^switch\.[a-z0-9_]{1,100}$/, "A switch entity id, e.g. switch.modem_plug"),
+    offSeconds: z.number().int().min(5).max(120).default(15),
+  }),
+);
+
+export const piholeDomainRule = tool(
+  { name: "pihole_domain_rule", class: "write", targetArgs: ["target"], secretArgs: ["password"] },
+  "Add or remove an exact domain on Pi-hole's (v6) deny or allow list. Only runs as part of an approved change.",
+  z.object({ ...piholeApi, domain: dnsName, list: z.enum(["deny", "allow"]), action: z.enum(["add", "remove"]) }),
+);
+
+export const piholeLocalDns = tool(
+  { name: "pihole_local_dns", class: "write", targetArgs: ["target"], secretArgs: ["password"] },
+  "Add or remove a local DNS record on Pi-hole (v6), e.g. nas.lan -> 10.0.0.12. Only runs as part of an approved change.",
+  z.object({ ...piholeApi, hostname: dnsName, ip: ipv4, action: z.enum(["add", "remove"]) }),
+);
+
+export const adguardRule = tool(
+  { name: "adguard_rule", class: "write", targetArgs: ["target"], secretArgs: ["password"] },
+  "Block or unblock a domain with an AdGuard Home custom filtering rule, or remove MOSS's rule for it. Only runs as part " +
+    "of an approved change.",
+  z.object({ ...adguardApi, domain: dnsName, action: z.enum(["block", "unblock", "remove"]) }),
+);
+
+export const adguardRewrite = tool(
+  { name: "adguard_rewrite", class: "write", targetArgs: ["target"], secretArgs: ["password"] },
+  "Add or remove an AdGuard Home DNS rewrite (a local DNS record), e.g. nas.lan -> 10.0.0.12. Only runs as part of an " +
+    "approved change.",
+  z.object({ ...adguardApi, domain: dnsName, answer: ipv4, action: z.enum(["add", "remove"]) }),
+);
+
+export const unifiClientBlock = tool(
+  { name: "unifi_client_block", class: "write", targetArgs: ["controller"], secretArgs: ["apiKey"] },
+  "Block or unblock a client (by MAC) on a UniFi network, cutting it off from Wi-Fi and wired ports. Only runs as part of " +
+    "an approved change.",
+  z.object({ ...unifiApi, mac: macAddress, action: z.enum(["block", "unblock"]) }),
+);
+
+export const unifiDhcpReservation = tool(
+  { name: "unifi_dhcp_reservation", class: "write", targetArgs: ["controller"], secretArgs: ["apiKey"] },
+  "Give a UniFi client (by MAC) a fixed DHCP address, or clear its reservation. The client must be known to the console. " +
+    "Only runs as part of an approved change.",
+  z.object({ ...unifiApi, mac: macAddress, ip: ipv4.optional().describe("The address to reserve; omit to clear the reservation") }),
+);
+
+export const unifiWlanEnable = tool(
+  { name: "unifi_wlan_enable", class: "write", targetArgs: ["controller"], secretArgs: ["apiKey"] },
+  "Turn a UniFi Wi-Fi network (by SSID) on or off, e.g. the guest network. Only runs as part of an approved change.",
+  z.object({ ...unifiApi, ssid: z.string().min(1).max(32), enabled: z.boolean() }),
+);
+
 export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
   [
     nmapScan,
@@ -319,6 +458,18 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     homeassistantStates,
     piholeSummary,
     adguardStats,
+    serviceRestart,
+    containerRestart,
+    hostReboot,
+    homeassistantSwitch,
+    homeassistantPowerCycle,
+    piholeDomainRule,
+    piholeLocalDns,
+    adguardRule,
+    adguardRewrite,
+    unifiClientBlock,
+    unifiDhcpReservation,
+    unifiWlanEnable,
   ].map((t) => [t.manifest.name, t as unknown as ToolDefinition]),
 );
 

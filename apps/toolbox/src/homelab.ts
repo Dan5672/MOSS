@@ -7,7 +7,7 @@ import { clean } from "./parsers.js";
 
 export class HomelabError extends Error {}
 
-interface Base {
+export interface Base {
   target: string;
   port: number;
   verifyTls: boolean;
@@ -15,7 +15,7 @@ interface Base {
   scheme?: "http" | "https";
 }
 
-const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : undefined);
+export const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : undefined);
 const gb = (bytes: unknown) => {
   const n = num(bytes);
   return n === undefined ? undefined : Math.round(n / 1e7) / 100;
@@ -27,7 +27,7 @@ const pct = (part: unknown, whole: unknown) => {
 };
 
 /** One JSON API call; 401/403 become a clear "credentials rejected" error naming the product. */
-async function call(
+export async function call(
   send: RawRequest,
   product: string,
   b: Base,
@@ -56,8 +56,11 @@ async function call(
   if (res.status === 401 || res.status === 403) throw new HomelabError(`${product} rejected the credentials (HTTP ${res.status})`);
   if (res.truncated) throw new HomelabError(`${product}'s answer was too large`);
   let json: unknown;
+  const text = res.body.toString("utf8");
+  // A successful write may answer with no body at all (e.g. 204 No Content).
+  if (!text.trim() && res.status < 400) return { status: res.status, json: null };
   try {
-    json = JSON.parse(res.body.toString("utf8"));
+    json = JSON.parse(text);
   } catch {
     throw new HomelabError(`${product} answered HTTP ${res.status} with something that isn't JSON (is this the right port?)`);
   }
@@ -65,8 +68,8 @@ async function call(
   return { status: res.status, json };
 }
 
-const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v.filter((x) => x && typeof x === "object") as Record<string, unknown>[]) : []);
-const obj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+export const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v.filter((x) => x && typeof x === "object") as Record<string, unknown>[]) : []);
+export const obj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 
 // --- Proxmox VE ---------------------------------------------------------------------------------
 

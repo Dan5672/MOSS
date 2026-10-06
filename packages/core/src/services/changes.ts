@@ -6,13 +6,14 @@ import {
   changeAssets,
   changeNotes,
   changeRequests,
+  customTools,
   incidentComments,
   incidents,
   standardChangeTemplates,
   type Database,
   type PlannedToolCall,
 } from "@moss/db";
-import { BUILT_IN_TOOLS, parseToolArgs, type ToolDefinition } from "@moss/tools";
+import { BUILT_IN_TOOLS, customToolDefinition, customToolSpecSchema, parseToolArgs, type ToolDefinition } from "@moss/tools";
 import { and, asc, desc, eq, inArray, ne, type SQL } from "drizzle-orm";
 import { getSetting } from "../store/settings-store.js";
 import { writeAudit } from "../store/audit-store.js";
@@ -52,6 +53,20 @@ export function normalizeCalls(calls: PlannedToolCall[], tools: ReadonlyMap<stri
     if (!parsed.ok) throw new ChangeError(`Planned call ${i + 1} (${c.tool}): ${parsed.error}`);
     return { tool: c.tool, args: parsed.args };
   });
+}
+
+/** Every tool a change in this org can plan: the built-ins plus the org's enabled custom tools. */
+export async function orgToolDefinitions(db: Database, orgId: string): Promise<ReadonlyMap<string, ToolDefinition>> {
+  const rows = await db
+    .select({ spec: customTools.spec })
+    .from(customTools)
+    .where(and(eq(customTools.orgId, orgId), eq(customTools.enabled, true)));
+  const map = new Map(BUILT_IN_TOOLS);
+  for (const row of rows) {
+    const spec = customToolSpecSchema.safeParse(row.spec);
+    if (spec.success && !map.has(spec.data.key)) map.set(spec.data.key, customToolDefinition(spec.data));
+  }
+  return map;
 }
 
 /** Fills a standard template's "{param}" placeholders. Each param must fully match its regex. */
@@ -113,8 +128,9 @@ export async function createChangeRequest(db: Database, orgId: string, input: Ne
     risk = template.risk;
   }
   if (planned.length === 0) throw new ChangeError("A change needs at least one planned tool call");
-  const plannedCalls = normalizeCalls(planned, opts.tools);
-  const rollbackCalls = normalizeCalls(input.rollbackCalls ?? [], opts.tools);
+  const tools = opts.tools ?? (await orgToolDefinitions(db, orgId));
+  const plannedCalls = normalizeCalls(planned, tools);
+  const rollbackCalls = normalizeCalls(input.rollbackCalls ?? [], tools);
 
   let status: ChangeStatus = "submitted";
   let postReviewRequired = false;

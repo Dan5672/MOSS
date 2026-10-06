@@ -73,16 +73,19 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
       "asset-inventory",
       "change-management",
       "device-power",
+      "home-dns-actions",
       "homelab-integrations",
       "incident-management",
       "monitoring-response",
       "network-discovery",
       "network-insight",
       "security-baseline",
+      "server-actions",
       "server-checks",
       "service-desk",
       "service-health",
       "team-memory",
+      "unifi-actions",
     ]);
   });
 
