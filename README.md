@@ -8,7 +8,7 @@ watch your services, work incidents, and propose fixes through real change manag
 inside the budgets, permissions and network boundaries you set, and every action they take is
 audited.
 
-> **Status: early release (v0.1.0).** MOSS works end to end, but it is young software: expect rough
+> **Status: early release (v0.1).** MOSS works end to end, but it is young software: expect rough
 > edges and breaking changes between releases. Only point it at networks you own or are authorised
 > to manage.
 
@@ -70,7 +70,7 @@ developed and tested on x86-64; ARM boards such as the Raspberry Pi 5 are a targ
 ```sh
 git clone https://github.com/Dan5672/MOSS.git
 cd MOSS
-git checkout v0.1.0
+git checkout "$(git tag --list 'v*' --sort=-v:refname | head -n 1)"   # the newest release
 sh deploy/init.sh   # creates deploy/.env, the master key and service tokens
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 ```
