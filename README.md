@@ -12,30 +12,64 @@ audited.
 > edges and breaking changes between releases. Only point it at networks you own or are authorised
 > to manage.
 
+![The Basement: MOSS's agents at their desks. Nina is working an internet outage while the others are on a break.](docs/screenshots/basement.png)
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/dashboard.png" alt="Dashboard: a getting-started checklist, a briefing, and counts of open incidents, monitors down, changes awaiting approval, assets and agents"></td>
+    <td><img src="docs/screenshots/monitoring.png" alt="Monitoring: built-in and external monitors with their state, last result and responder agent"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/agent.png" alt="An agent's page: its recent runs, skills and their tools, mascot, model, budget and schedules"></td>
+    <td><img src="docs/screenshots/assets.png" alt="Assets: the inventory of devices with kind, IP, MAC and vendor"></td>
+  </tr>
+</table>
+
 ## What it does
 
 - **Agents you hire, with budgets.** Start from a template (IT Manager, Systems Admin, Network
-  Admin, Security Admin) or build your own.
+  Admin, Security Admin) or build your own from the skills you choose.
   - Each agent has a role, skills, schedules and a daily or monthly spending limit. Token use is
     metered exactly, and a hard limit pauses the agent.
-  - Developer and Home Automation templates are included, but the integrations they need are
-    still on the roadmap.
+  - **Chat** with any agent, or give it a task. Each agent's page suggests tasks that fit its skills
+    and what's going on right now.
+  - The **Tool access** page shows which agent can use which tool, and lets you grant or remove a
+    tool for one agent.
+  - Agents share a **knowledge base** and team memory, so what one learns about your network the
+    others can find.
 - **Bring your own model.** Supports Anthropic, OpenAI, OpenRouter, Ollama and any
   OpenAI-compatible endpoint. A local model through Ollama keeps everything on your network.
   Agents can also run on a **Claude Pro or Max subscription** instead of an API key (see below).
 - **Discovery and inventory.** Agents scan the networks you allow (nmap, ARP) and keep an asset
-  inventory. You can lock an asset so agents can't change it.
+  inventory. They can also read your **UniFi** controller's clients, query devices over **SNMP**,
+  trace routes and look up names. You can lock an asset so agents can't change it.
+- **Home lab integrations.** Agents check servers over SSH (disks, services, containers) and read
+  **Proxmox**, **TrueNAS**, **Synology**, **Pi-hole**, **AdGuard Home** and **Home Assistant**
+  through their own APIs. Credentials are stored as scoped secrets.
 - **Incidents and change management.** Agents raise and work break/fix and security incidents.
   - Anything that changes a system goes through a change request listing the exact tool calls it
     will make, with a rollback plan.
   - Normal changes wait for a human to approve them. Pre-approved standard changes can run straight away.
+  - Changes agents can make this way include restarting a service or container, rebooting a server,
+    power-cycling a smart plug, Pi-hole and AdGuard rules and local DNS, and UniFi client blocks,
+    DHCP reservations and Wi-Fi networks.
+  - Agents can back up a device's configuration before they change it. Backups are stored encrypted
+    and only people you allow can download them.
 - **Monitoring.** Built-in ping, TCP, HTTP(S), TLS-expiry and DNS checks. MOSS also accepts
   alerts from **Uptime Kuma**, **Beszel**, **Prometheus Alertmanager** or any script that can
   post JSON.
   - When something goes down, MOSS opens an incident and its responder agent starts working it.
   - When it recovers, the incident is updated.
-- **Web UI.** Dashboard, agents, models, assets, networks, monitoring, incidents, changes, users
-  and roles, settings, and a verifiable audit log. Sign-in supports two-factor authentication (TOTP).
+- **A Home Assistant module** for incidents from your automations, phone notifications, MOSS's
+  status as sensors, an internet self-heal and more (see [below](#home-assistant)).
+- **Your own tools.** Describe an HTTP API as a definition and agents can use it, with the same
+  checks as built-in tools (see [Custom tools](#custom-tools)).
+- **Web UI.** Dashboard with a getting-started checklist, agents, models, assets, networks,
+  monitoring, incidents, changes, users and roles, settings, and a verifiable audit log. Sign-in
+  supports two-factor authentication (TOTP).
+  - **The Basement** shows your agents at their desks: who is working, who is on a break, and an
+    alarm when a monitor is down. Every agent has a pixel-art mascot you can change.
+  - Animations follow your device's reduced-motion setting, or your own choice in Settings.
 - **Kill switch.** One switch pauses every agent immediately.
 
 ## How it keeps you safe
@@ -116,6 +150,29 @@ When a monitor goes down, after a configurable number of failed checks:
 - Outages during an approved change on the same asset (a planned restart, for example) don't open
   incidents.
 
+## Home Assistant
+
+**Settings → Modules → Home Assistant** connects MOSS to your Home Assistant. Give it Home
+Assistant's IP address (on an allowed network) and a long-lived access token, then use **Test
+connection**. An administrator's token also lets MOSS read integrations and the error log. Each
+feature has its own switch:
+
+| Feature | What it does |
+| --- | --- |
+| Alerts | Your automations send events to MOSS through a `rest_command` (the page gives you one to paste). Each becomes a monitor, and a problem opens an incident for the responder you choose. |
+| Health checks | Every 5 minutes: is Home Assistant answering, have integrations failed, are updates pending, are many entities unavailable. |
+| Phone notifications | New incidents at or above a priority you choose go to the companion app, with a link to the incident. |
+| Status sensors | `sensor.moss_open_incidents`, `sensor.moss_monitors_down`, `sensor.moss_changes_pending` and `binary_sensor.moss_agents_paused`, for dashboards and automations. |
+| Inventory sync | Daily, or on demand: Home Assistant's device names, rooms, makers and models fill in your assets, matched by MAC or IP. Names you gave assets, and locked assets, are kept. |
+| Internet self-heal | When your internet monitor has been down for a few minutes, an agent power-cycles the modem's smart plug through a pre-approved change, then checks the connection came back. At most once per incident. |
+| Log review | Every day an agent reads Home Assistant's error log, compares it with what is normal for your home, and raises incidents for anything new or getting worse. |
+
+![The Home Assistant module page, with each feature's switch and settings](docs/screenshots/home-assistant.png)
+
+While the module is off, none of this runs and agents can't use any Home Assistant tool. The token
+is stored encrypted and can only be used against the address you gave. Apart from notifications and
+its own `moss_*` sensors, anything MOSS changes in your home still goes through change management.
+
 ## Custom tools
 
 You can give agents your own HTTP tools under **Agents → Custom tools**. A custom tool is a definition,
@@ -195,11 +252,10 @@ sh deploy/restore.sh <backup> [--checkout]   # restore a backup (and, with --che
 
 ## Roadmap
 
-- **Next:** Service Desk chat with the IT Manager agent, Home Assistant integration, passive
-  discovery, SNMP/LLDP and a network topology map, a knowledge base, router integrations (UniFi,
-  OPNsense), and push, chat and Home Assistant notifications.
-- **Later:** a development board for the Developer agent, a public integration SDK, external MCP
-  tool packs, and device configuration backup.
+- **Next:** passive discovery, LLDP and a network topology map, OPNsense and pfSense, email and
+  push notifications beyond Home Assistant, and host networking for full LAN discovery.
+- **Later:** a development board for the Developer agent, a public integration SDK, and external
+  MCP tool packs.
 
 ## Architecture
 
@@ -207,7 +263,7 @@ sh deploy/restore.sh <backup> [--checkout]   # restore a backup (and, with --che
 web       Next.js UI and server actions
 worker    agent runtime, schedules, event handling, monitor scheduling
 gate      policy gate + secrets broker: the only service with the master key and the only path to the toolbox
-toolbox   typed network tools (nmap, arp-scan, ping, DNS, TCP/HTTP/TLS probes), no shell
+toolbox   typed network tools (nmap, arp-scan, ping, DNS, probes, SNMP, SSH checks, device APIs), no shell
 postgres  PostgreSQL 17 + pgvector, plus the job queue (pg-boss)
 ```
 
