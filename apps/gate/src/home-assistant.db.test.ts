@@ -123,6 +123,22 @@ describe.skipIf(!TEST_DATABASE_URL)("Home Assistant module (gate)", () => {
     expect((await gate.listAgentTools(agentId)).map((t) => t.name)).toContain("homeassistant_states");
   });
 
+  it("a password secret given as an API key is refused with how to sign in instead", async () => {
+    const id = randomUUID();
+    await db.insert(secrets).values({ id, orgId, name: "Unifi-AP", type: "password", allowedHosts: ["192.168.1.1"], allowedTools: [], ...encryptSecret(masterKey, id, "pw") });
+    await db.insert(secretGrants).values({ secretId: id, agentId });
+    await db.insert(agentToolOverrides).values({ agentId, tool: "unifi_firewall", granted: true });
+
+    const wrong = await gate.handleToolCall({ agentId, tool: "unifi_firewall", args: { controller: "192.168.1.1", apiKey: "secret:Unifi-AP" } });
+    expect(wrong).toMatchObject({ allowed: false, code: "invalid_args", reason: expect.stringContaining('pass username (the account name) and password: "secret:Unifi-AP"') });
+    expect(calls).toHaveLength(0);
+
+    reply = { ok: true, result: { firewall: "rules" } };
+    const right = await gate.handleToolCall({ agentId, tool: "unifi_firewall", args: { controller: "192.168.1.1", username: "moss", password: "secret:Unifi-AP" } });
+    expect(right).toMatchObject({ allowed: true, ok: true });
+    expect(calls[0]!.args).toMatchObject({ username: "moss", password: "pw" });
+  });
+
   it("system tools can never be called by an agent", async () => {
     await configure(true);
     const res = await gate.handleToolCall({ agentId, tool: "homeassistant_notify", args: { target: "192.168.1.20", token: `secret:${HA_TOKEN_SECRET}`, service: "x", title: "t", message: "m" } });

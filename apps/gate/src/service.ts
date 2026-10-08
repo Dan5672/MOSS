@@ -97,6 +97,19 @@ export function createGate(deps: GateDeps) {
     const ctx = await loadContext(deps.db, agent, { changeId: req.changeId, secretNames, now: now() });
     const decision = evaluate({ tool: req.tool, args, changeId: req.changeId }, def.manifest, ctx.policy);
     if (!decision.allow) return deny(decision.code, decision.reason);
+    // A stored password passed where a tool wants an API key or token would be sent to the device as a key and
+    // rejected, which reads like a bad credential. Say what's actually wrong instead.
+    for (const arg of ["apiKey", "token"]) {
+      const handle = typeof args[arg] === "string" ? /^secret:([A-Za-z0-9_.-]+)$/.exec(args[arg] as string)?.[1] : undefined;
+      if (handle && ctx.secretRows.get(handle)?.type === "password") {
+        const signIn = def.args.shape && "username" in def.args.shape && "password" in def.args.shape;
+        return deny(
+          "invalid_args",
+          `secret:${handle} is a password, not an API key or token, so it can't go in ${arg}.` +
+            (signIn ? ` Sign in with it instead: pass username (the account name) and password: "secret:${handle}", and leave ${arg} out.` : ""),
+        );
+      }
+    }
     if (custom?.secret) {
       const ranges = decision.targets.map(parseRange).filter((r): r is IpRange => r !== null);
       const denied = checkSecrets([custom.secret], req.tool, decision.targets, ranges, ctx.policy);
