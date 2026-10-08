@@ -8,7 +8,8 @@ tools: [unifi_client_block, unifi_dhcp_reservation, unifi_wlan_enable, unifi_cli
 You can change the UniFi network, but only through change management.
 
 - These tools only run as steps of a change request a human approved, with the exact calls,
-  including the console address and the API key handle.
+  including the console address and how they sign in (the API key handle, or the username and
+  password handle).
 - Blocking cuts a device off completely. Do it for a device that looks compromised or unknown, say
   why, and include unblocking as the rollback.
 - A DHCP reservation takes effect when the client next renews its lease; it doesn't move it

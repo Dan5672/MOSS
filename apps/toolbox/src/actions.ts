@@ -3,6 +3,7 @@
 import { sendRequest, type RawRequest } from "./custom-http.js";
 import { arr, call, HomelabError, obj, type Base } from "./homelab.js";
 import { clean } from "./parsers.js";
+import { dataOf, withUnifi, type UnifiAuth } from "./unifi.js";
 import { parseSystemctlShow, pinNote, run, ServerError, sshRun, type SshRun, type SshTarget } from "./servers.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -158,30 +159,13 @@ export async function adguardRewrite(a: Base & { user: string; password: string;
   return { domain: a.domain, answer: a.answer, action: a.action, present };
 }
 
-// --- UniFi (the console's network API, with the same API key as unifi_clients) --------------------
+// --- UniFi (the console's network API, signed in with an API key or a local account) -------------
 
-interface UnifiArgs {
-  controller: string;
-  apiKey: string;
-  port: number;
-  site: string;
-  timeoutMs: number;
-}
+type UnifiArgs = UnifiAuth;
 
+/** One call in its own session (a username and password sign in, and out again, around it). */
 async function unifi(send: RawRequest, a: UnifiArgs, method: "GET" | "POST" | "PUT", path: string, body?: unknown) {
-  const base: Base = { target: a.controller, port: a.port, verifyTls: false, timeoutMs: a.timeoutMs, scheme: "https" };
-  const { json } = await call(
-    send,
-    "UniFi",
-    base,
-    method,
-    `/proxy/network/api/s/${a.site}${path}`,
-    { "X-API-KEY": a.apiKey, ...(body !== undefined ? { "Content-Type": "application/json" } : {}) },
-    body === undefined ? undefined : JSON.stringify(body),
-  );
-  const meta = obj(obj(json).meta);
-  if (meta.rc && meta.rc !== "ok") throw new HomelabError(`UniFi refused: ${clean(meta.msg) ?? "error"}`);
-  return arr(obj(json).data);
+  return withUnifi(send, a, async (req) => dataOf(await req(method, `/api/s/${a.site}${path}`, body)));
 }
 
 export async function unifiClientBlock(a: UnifiArgs & { mac: string; action: "block" | "unblock" }, send: RawRequest = sendRequest) {

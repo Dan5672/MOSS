@@ -7,6 +7,7 @@ import { configBackup, type BackupArgs } from "./backups.js";
 import { customHttp, sendRequest, type RawRequest } from "./custom-http.js";
 import { homeassistantDevices, homeassistantHealth, homeassistantLogs, homeassistantNotify, homeassistantPublish } from "./home-assistant.js";
 import { adguardStats, HomelabError, homeassistantStates, piholeSummary, proxmoxStatus, synologyStatus, truenasStatus } from "./homelab.js";
+import { unifiAuthMode, unifiClientsByLogin, unifiFirewall } from "./unifi.js";
 import { diskUsage, dockerPs, hostFacts, ServerError, serviceStatus, sshRun, type SshRun, type SshTarget } from "./servers.js";
 import { execFile } from "node:child_process";
 import { createSocket } from "node:dgram";
@@ -315,16 +316,20 @@ async function runToolInner(
     }
     case "unifi_client_block":
     case "unifi_dhcp_reservation":
-    case "unifi_wlan_enable": {
+    case "unifi_wlan_enable":
+    case "unifi_firewall": {
       assertHost(args.controller as string);
       const a = args as never;
       if (name === "unifi_client_block") return actions.unifiClientBlock(a, send);
       if (name === "unifi_dhcp_reservation") return actions.unifiDhcpReservation(a, send);
+      if (name === "unifi_firewall") return unifiFirewall(a, send);
       return actions.unifiWlanEnable(a, send);
     }
     case "unifi_clients": {
       assertHost(args.controller as string);
-      return unifiClients(args as Parameters<typeof unifiClients>[0], get);
+      // The official clients API takes only an API key; a username and password use the classic one.
+      if (unifiAuthMode(args as never) === "login") return unifiClientsByLogin(args as never, send);
+      return unifiClients(args as Parameters<typeof unifiClients>[0] & { apiKey: string }, get);
     }
     case "snmp_query": {
       assertHost(args.target as string);

@@ -7,9 +7,11 @@ tools: [unifi_clients, name_lookup, snmp_query, traceroute, inventory_search]
 ---
 You find out what devices are and how the network fits together.
 
-- If there is a UniFi console, `unifi_clients` is the best source of names and MAC addresses. It
-  needs an API key the owner stored as a secret; use the secret handle you were given (for example
-  `secret:unifi-api`). Never ask for, or type, a key yourself.
+- If there is a UniFi console, `unifi_clients` is the best source of names and MAC addresses.
+  It signs in with an API key (`apiKey`), or a local account (`username` plus `password`), both
+  stored as secrets by the owner. Use the handles and username you were given; never ask for, or
+  type, a key or password yourself. A Ubiquiti cloud account with two-factor sign-in can't be used:
+  if sign-in is refused, ask for a local account (Admins & Users, "Restrict to local access only").
 - For devices the router doesn't name, try `name_lookup` on their IPs: PCs answer NetBIOS, and TVs,
   speakers and printers often answer mDNS or UPnP.
 - `snmp_query` reads switches, NAS boxes and printers that have SNMP on: `system` for what it is,

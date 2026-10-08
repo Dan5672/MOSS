@@ -122,14 +122,30 @@ const secretHandle = z
   .max(4096)
   .describe("A stored secret, written as secret:<name>. Never a literal password or key.");
 
+/**
+ * How a UniFi tool signs in: an API key (UniFi Network 9.0 and later), or a local account's username and
+ * password. Give one or the other; the toolbox refuses a call with neither or both.
+ */
+const unifiAuth = {
+  apiKey: secretHandle.optional().describe("An API key stored as a secret. Or use username and password instead."),
+  username: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[A-Za-z0-9_.@+-]+$/)
+    .optional()
+    .describe("A local UniFi account (not a Ubiquiti cloud account with two-factor sign-in), used with password"),
+  password: secretHandle.optional().describe("That account's password stored as a secret"),
+};
+
 export const unifiClients = tool(
-  { name: "unifi_clients", class: "read", targetArgs: ["controller"], secretArgs: ["apiKey"] },
-  "List the clients a UniFi console knows about (its official local API): IP, MAC, name, wired or Wi-Fi, and when each " +
-    "connected. The best way to name devices and learn their MACs. Needs an API key stored as a secret. Results are added " +
-    "to the inventory.",
+  { name: "unifi_clients", class: "read", targetArgs: ["controller"], secretArgs: ["apiKey", "password"] },
+  "List the clients a UniFi console knows about: IP, MAC, name, wired or Wi-Fi, and when each connected. The best way to " +
+    "name devices and learn their MACs. Signs in with an API key, or a local account's username and password, stored as " +
+    "secrets. Results are added to the inventory.",
   z.object({
     controller: hostIp.describe("The UniFi console or gateway, e.g. 10.0.0.1"),
-    apiKey: secretHandle,
+    ...unifiAuth,
     port: port.default(443),
     site: z
       .string()
@@ -362,7 +378,7 @@ const adguardApi = {
 };
 const unifiApi = {
   controller: hostIp.describe("The UniFi console or gateway"),
-  apiKey: secretHandle,
+  ...unifiAuth,
   port: port.default(443),
   site: z
     .string()
@@ -445,23 +461,31 @@ export const adguardRewrite = tool(
 );
 
 export const unifiClientBlock = tool(
-  { name: "unifi_client_block", class: "write", targetArgs: ["controller"], secretArgs: ["apiKey"] },
+  { name: "unifi_client_block", class: "write", targetArgs: ["controller"], secretArgs: ["apiKey", "password"] },
   "Block or unblock a client (by MAC) on a UniFi network, cutting it off from Wi-Fi and wired ports. Only runs as part of " +
     "an approved change.",
   z.object({ ...unifiApi, mac: macAddress, action: z.enum(["block", "unblock"]) }),
 );
 
 export const unifiDhcpReservation = tool(
-  { name: "unifi_dhcp_reservation", class: "write", targetArgs: ["controller"], secretArgs: ["apiKey"] },
+  { name: "unifi_dhcp_reservation", class: "write", targetArgs: ["controller"], secretArgs: ["apiKey", "password"] },
   "Give a UniFi client (by MAC) a fixed DHCP address, or clear its reservation. The client must be known to the console. " +
     "Only runs as part of an approved change.",
   z.object({ ...unifiApi, mac: macAddress, ip: ipv4.optional().describe("The address to reserve; omit to clear the reservation") }),
 );
 
 export const unifiWlanEnable = tool(
-  { name: "unifi_wlan_enable", class: "write", targetArgs: ["controller"], secretArgs: ["apiKey"] },
+  { name: "unifi_wlan_enable", class: "write", targetArgs: ["controller"], secretArgs: ["apiKey", "password"] },
   "Turn a UniFi Wi-Fi network (by SSID) on or off, e.g. the guest network. Only runs as part of an approved change.",
   z.object({ ...unifiApi, ssid: z.string().min(1).max(32), enabled: z.boolean() }),
+);
+
+export const unifiFirewall = tool(
+  { name: "unifi_firewall", class: "read", targetArgs: ["controller"], secretArgs: ["apiKey", "password"] },
+  "Read a UniFi gateway's security setup (read-only): its networks and VLANs, firewall rules (or zone-based firewall " +
+    "policies on newer versions) with what they allow or block between which networks and ports, and port forwards. " +
+    "Signs in with an API key, or a local account's username and password.",
+  z.object({ ...unifiApi, includeBuiltIn: z.boolean().default(false).describe("Also list UniFi's own built-in policies") }),
 );
 
 // --- Config backups -----------------------------------------------------------------------------
@@ -552,6 +576,7 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     unifiClientBlock,
     unifiDhcpReservation,
     unifiWlanEnable,
+    unifiFirewall,
     configBackup,
   ].map((t) => [t.manifest.name, t as unknown as ToolDefinition]),
 );

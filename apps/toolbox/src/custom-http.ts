@@ -19,7 +19,10 @@ export interface CustomHttpResult {
   truncated?: boolean;
 }
 
-export type RawRequest = (r: RenderedRequest, maxBytes?: number) => Promise<{ status: number; contentType?: string; body: Buffer; truncated: boolean }>;
+export type RawRequest = (
+  r: RenderedRequest,
+  maxBytes?: number,
+) => Promise<{ status: number; contentType?: string; body: Buffer; truncated: boolean; headers?: Record<string, string | string[] | undefined> }>;
 
 export const sendRequest: RawRequest = (r, maxBytes = MAX_BODY) =>
   new Promise((resolve, reject) => {
@@ -44,10 +47,10 @@ export const sendRequest: RawRequest = (r, maxBytes = MAX_BODY) =>
             truncated = true;
             chunks.push(c.subarray(0, c.length - (size - maxBytes)));
             res.destroy();
-            resolve({ status: res.statusCode ?? 0, contentType: res.headers["content-type"], body: Buffer.concat(chunks), truncated });
+            resolve({ status: res.statusCode ?? 0, contentType: res.headers["content-type"], body: Buffer.concat(chunks), truncated, headers: res.headers });
           } else chunks.push(c);
         });
-        res.on("end", () => resolve({ status: res.statusCode ?? 0, contentType: res.headers["content-type"], body: Buffer.concat(chunks), truncated }));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, contentType: res.headers["content-type"], body: Buffer.concat(chunks), truncated, headers: res.headers }));
         res.on("error", reject);
       },
     );
