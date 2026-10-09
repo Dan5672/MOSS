@@ -2,6 +2,7 @@
 // run immediately; normal changes need a human approver; emergency changes run at once
 // (only if enabled) and are flagged for review afterwards.
 import {
+  agents,
   changeApprovals,
   changeAssets,
   changeNotes,
@@ -109,13 +110,25 @@ export interface NewChange {
   assetIds?: string[];
   windowStart?: Date;
   windowEnd?: Date;
-  /** A change MOSS raises (system actor) for an agent to execute, e.g. the Home Assistant module's self-heal. */
+  /**
+   * The agent that carries the change out: one MOSS raises itself (e.g. the Home Assistant module's
+   * self-heal), or one a person raises and hands to an agent.
+   */
   forAgentId?: string;
+  /** A person carries it out by hand: no tool calls, and they record the result themselves. */
+  manual?: boolean;
 }
 
 export async function createChangeRequest(db: Database, orgId: string, input: NewChange, actor: Actor, opts: ChangeOptions = {}) {
   if (input.windowStart && input.windowEnd && input.windowEnd <= input.windowStart) throw new ChangeError("The window must end after it starts");
-  if (input.forAgentId && actor.type !== "system") throw new ChangeError("Only MOSS itself raises changes for an agent");
+  if (input.forAgentId && actor.type === "agent") throw new ChangeError("Agents raise changes for themselves");
+  if (input.manual && (actor.type !== "user" || input.forAgentId || input.type === "standard")) {
+    throw new ChangeError("Only a person can raise a change to carry out by hand, and not as a standard change");
+  }
+  if (input.forAgentId) {
+    const [agent] = await db.select({ status: agents.status }).from(agents).where(and(eq(agents.id, input.forAgentId), eq(agents.orgId, orgId)));
+    if (!agent || agent.status === "fired") throw new ChangeError("That agent can't carry out changes");
+  }
 
   let planned = input.plannedCalls ?? [];
   let risk = input.risk ?? "medium";
@@ -130,7 +143,8 @@ export async function createChangeRequest(db: Database, orgId: string, input: Ne
     planned = instantiateTemplate(template, input.templateParams ?? {});
     risk = template.risk;
   }
-  if (planned.length === 0) throw new ChangeError("A change needs at least one planned tool call");
+  if (input.manual) planned = [];
+  else if (planned.length === 0) throw new ChangeError("A change needs at least one planned tool call (or carry it out by hand)");
   const tools = opts.tools ?? (await orgToolDefinitions(db, orgId));
   const plannedCalls = normalizeCalls(planned, tools);
   const rollbackCalls = normalizeCalls(input.rollbackCalls ?? [], tools);
@@ -359,6 +373,23 @@ export async function completeChange(
 ) {
   await assertCanExecute(db, orgId, changeId, actor);
   return transition(db, orgId, changeId, outcome, actor, { kind: "system", body: notes || outcome });
+}
+
+/** A change carried out by hand: no tool calls, raised by a person. */
+export const isManualChange = (c: Pick<ChangeRow, "plannedCalls" | "requestedByAgentId" | "requestedByUserId">) =>
+  c.plannedCalls.length === 0 && !c.requestedByAgentId && !!c.requestedByUserId;
+
+/** A person records how a by-hand change went, from approved (or in progress) to its outcome. */
+export async function recordManualResult(db: Database, orgId: string, changeId: string, outcome: "succeeded" | "failed", notes: string, actor: Actor) {
+  if (actor.type !== "user") throw new ChangeError("Only a person records the result of a change carried out by hand");
+  const change = await loadChange(db, orgId, changeId);
+  if (!isManualChange(change)) throw new ChangeError(`${changeRef(change.number)} is carried out by an agent, not by hand`);
+  if (change.status === "approved") await startChange(db, orgId, changeId, actor);
+  if (outcome === "succeeded") {
+    if (change.status !== "verifying") await markVerifying(db, orgId, changeId, actor);
+    return completeChange(db, orgId, changeId, "succeeded", notes, actor);
+  }
+  return completeChange(db, orgId, changeId, "failed", notes, actor);
 }
 
 export async function cancelChange(db: Database, orgId: string, changeId: string, actor: Actor, reason?: string) {

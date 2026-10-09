@@ -1,6 +1,9 @@
-import { changeRef, listChanges, type ChangeStatus } from "@moss/core";
+import { changeRef, incidentRef, listChanges, listIncidents, type ChangeStatus } from "@moss/core";
+import { agents, assets } from "@moss/db";
+import { and, asc, eq, ne } from "drizzle-orm";
 import Link from "next/link";
 import { Pill, StatusBadge } from "@/components/badges";
+import { FormDialog } from "@/components/form-dialog";
 import { Empty, PageHeader, timeAgo, NoPermission } from "@/components/page";
 import { SortableHead } from "@/components/sortable-head";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
@@ -9,6 +12,24 @@ import { cn } from "@/lib/utils";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { nameLookup } from "@/server/people";
+import { plannableTools } from "@/server/tool-catalog";
+import { RaiseChangeForm } from "./raise-change-form";
+
+/** What the "Raise a change" form offers: agents to carry it out, open incidents, assets and tools. */
+async function raiseOptions(orgId: string) {
+  const [agentRows, incidentRows, assetRows, tools] = await Promise.all([
+    db().select({ id: agents.id, name: agents.name, title: agents.title }).from(agents).where(and(eq(agents.orgId, orgId), eq(agents.status, "active"))).orderBy(asc(agents.name)),
+    listIncidents(db(), orgId, { status: ["new", "in_progress", "on_hold"], limit: 100 }),
+    db().select({ id: assets.id, name: assets.name, ip: assets.primaryIp }).from(assets).where(and(eq(assets.orgId, orgId), ne(assets.status, "retired"))).orderBy(asc(assets.name)).limit(500),
+    plannableTools(orgId),
+  ]);
+  return {
+    agents: agentRows.map((a) => ({ value: a.id, label: `${a.name} (${a.title})` })),
+    incidents: incidentRows.map((i) => ({ value: i.id, label: `${incidentRef(i.number)}: ${i.title}` })),
+    assets: assetRows.map((a) => ({ value: a.id, label: a.ip ? `${a.name} (${a.ip})` : a.name })),
+    tools,
+  };
+}
 
 export const metadata = { title: "Changes" };
 
@@ -26,7 +47,12 @@ export default async function ChangesPage({ searchParams }: PageProps<"/changes"
   const sp = await searchParams;
   const v = sp.view;
   const view = typeof v === "string" && v in VIEWS ? v : "pending";
-  const [unsorted, name] = await Promise.all([listChanges(db(), user.orgId, { status: VIEWS[view]!.status, limit: 200 }), nameLookup(user.orgId)]);
+  const canRaise = user.permissions.has("changes.create");
+  const [unsorted, name, raise] = await Promise.all([
+    listChanges(db(), user.orgId, { status: VIEWS[view]!.status, limit: 200 }),
+    nameLookup(user.orgId),
+    canRaise ? raiseOptions(user.orgId) : null,
+  ]);
   const sort = readSort(sp, ["ref", "title", "type", "risk", "status", "requested"] as const);
   const rows = sortRows(unsorted, sort, {
     ref: (c) => c.number,
@@ -40,7 +66,22 @@ export default async function ChangesPage({ searchParams }: PageProps<"/changes"
 
   return (
     <>
-      <PageHeader title="Changes" description="Every change to a system goes through a change request. Agents plan; you approve." />
+      <PageHeader
+        title="Changes"
+        description="Every change to a system goes through a change request. Agents plan; you approve."
+        actions={
+          raise && (
+            <FormDialog
+              label="Raise a change"
+              title="Raise a change"
+              description="It's submitted for approval. An agent carries it out by running exactly the tool calls you list, or a person does it by hand and records the result."
+              wide
+            >
+              <RaiseChangeForm {...raise} />
+            </FormDialog>
+          )
+        }
+      />
       <nav className="mb-4 flex gap-1" aria-label="Change views">
         {Object.entries(VIEWS).map(([key, { label }]) => (
           <Link

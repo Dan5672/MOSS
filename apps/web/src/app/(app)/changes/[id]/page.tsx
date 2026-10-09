@@ -1,17 +1,17 @@
-import { changeRef, getChange, incidentRef } from "@moss/core";
+import { changeRef, getChange, incidentRef, isManualChange } from "@moss/core";
 import { incidents } from "@moss/db";
 import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
 import { Pill, StatusBadge } from "@/components/badges";
-import { TextAreaField } from "@/components/field";
+import { SelectField, TextAreaField } from "@/components/field";
 import { PageHeader, Section, timeAgo, NoPermission } from "@/components/page";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { nameLookup } from "@/server/people";
-import { approveAction, cancelAction, changeCommentAction, rejectAction } from "../actions";
+import { approveAction, cancelAction, changeCommentAction, recordResultAction, rejectAction } from "../actions";
 
 function Calls({ calls }: { calls: { tool: string; args: Record<string, unknown> }[] }) {
   if (calls.length === 0) return <p className="text-sm text-muted-foreground">None.</p>;
@@ -40,6 +40,8 @@ export default async function ChangePage({ params }: PageProps<"/changes/[id]">)
     change.incidentId ? db().select().from(incidents).where(eq(incidents.id, change.incidentId)) : Promise.resolve([]),
   ]);
   const canApprove = user.permissions.has("changes.approve") && change.status === "submitted";
+  const byHand = isManualChange(change);
+  const canRecord = byHand && user.permissions.has("changes.create") && ["approved", "in_progress", "verifying"].includes(change.status);
   const canComment = user.permissions.has("changes.create");
   const cancellable = user.permissions.has("changes.create") && ["draft", "submitted", "approved"].includes(change.status);
 
@@ -72,10 +74,19 @@ export default async function ChangePage({ params }: PageProps<"/changes/[id]">)
               Window: <span className="font-mono">{change.windowStart?.toLocaleString() ?? "now"} – {change.windowEnd?.toLocaleString() ?? "open"}</span>
             </p>
           )}
-          <Section title="What will run">
-            <p className="text-sm text-muted-foreground">These exact calls are the only ones the policy gate will allow for this change.</p>
-            <Calls calls={change.plannedCalls} />
-          </Section>
+          {byHand ? (
+            <Section title="Carried out by hand">
+              <p className="text-sm text-muted-foreground">A person makes this change and records the result here. No agent or tool runs for it.</p>
+            </Section>
+          ) : (
+            <Section title="What will run">
+              <p className="text-sm text-muted-foreground">
+                {change.requestedByUserId && change.requestedByAgentId ? `${name(change.requestedByAgentId)} runs these once it's approved. ` : ""}
+                These exact calls are the only ones the policy gate will allow for this change.
+              </p>
+              <Calls calls={change.plannedCalls} />
+            </Section>
+          )}
           <Section title="How it will be checked">
             <p className="text-sm whitespace-pre-wrap">{change.verificationPlan}</p>
           </Section>
@@ -104,11 +115,35 @@ export default async function ChangePage({ params }: PageProps<"/changes/[id]">)
           </Section>
         </div>
 
+        {canRecord && (
+          <Card className="h-fit">
+            <CardHeader>
+              <CardTitle>Record the result</CardTitle>
+              <CardDescription>Once you&apos;ve made the change, say how it went. This closes the change.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ActionForm action={recordResultAction.bind(null, id)} submitLabel="Record result">
+                <SelectField
+                  label="Outcome"
+                  name="outcome"
+                  options={[
+                    { value: "succeeded", label: "It worked" },
+                    { value: "failed", label: "It failed" },
+                  ]}
+                />
+                <TextAreaField label="What happened" name="notes" rows={3} required />
+              </ActionForm>
+            </CardContent>
+          </Card>
+        )}
+
         {canApprove && (
           <Card className="h-fit">
             <CardHeader>
               <CardTitle>Decision</CardTitle>
-              <CardDescription>Approving lets the requesting agent run exactly the calls listed here, and nothing else.</CardDescription>
+              <CardDescription>
+                {byHand ? "Approving lets the person go ahead and make this change." : "Approving lets the agent run exactly the calls listed here, and nothing else."}
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <ActionForm action={approveAction.bind(null, id)} submitLabel="Approve">

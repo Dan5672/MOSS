@@ -13,6 +13,7 @@ import {
   getChange,
   instantiateTemplate,
   markVerifying,
+  recordManualResult,
   rejectChange,
   startChange,
   upsertStandardTemplate,
@@ -276,6 +277,33 @@ describe.skipIf(!TEST_DATABASE_URL)("incidents and changes (postgres)", () => {
       await dispatchEvents(db, async (e) => void seen.push(e.type), 500);
       expect(seen).toEqual(["change.approved"]);
       expect(await dispatchEvents(db, async () => {}, 500)).toBe(0);
+    });
+  });
+
+  describe("changes people raise", () => {
+    it("for an agent: the agent is the one told to run it once approved", async () => {
+      const cr = await createChangeRequest(
+        db,
+        orgId,
+        { type: "normal", ...base, plannedCalls: [{ tool: "restart_service", args: { host: "10.0.0.5", service: "dnsmasq" } }], forAgentId: agentId },
+        owner(),
+        opts,
+      );
+      expect(cr).toMatchObject({ status: "submitted", requestedByUserId: ownerId, requestedByAgentId: agentId });
+      await expect(createChangeRequest(db, orgId, { type: "normal", ...base, plannedCalls: [], forAgentId: agentId }, owner(), opts)).rejects.toThrow(/at least one planned tool call/);
+      await expect(createChangeRequest(db, orgId, { type: "normal", ...base, plannedCalls: [{ tool: "restart_service", args: { host: "x", service: "y" } }], forAgentId: otherAgentId }, agent(), opts)).rejects.toThrow(/for themselves/);
+    });
+
+    it("by hand: no tool calls, approved like any change, and the person records the result", async () => {
+      const cr = await createChangeRequest(db, orgId, { type: "normal", ...base, title: "Replace the switch", manual: true }, owner(), opts);
+      expect(cr).toMatchObject({ status: "submitted", plannedCalls: [], requestedByAgentId: null });
+      await expect(recordManualResult(db, orgId, cr.id, "succeeded", "done", owner())).rejects.toThrow(/can't move/);
+      await setSetting(db, orgId, "changes.require_separate_approver", false);
+      await approveChange(db, orgId, cr.id, ownerId);
+      await expect(recordManualResult(db, orgId, cr.id, "succeeded", "done", agent())).rejects.toThrow(/Only a person/);
+      await recordManualResult(db, orgId, cr.id, "succeeded", "Swapped it; all ports up.", owner());
+      expect((await getChange(db, orgId, cr.id))!.status).toBe("succeeded");
+      await expect(createChangeRequest(db, orgId, { type: "normal", ...base, manual: true }, agent(), opts)).rejects.toThrow(/Only a person/);
     });
   });
 });

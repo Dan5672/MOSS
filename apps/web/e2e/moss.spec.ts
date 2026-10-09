@@ -452,6 +452,45 @@ test("changes: approve what an agent submitted", async () => {
   await expect(page.getByRole("button", { name: "Approve" })).toHaveCount(0);
 });
 
+test("changes: a person raises one by hand, it's approved, and they record the result", async () => {
+  await page.goto("/changes");
+  await page.getByRole("button", { name: "Raise a change" }).click();
+  const dialog = page.getByRole("dialog", { name: "Raise a change" });
+  await dialog.getByLabel("Title").fill("Replace the garage switch");
+  await dialog.getByLabel("What and why").fill("It drops links every evening.");
+  await dialog.getByLabel("How it will be checked").fill("All garage devices answer ping.");
+  await dialog.getByLabel("How to undo it").fill("Put the old switch back.");
+  await dialog.getByRole("button", { name: "Submit for approval" }).click();
+  await expect(page.getByRole("heading", { name: /CR-\d+: Replace the garage switch/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Carried out by hand" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Approve" }).click();
+  await expect(page.getByText("Approved.")).toBeVisible();
+  await page.getByLabel("What happened").fill("Swapped it; all ports up.");
+  await page.getByRole("button", { name: "Record result" }).click();
+  await expect(page.getByText("Recorded: the change succeeded.")).toBeVisible();
+  await expect(page.getByText("succeeded", { exact: true }).first()).toBeVisible();
+
+  // For an agent: its exact tool calls, checked against the tool's schema.
+  await page.goto("/changes");
+  await page.getByRole("button", { name: "Raise a change" }).click();
+  const d2 = page.getByRole("dialog", { name: "Raise a change" });
+  await d2.getByLabel("Title").fill("Wake the media PC");
+  await d2.getByLabel("What and why").fill("For the backup window.");
+  await d2.getByLabel("Carried out by").selectOption({ label: "Nina (Network Admin)" });
+  await d2.getByRole("combobox", { name: "Tool", exact: true }).selectOption("wake_on_lan");
+  await d2.getByRole("button", { name: "Add call" }).click();
+  await d2.getByLabel("Arguments for call 1, wake_on_lan").fill('{ "mac": "not-a-mac", "broadcast": "192.168.50.255" }');
+  await d2.getByLabel("How it will be checked").fill("It answers ping.");
+  await d2.getByLabel("How to undo it").fill("Nothing to undo.");
+  await d2.getByRole("button", { name: "Submit for approval" }).click();
+  await expect(d2.getByText(/Planned call 1 \(wake_on_lan\)/)).toBeVisible();
+  await d2.getByLabel("Arguments for call 1, wake_on_lan").fill('{ "mac": "aa:bb:cc:dd:ee:ff", "broadcast": "192.168.50.255" }');
+  await d2.getByRole("button", { name: "Submit for approval" }).click();
+  await expect(page.getByRole("heading", { name: /CR-\d+: Wake the media PC/ })).toBeVisible();
+  await expect(page.getByText(/Nina runs these once it's approved/)).toBeVisible();
+});
+
 /** What the worker does with monitor events (the e2e stack runs no worker). */
 async function dispatchMonitorEvents(db: Database) {
   await dispatchEvents(db, async (e) => {
@@ -680,7 +719,7 @@ test("audit: the log is intact after all of that", async () => {
   await signIn(OWNER.email, OWNER.password, totpCode(ownerTotpSecret));
   await page.goto("/audit");
   await expect(page.getByText("tool.denied")).toHaveCount(0);
-  await expect(page.getByRole("cell", { name: "change.approve" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "change.approve" }).first()).toBeVisible();
   await page.getByRole("button", { name: "Verify integrity" }).click();
   await expect(page.getByText("The audit log is intact")).toBeVisible();
 });
