@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
-// Each item is labelled with a function key in this order (F1, F2, ...). The labels are decorative.
 const ITEMS = [
   { href: "/", label: "Dashboard" },
   { href: "/basement", label: "Basement" },
@@ -32,7 +31,7 @@ export function Nav({ badges }: { badges: Record<string, number> }) {
   const pathname = usePathname();
   return (
     <nav className="grid gap-0.5">
-      {ITEMS.map(({ href, label }, i) => {
+      {ITEMS.map(({ href, label }) => {
         const active = href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
         const count = badges[href];
         const badge = BADGES[href];
@@ -48,9 +47,6 @@ export function Nav({ badges }: { badges: Record<string, number> }) {
                 : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
             )}
           >
-            <span aria-hidden className={cn("w-7 shrink-0 font-mono text-[11px]", active ? "text-phosphor" : "text-dim")}>
-              F{i + 1}
-            </span>
             <span className="flex-1">{label}</span>
             {count && badge ? (
               <span className={cn("min-w-5 px-1 text-center font-mono text-xs font-medium text-on-brand", badge.className)} aria-label={badge.label(count)}>
