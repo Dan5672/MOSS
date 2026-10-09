@@ -406,10 +406,14 @@ test("agents: hire a custom agent with chosen skills", async () => {
 
 test("incidents: raise, comment and update", async () => {
   await page.goto("/incidents");
-  await page.getByLabel("Title").fill("Printer offline");
-  await page.getByLabel("Description").fill("Nobody can print since this morning.");
-  await page.getByLabel("Priority").selectOption("P2");
-  await page.getByRole("button", { name: "Raise incident" }).click();
+  // The form lives behind a button at the top right, not on the page.
+  await expect(page.getByLabel("Title")).toHaveCount(0);
+  await page.getByRole("button", { name: "Raise an incident" }).click();
+  const dialog = page.getByRole("dialog", { name: "Raise an incident" });
+  await dialog.getByLabel("Title").fill("Printer offline");
+  await dialog.getByLabel("Description").fill("Nobody can print since this morning.");
+  await dialog.getByLabel("Priority").selectOption("P2");
+  await dialog.getByRole("button", { name: "Raise incident" }).click();
   await expect(page.getByRole("heading", { name: /INC-\d+: Printer offline/ })).toBeVisible();
 
   await page.getByLabel("Comment").fill("Checked the cable.");
