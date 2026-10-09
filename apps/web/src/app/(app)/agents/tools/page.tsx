@@ -9,6 +9,7 @@ import { recentDenials, toolAccess } from "@/server/tool-catalog";
 import { ActionForm } from "@/components/action-form";
 import { CheckboxField } from "@/components/field";
 import { AgentsTabs } from "../tabs";
+import { groupTools, toolGroup } from "@/lib/tool-groups";
 import { setToolAccessAction } from "./actions";
 
 export const metadata = { title: "Tool access" };
@@ -61,9 +62,11 @@ export default async function ToolAccessPage({ searchParams }: PageProps<"/agent
       </div>
 
       <div className="grid gap-8">
-        {SOURCES.filter((src) => src.key !== "custom" || tools.some((t) => t.source === "custom")).map((src) => (
-          <Section key={src.key} title={src.title}>
-            <p className="text-sm text-muted-foreground">{src.blurb}</p>
+        <p className="text-sm text-muted-foreground">{SOURCES[0].blurb}</p>
+        {groupTools(tools, (t) => toolGroup(t.name, t.source)).map((group) => (
+          <Section key={group.key} title={group.label}>
+            {group.key === "moss" && <p className="text-sm text-muted-foreground">{SOURCES[1].blurb}</p>}
+            {group.key === "custom" && <p className="text-sm text-muted-foreground">{SOURCES[2].blurb}</p>}
             <div className="px-frame overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -77,8 +80,7 @@ export default async function ToolAccessPage({ searchParams }: PageProps<"/agent
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {tools
-                    .filter((t) => t.source === src.key)
+                  {group.items
                     .map((t) => (
                       <TableRow key={t.name}>
                         <TableCell className="max-w-md align-top whitespace-normal">

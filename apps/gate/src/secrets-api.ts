@@ -11,6 +11,7 @@ export const secretWriteSchema = z.object({
   name: z.string().regex(/^[A-Za-z0-9_.-]{1,64}$/, "Use letters, digits, dot, dash or underscore"),
   type: z.enum(["password", "ssh_key", "api_token", "snmp_community", "other"]),
   value: z.string().min(1).max(64 * 1024),
+  username: z.string().trim().min(1).max(128).optional(),
   description: z.string().max(500).optional(),
   allowedHosts: z.array(z.string().max(64)).max(100).default([]),
   allowedTools: z.array(z.string().max(64)).max(50).default([]),
@@ -29,6 +30,7 @@ export async function writeSecret(db: Database, masterKey: Buffer, input: Secret
   const encrypted = encryptSecret(masterKey, id, input.value);
   const meta = {
     type: input.type,
+    username: input.username ?? null,
     description: input.description ?? null,
     allowedHosts: input.allowedHosts,
     allowedTools: input.allowedTools,

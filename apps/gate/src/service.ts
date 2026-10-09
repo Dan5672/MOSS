@@ -131,7 +131,14 @@ export function createGate(deps: GateDeps) {
         const rendered = renderCustomRequest(custom, args, custom.secret ? secretValues.get(custom.secret) : undefined);
         response = await deps.toolbox.call("custom_http", rendered as unknown as Record<string, unknown>);
       } else {
-        response = await deps.toolbox.call(req.tool, substituteSecrets(args, secretValues) as Record<string, unknown>);
+        const callArgs = substituteSecrets(args, secretValues) as Record<string, unknown>;
+        // A tool that signs in with a username and a password secret gets the username stored with the secret,
+        // when the agent left it out. (After the policy check: the username isn't secret and isn't a target.)
+        const shape = def.args.shape as Record<string, unknown>;
+        const passwordHandle = typeof args.password === "string" ? SECRET_HANDLE.exec(args.password)?.[1] : undefined;
+        const storedUsername = passwordHandle ? ctx.secretRows.get(passwordHandle)?.username : null;
+        if ("username" in shape && args.username === undefined && storedUsername) callArgs.username = storedUsername;
+        response = await deps.toolbox.call(req.tool, callArgs);
       }
     } catch (err) {
       response = { ok: false, error: `Toolbox unavailable: ${(err as Error).message}` };

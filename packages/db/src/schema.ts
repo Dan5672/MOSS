@@ -707,6 +707,8 @@ export const secrets = pgTable(
     ...tenancy(),
     name: text("name").notNull(), // referenced by agents as secret:<name>
     type: text("type", { enum: ["password", "ssh_key", "api_token", "snmp_community", "other"] }).notNull(),
+    /** The account a password belongs to. Not secret: agents see it, and the gate fills it in for tools that sign in. */
+    username: text("username"),
     description: text("description"),
     // Envelope encryption: value encrypted with a per-secret data key, data key wrapped by the master key.
     ciphertext: text("ciphertext").notNull(),

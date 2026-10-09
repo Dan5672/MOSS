@@ -36,4 +36,15 @@ describe("library", () => {
     expect(prompt).toContain("## Network Discovery");
     expect(prompt).not.toMatch(/\d{4}-\d{2}-\d{2}T/); // no timestamps: keeps the prompt cacheable
   });
+
+  it("lists the agent's secrets with how to pass each one, never a value", () => {
+    const prompt = buildSystemPrompt({ name: "Rambo", title: "Security Admin", systemPrompt: "x" }, [], [
+      { name: "unifi-sysadmin-password", type: "password", username: "sysadmin", description: "read only", allowedHosts: ["10.0.0.138"], allowedTools: ["unifi_firewall"] },
+      { name: "ha-token", type: "api_token", username: null, description: null, allowedHosts: [], allowedTools: [] },
+    ]);
+    expect(prompt).toContain("# Secrets you may use");
+    expect(prompt).toContain('- secret:unifi-sysadmin-password: a password for the account "sysadmin" (pass it as password; the username is filled in for you). Hosts: 10.0.0.138. Tools: unifi_firewall.');
+    expect(prompt).toContain("- secret:ha-token: an API key or token (pass it as apiKey or token, never as a password). Hosts: any allowed host. Tools: any.");
+    expect(buildSystemPrompt({ name: "N", title: "T", systemPrompt: "x" }, [])).not.toContain("# Secrets");
+  });
 });

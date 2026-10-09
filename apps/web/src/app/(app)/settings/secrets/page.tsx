@@ -9,6 +9,7 @@ import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { SettingsTabs } from "../tabs";
 import { deleteSecretAction, saveSecretAction, updateSecretScopeAction } from "./actions";
+import { ToolPicker } from "./tool-picker";
 
 export const metadata = { title: "Secrets" };
 
@@ -48,11 +49,7 @@ function ScopeFields({
       />
       <fieldset className="grid gap-2">
         <legend className="mb-1 text-sm font-medium">Use only with these tools</legend>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {CREDENTIAL_TOOLS.map((t) => (
-            <CheckboxField key={t} label={t} name="tools" value={t} defaultChecked={tools.includes(t)} className="font-mono" />
-          ))}
-        </div>
+        <ToolPicker tools={CREDENTIAL_TOOLS} initial={tools} />
         <p className="text-xs text-muted-foreground">Leave all unticked to allow any tool, still limited to the hosts above.</p>
       </fieldset>
       <fieldset className="grid gap-2">
@@ -82,6 +79,7 @@ export default async function SecretsPage() {
         id: secrets.id,
         name: secrets.name,
         type: secrets.type,
+        username: secrets.username,
         description: secrets.description,
         allowedHosts: secrets.allowedHosts,
         allowedTools: secrets.allowedTools,
@@ -132,6 +130,12 @@ export default async function SecretsPage() {
                       </div>
                       {s.description && <p className="text-muted-foreground">{s.description}</p>}
                       <dl className="grid grid-cols-[8rem_1fr] gap-y-1 text-xs">
+                        {s.username && (
+                          <>
+                            <dt className="text-dim">Username</dt>
+                            <dd className="font-mono">{s.username}</dd>
+                          </>
+                        )}
                         <dt className="text-dim">Hosts</dt>
                         <dd className="font-mono">{s.allowedHosts.length ? s.allowedHosts.join(", ") : <span className="text-amber">any allowed host</span>}</dd>
                         <dt className="text-dim">Tools</dt>
@@ -152,6 +156,7 @@ export default async function SecretsPage() {
                           <details className="basis-full">
                             <summary className="cursor-pointer text-xs text-muted-foreground">Change scope and agents</summary>
                             <ActionForm action={updateSecretScopeAction.bind(null, s.id)} submitLabel="Save scope" className="mt-3">
+                              {s.type === "password" && <TextField label="Username" name="username" defaultValue={s.username ?? ""} maxLength={128} autoComplete="off" />}
                               <ScopeFields hosts={s.allowedHosts} tools={s.allowedTools} granted={granted} team={team} />
                             </ActionForm>
                           </details>
@@ -187,7 +192,9 @@ export default async function SecretsPage() {
               <ActionForm action={saveSecretAction} submitLabel="Save secret" resetOnSuccess>
                 <TextField label="Name" name="name" required maxLength={64} className="font-mono" placeholder="unifi-api" hint="Saving an existing name replaces its value." />
                 <SelectField label="Type" name="type" options={TYPES} />
-                <TextField label="Value" name="value" type="password" autoComplete="off" required />
+                <TextField label="Value" name="value" type="password" autoComplete="off" required hint="Only the secret itself: no notes, labels or spaces around it." />
+                <TextField label="Username" name="username" autoComplete="off" maxLength={128} hint="For a password: the account it belongs to. Agents see this, never the password." />
+                <CheckboxField label="Save it even if it looks unusual" name="allowOdd" hint="Only if the value really has spaces at either end, or reads like a sentence." />
                 <TextField label="Description" name="description" maxLength={500} placeholder="Read-only API key for the UniFi console" />
                 <ScopeFields team={team} tools={CREDENTIAL_TOOLS.slice(0, 1)} />
               </ActionForm>

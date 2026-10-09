@@ -137,6 +137,17 @@ describe.skipIf(!TEST_DATABASE_URL)("Home Assistant module (gate)", () => {
     const right = await gate.handleToolCall({ agentId, tool: "unifi_firewall", args: { controller: "192.168.1.1", username: "moss", password: "secret:Unifi-AP" } });
     expect(right).toMatchObject({ allowed: true, ok: true });
     expect(calls[0]!.args).toMatchObject({ username: "moss", password: "pw" });
+
+    // With a username stored on the secret, the agent can leave it out.
+    calls.length = 0;
+    await db.update(secrets).set({ username: "sysadmin" }).where(eq(secrets.id, id));
+    const filled = await gate.handleToolCall({ agentId, tool: "unifi_firewall", args: { controller: "192.168.1.1", password: "secret:Unifi-AP" } });
+    expect(filled).toMatchObject({ allowed: true, ok: true });
+    expect(calls[0]!.args).toMatchObject({ username: "sysadmin", password: "pw" });
+    // One the agent gives itself wins.
+    calls.length = 0;
+    await gate.handleToolCall({ agentId, tool: "unifi_firewall", args: { controller: "192.168.1.1", username: "other", password: "secret:Unifi-AP" } });
+    expect(calls[0]!.args).toMatchObject({ username: "other" });
   });
 
   it("system tools can never be called by an agent", async () => {

@@ -263,12 +263,20 @@ test("settings: secrets are scoped to hosts and tools, granted to agents, and ne
 
   await hosts.fill("192.168.50.1");
   await add.getByRole("checkbox", { name: /^Nina/ }).check();
+  // Tools are grouped; a whole group can be ticked at once.
+  await add.getByRole("checkbox", { name: "All unifi tools" }).check();
+  await expect(add.getByRole("checkbox", { name: "unifi_firewall" })).toBeChecked();
+  // A pasted note isn't a key.
+  await add.getByRole("textbox", { name: "Value" }).fill("Key for the UniFi console: super-secret-key-value (read only)");
   await add.getByRole("button", { name: "Save secret" }).click();
-  await expect(page.getByText("Saved secret:unifi-api.")).toBeVisible();
+  await expect(add.getByRole("alert")).toContainText("reads like a sentence or a note");
+  await add.getByRole("textbox", { name: "Value" }).fill("super-secret-key-value");
+  await add.getByRole("button", { name: "Save secret" }).click();
+  await expect(page.getByText("Saved secret:unifi-api (22 characters).")).toBeVisible();
 
   const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: "secret:unifi-api" }) });
   await expect(card).toContainText("192.168.50.1");
-  await expect(card).toContainText("unifi_clients");
+  await expect(card).toContainText("unifi_firewall");
   await expect(card).toContainText("Nina");
   await expect(page.getByText("super-secret-key-value")).toHaveCount(0);
 

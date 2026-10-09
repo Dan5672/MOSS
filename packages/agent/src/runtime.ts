@@ -14,6 +14,8 @@ import {
   providers,
   rolePermissions,
   runSteps,
+  secretGrants,
+  secrets,
   skills,
   tokenUsage,
   type Database,
@@ -132,6 +134,20 @@ async function prepareRun(deps: RunDeps, input: RunInput): Promise<PreparedRun |
     .from(agentSkills)
     .innerJoin(skills, eq(agentSkills.skillId, skills.id))
     .where(eq(agentSkills.agentId, agent.id));
+  // The secrets it has been granted: names, kinds and scope only (values never leave the gate).
+  const secretRows = await db
+    .select({
+      name: secrets.name,
+      type: secrets.type,
+      username: secrets.username,
+      description: secrets.description,
+      allowedHosts: secrets.allowedHosts,
+      allowedTools: secrets.allowedTools,
+    })
+    .from(secretGrants)
+    .innerJoin(secrets, eq(secretGrants.secretId, secrets.id))
+    .where(eq(secretGrants.agentId, agent.id))
+    .orderBy(secrets.name);
   // Skills give instructions; which tools the agent has also counts per-agent overrides (see agentToolGrants).
   const grants = await agentToolGrants(db, agent.id);
   const permRows = agent.roleId
@@ -273,7 +289,7 @@ async function prepareRun(deps: RunDeps, input: RunInput): Promise<PreparedRun |
     model,
     provider,
     runId,
-    system: buildSystemPrompt(agent, skillRows),
+    system: buildSystemPrompt(agent, skillRows, secretRows),
     task: buildTaskMessage(input.task, input.trigger, now()),
     toolSpecs,
     maxSteps: agent.maxStepsPerRun,

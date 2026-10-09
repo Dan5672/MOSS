@@ -99,6 +99,13 @@
       "when": 1791535940978,
       "tag": "0013_user_preferences",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791537838656,
+      "tag": "0014_secret_username",
+      "breakpoints": true
     }
   ]
 }
