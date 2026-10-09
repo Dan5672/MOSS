@@ -1,12 +1,14 @@
 "use server";
 
-import { writeAudit } from "@moss/core";
+import { setSetting, writeAudit } from "@moss/core";
 import { agents, customToolGrants, customTools } from "@moss/db";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { act, type ActionState } from "@/server/action";
 import { requirePermission } from "@/server/auth";
 import { parseCustomTool } from "@/server/custom-tools";
 import { db } from "@/server/db";
+import { catalogSource, fetchPublicText, remoteCatalog } from "@/server/tool-library";
+import { z } from "zod";
 
 async function setGrants(orgId: string, userId: string, toolId: string, agentIds: string[]) {
   const valid = agentIds.length
@@ -85,5 +87,42 @@ export async function deleteCustomToolAction(toolId: string, _: ActionState): Pr
     await db().delete(customTools).where(eq(customTools.id, toolId));
     await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "custom_tool.delete", targetType: "custom_tool", targetId: toolId, details: { key: t.key, spec: t.spec } });
     return `Deleted ${t.key}.`;
+  });
+}
+
+/** Saves a definition from the catalog or a URL: validated, switched off and granted to nobody until reviewed. */
+async function installDefinition(user: { id: string; orgId: string }, source: string, from: string) {
+  const spec = parseCustomTool(source);
+  if (await keyTaken(user.orgId, spec.key)) throw new Error(`There is already a custom tool called ${spec.key}`);
+  const [row] = await db().insert(customTools).values({ orgId: user.orgId, key: spec.key, spec, source, enabled: false, createdByUserId: user.id }).returning();
+  await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "custom_tool.add", targetType: "custom_tool", targetId: row!.id, details: { key: spec.key, class: spec.class, from, spec } });
+  return spec;
+}
+
+export async function installCatalogToolAction(ref: string, _: ActionState): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("tools.manage");
+    const spec = await installDefinition(user, await catalogSource(ref), ref);
+    return `Installed ${spec.key}, switched off. Review it below, store its secret if it needs one, then switch it on and grant it.`;
+  });
+}
+
+export async function importToolFromUrlAction(_: ActionState, form: FormData): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("tools.manage");
+    const url = z.string().trim().min(1, "Paste the definition's address").max(500).parse(form.get("url"));
+    const spec = await installDefinition(user, await fetchPublicText(url), `url:${url}`);
+    return `Imported ${spec.key}, switched off. Review it below before you switch it on.`;
+  });
+}
+
+export async function setCatalogUrlAction(_: ActionState, form: FormData): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("tools.manage");
+    const url = String(form.get("url") ?? "").trim();
+    if (url) await remoteCatalog(url); // fails here, with the reason, if it can't be read
+    await setSetting(db(), user.orgId, "tools.catalog_url", url);
+    await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "settings.update", targetType: "setting", targetId: "tools.catalog_url", details: { url } });
+    return url ? "Saved the catalog address." : "Removed the remote catalog.";
   });
 }

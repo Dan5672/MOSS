@@ -1,0 +1,12 @@
+key: glances_quicklook
+description: A quick look at a server running Glances (web server mode) - CPU, memory, swap and load.
+class: read
+params:
+  host: { type: ip, target: true, description: The server running glances -w }
+request:
+  method: GET
+  scheme: http
+  port: 61208
+  path: /api/4/quicklook
+  headers:
+    Accept: application/json

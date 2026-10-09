@@ -8,8 +8,19 @@ import { Empty, NoPermission, PageHeader, Section, timeAgo } from "@/components/
 import { requireUser } from "@/server/auth";
 import { EXAMPLE_CUSTOM_TOOL } from "@/server/custom-tools";
 import { db } from "@/server/db";
+import { bundledCatalog, remoteCatalog, type CatalogEntry } from "@/server/tool-library";
+import { getSetting } from "@moss/core";
+import { TextField } from "@/components/field";
 import { AgentsTabs } from "../tabs";
-import { addCustomToolAction, deleteCustomToolAction, setCustomToolEnabledAction, updateCustomToolAction } from "./actions";
+import {
+  addCustomToolAction,
+  deleteCustomToolAction,
+  importToolFromUrlAction,
+  installCatalogToolAction,
+  setCatalogUrlAction,
+  setCustomToolEnabledAction,
+  updateCustomToolAction,
+} from "./actions";
 
 export const metadata = { title: "Custom tools" };
 
@@ -43,6 +54,12 @@ export default async function CustomToolsPage() {
       .orderBy(agents.hiredAt),
     db().select({ name: secrets.name }).from(secrets).where(eq(secrets.orgId, user.orgId)),
   ]);
+  const catalogUrl = await getSetting(db(), user.orgId, "tools.catalog_url");
+  const [bundled, remote] = await Promise.all([
+    bundledCatalog(),
+    catalogUrl ? remoteCatalog(catalogUrl).then((r) => ({ entries: r, error: null }), (err: Error) => ({ entries: [] as CatalogEntry[], error: err.message })) : null,
+  ]);
+  const installed = new Set(rows.map((r) => r.key));
   const grants = rows.length
     ? await db()
         .select({ toolId: customToolGrants.toolId, agentId: customToolGrants.agentId })
@@ -136,6 +153,65 @@ export default async function CustomToolsPage() {
             </ul>
           )}
         </Section>
+
+        <div className="lg:col-span-2">
+          <Section title="Tools catalog">
+            <p className="text-sm text-muted-foreground">
+              Ready-made definitions for common home lab apps. They&apos;re data, not code: each is checked like one you write yourself, and installs
+              switched off so you can review it, store its secret and choose which agents get it. They haven&apos;t been tried against every version
+              of each app.
+            </p>
+            <ul aria-label="Catalog" className="grid gap-2 sm:grid-cols-2">
+              {[...bundled, ...(remote?.entries ?? [])].map((e) => {
+                const isInstalled = !!e.key && installed.has(e.key);
+                return (
+                  <li key={e.ref} className="px-frame grid content-start gap-1.5 bg-card p-3 text-sm">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">{e.title}</span>
+                      <Pill>{e.app}</Pill>
+                      {e.kind && <Pill tone={e.kind === "write" ? "orange" : "gray"}>{e.kind}</Pill>}
+                      {e.ref.startsWith("remote:") && <Pill tone="blue">remote</Pill>}
+                    </div>
+                    {e.description && <p className="text-muted-foreground">{e.description}</p>}
+                    {e.secret && <p className="text-xs text-muted-foreground">Needs: {e.secret}</p>}
+                    {e.problem && <p className="text-xs text-alarm">Can&apos;t be installed: {e.problem}</p>}
+                    {e.source && (
+                      <details>
+                        <summary className="cursor-pointer text-xs text-muted-foreground">The definition</summary>
+                        <pre className="mt-2 max-h-64 overflow-auto bg-muted p-2 font-mono text-xs whitespace-pre-wrap">{e.source}</pre>
+                      </details>
+                    )}
+                    {canManage &&
+                      !e.problem &&
+                      (isInstalled ? (
+                        <span className="font-mono text-xs text-phosphor">Installed as {e.key}</span>
+                      ) : (
+                        <ActionForm action={installCatalogToolAction.bind(null, e.ref)} submitLabel={`Install ${e.key ?? e.title}`} submitVariant="outline" inline />
+                      ))}
+                  </li>
+                );
+              })}
+            </ul>
+            {remote?.error && <p className="text-sm text-alarm">The remote catalog couldn&apos;t be read: {remote.error}</p>}
+            {canManage && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <ActionForm action={importToolFromUrlAction} submitLabel="Import" resetOnSuccess>
+                  <TextField label="Import a definition from a URL" name="url" type="url" placeholder="https://raw.githubusercontent.com/.../tool.yaml" hint="https only, from the public internet. It's checked and installed switched off." />
+                </ActionForm>
+                <ActionForm action={setCatalogUrlAction} submitLabel="Save catalog address">
+                  <TextField
+                    label="Remote catalog (optional)"
+                    name="url"
+                    type="url"
+                    defaultValue={catalogUrl}
+                    placeholder="https://raw.githubusercontent.com/.../index.yaml"
+                    hint="An index of { tools: [{ url, app, title, secret }] } to list more tools here. Leave empty for the bundled catalog only."
+                  />
+                </ActionForm>
+              </div>
+            )}
+          </Section>
+        </div>
 
         {canManage && (
           <Section title="Add a custom tool">

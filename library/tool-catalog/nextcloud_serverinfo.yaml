@@ -1,0 +1,18 @@
+key: nextcloud_serverinfo
+description: Nextcloud server health from the serverinfo app - version, storage, users, PHP and database status.
+class: read
+params:
+  host: { type: ip, target: true, description: The Nextcloud server }
+secret: nextcloud-serverinfo-token
+request:
+  method: GET
+  scheme: https
+  path: /ocs/v2.php/apps/serverinfo/api/v1/info
+  query:
+    format: json
+  headers:
+    NC-Token: "{{secret}}"
+    Accept: application/json
+  verifyTls: false
+result:
+  pick: $.ocs.data

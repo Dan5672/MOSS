@@ -335,6 +335,17 @@ test("agents: custom tools are uploaded as definitions, validated, granted and s
   page.once("dialog", (d) => d.accept());
   await card.getByRole("button", { name: "Delete" }).click();
   await expect(page.getByText("Deleted plex_sessions.")).toBeVisible();
+
+  // The catalog: ready-made definitions, installed switched off for review.
+  const catalog = page.getByRole("list", { name: "Catalog" });
+  const frigate = catalog.getByRole("listitem").filter({ hasText: "Frigate NVR health" });
+  await frigate.getByRole("button", { name: "Install frigate_stats" }).click();
+  await expect(page.getByText("Installed frigate_stats, switched off.")).toBeVisible();
+  await expect(frigate.getByText("Installed as frigate_stats")).toBeVisible();
+  // A URL import can't reach into the local network.
+  await page.getByLabel("Import a definition from a URL").fill("https://127.0.0.1/tool.yaml");
+  await page.getByRole("button", { name: "Import" }).click();
+  await expect(page.getByText(/private or local network/)).toBeVisible();
 });
 
 test("settings: config backups are listed, downloaded through the gate, and deleted", async () => {

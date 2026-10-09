@@ -1,0 +1,16 @@
+key: sonarr_queue
+description: Sonarr's download queue - what is downloading, how far along, and anything stuck or failing.
+class: read
+params:
+  host: { type: ip, target: true, description: The Sonarr server }
+secret: sonarr-api-key
+request:
+  method: GET
+  scheme: http
+  port: 8989
+  path: /api/v3/queue
+  headers:
+    X-Api-Key: "{{secret}}"
+    Accept: application/json
+result:
+  pick: $.records[*].title

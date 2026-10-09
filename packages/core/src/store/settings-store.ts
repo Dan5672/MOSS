@@ -7,6 +7,10 @@ export const SETTING_DEFAULTS = {
   "changes.allow_emergency": false,
   "changes.require_separate_approver": false,
   "monitoring.retention_days": 14,
+  /** A remote tools catalog (https URL of its index); empty for the bundled catalog only. */
+  "tools.catalog_url": "" as string,
+  /** vuln_scan's "cve" profile sends service names and versions to vulners.com, so it is off until allowed. */
+  "tools.allow_vulners": false,
 } satisfies Record<string, unknown>;
 
 export type SettingKey = keyof typeof SETTING_DEFAULTS;
