@@ -8,9 +8,10 @@ RUN pnpm install --frozen-lockfile \
  && pnpm --filter @moss/toolbox deploy --prod --legacy /out
 
 # Nuclei and its templates: pinned releases, checked against known SHA-256 sums. Downloaded in their own
-# stage so curl and unzip don't end up in the toolbox. Only network-facing templates are kept (no code,
+# stage (on the same base image as the toolbox, so nothing extra is downloaded) so curl and unzip don't end up
+# in the toolbox. Only network-facing templates are kept (no code,
 # javascript, headless, file, cloud or DAST templates).
-FROM debian:bookworm-slim AS scanners
+FROM node:24-bookworm-slim AS scanners
 ARG NUCLEI_VERSION=3.11.1
 ARG NUCLEI_SHA256=ea63d4ae232808cd7c6bc00d0142428e231fab59dae01042246097d195835ab6
 ARG TEMPLATES_VERSION=10.5.0
