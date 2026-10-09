@@ -847,6 +847,33 @@ test("basement: shows every agent at a desk or on a break, as a scene and as a l
   await page.getByRole("button", { name: /^Coffee machine: 4 pots/ }).click();
   await expect(page.getByRole("button", { name: /^Coffee machine: 5 pots/ })).toBeVisible();
 
+  // Pester the cat five times and someone sticks up for him.
+  const cat = page.getByRole("button", { name: /^Kernel, the office cat/ });
+  for (let i = 0; i < 5; i++) await cat.click();
+  await expect(page.getByText("Leave him alone!", { exact: true })).toBeVisible();
+
+  // Double-click the arcade cabinet: a game in a cabinet-styled modal, and the page doesn't move.
+  await page.evaluate(() => window.scrollTo(0, 200));
+  const scrolled = await page.evaluate(() => window.scrollY);
+  await page.getByRole("button", { name: "Arcade cabinet: play Packet Storm" }).dblclick();
+  const arcade = page.getByRole("dialog", { name: "PACKET STORM" });
+  await expect(arcade.getByRole("img", { name: "Packet Storm game screen" }).or(arcade.locator("canvas"))).toBeVisible();
+  await expect(arcade.getByText("Packet Storm. Press Space to start.")).toBeAttached();
+  await page.keyboard.press("Space");
+  await expect(arcade.getByText(/LEVEL 1 THE LAN\. Get ready\./)).toBeAttached();
+  await page.keyboard.down("ArrowLeft");
+  await page.waitForTimeout(300);
+  await page.keyboard.up("ArrowLeft");
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrolled);
+  await page.keyboard.press("p");
+  await expect(arcade.getByText("Paused.")).toBeAttached();
+  await arcade.getByRole("button", { name: "Sound off" }).click();
+  await expect(arcade.getByRole("button", { name: "Sound on" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(arcade).toHaveCount(0);
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrolled);
+  await expect(page.getByRole("button", { name: "Arcade cabinet: play Packet Storm" })).toBeFocused();
+
   const nina = page.getByRole("listitem").filter({ has: page.getByRole("link", { name: "Nina", exact: true }) });
   await expect(nina).toContainText(/WORKING|ON BREAK|RESPONDING/);
   await nina.getByRole("link", { name: "Nina", exact: true }).click();

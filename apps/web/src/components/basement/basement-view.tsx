@@ -9,6 +9,7 @@ import { MascotSvg } from "@/components/mascot-svg";
 import { agentGlow, agentMascot } from "@/lib/agent-look";
 import { motionAllowed } from "@/lib/motion";
 import { AgentPanelDialog } from "./agent-panel";
+import { ArcadeGame } from "./arcade-game";
 import { assign, CODE_LINES, DESKS, DOODLES, FIRE_MAPS, FIRE_PALETTE, KONAMI, shortName, SPOTS } from "./layout";
 
 const STAGE_W = 1280;
@@ -40,6 +41,7 @@ function useEasterEggs() {
     const timer = setInterval(() => setDoodle((d) => (d + 1) % DOODLES.length), 20_000);
     let progress = 0;
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return; // e.g. the arcade game has these keys
       const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       progress = key === KONAMI[progress] ? progress + 1 : key === KONAMI[0] ? 1 : 0;
       if (progress === KONAMI.length) {
@@ -114,6 +116,22 @@ export function BasementView({
   const { ref: stageBox, scale } = useStageScale();
   const egg = useEasterEggs();
   const [open, setOpen] = useState<string | null>(null);
+  const [arcade, setArcade] = useState(false);
+  const cabinet = useRef<HTMLButtonElement>(null);
+  // Pester the cat five times in a row and someone sticks up for him.
+  const catClicks = useRef({ n: 0, at: 0 });
+  const [scolding, setScolding] = useState(false);
+  const pokeCat = () => {
+    const now = Date.now();
+    const c = catClicks.current;
+    c.n = now - c.at < 1500 ? c.n + 1 : 1;
+    c.at = now;
+    if (c.n >= 5) {
+      c.n = 0;
+      setScolding(true);
+      setTimeout(() => setScolding(false), 3500);
+    }
+  };
 
   // The responder always works, and is seated first so they get a desk.
   const isWorking = (a: BasementAgent) => a.working || a.id === responder?.id;
@@ -127,6 +145,9 @@ export function BasementView({
     ? `${team.length} agent${team.length === 1 ? "" : "s"}: ${Object.keys(seat).length} at desks, ${Object.keys(spot).length} on break.` +
       (alarm ? ` ${down[0]!.name} is down${responder ? `; ${responder.name} is responding` : ""}.` : "")
     : "The basement is empty: no agents yet.";
+
+  // The cat's defender: someone on a break if there is one, otherwise whoever's at a desk.
+  const defender = scolding ? (idle.find((a) => spot[a.id] !== undefined) ?? busy.find((a) => seat[a.id] !== undefined)) : undefined;
 
   const where = (a: BasementAgent) => {
     if (isWorking(a)) {
@@ -216,7 +237,7 @@ export function BasementView({
             const p = spotIndex !== undefined ? SPOTS[spotIndex]! : undefined;
             const responding = a.id === responder?.id;
             const pos: CSSProperties = d ? { left: d.x + 72, top: d.top - 50, zIndex: d.cz } : { left: p!.x, top: p!.y, zIndex: p!.z };
-            const bubble = d ? (responding ? "ON IT!" : null) : p!.bubble;
+            const bubble = a.id === defender?.id ? "Leave him alone!" : d ? (responding ? "ON IT!" : null) : p!.bubble;
             return (
               <button
                 key={a.id}
@@ -271,7 +292,13 @@ export function BasementView({
           })}
 
           {/* NPCs: a cat asleep on the middle rack, and a robot vacuum doing its rounds. */}
-          <div aria-hidden title="Kernel, the office cat. Asleep on the warm rack, as usual." style={{ position: "absolute", left: 142, top: 140, width: 52, height: 32, zIndex: 3 }}>
+          <button
+            type="button"
+            onClick={pokeCat}
+            aria-label="Kernel, the office cat. Asleep on the warm rack, as usual."
+            title="Kernel, the office cat. Asleep on the warm rack, as usual."
+            style={{ position: "absolute", left: 142, top: 140, width: 52, height: 32, zIndex: 3, padding: 0, border: 0, background: "none", cursor: "pointer" }}
+          >
             <span className="b1-tail" style={{ position: "absolute", left: 40, top: 14, width: 16, height: 6, background: "#e08a3a", border: "2px solid #14110f", transformOrigin: "left center" }} />
             <span style={{ position: "absolute", left: 4, top: 12, width: 40, height: 20, background: "#e08a3a", border: "3px solid #14110f", borderRadius: "10px 10px 2px 2px" }} />
             <span style={{ position: "absolute", left: 14, top: 14, width: 8, height: 4, background: "#b8642a" }} />
@@ -281,8 +308,30 @@ export function BasementView({
             <span style={{ position: "absolute", left: 10, top: 0, width: 6, height: 8, background: "#e08a3a", borderRight: "3px solid #14110f", borderTop: "3px solid #14110f" }} />
             <span style={{ position: "absolute", left: 4, top: 13, width: 4, height: 2, background: "#14110f" }} />
             <span style={{ position: "absolute", left: 11, top: 13, width: 4, height: 2, background: "#14110f" }} />
-            <span className="b1-zzz" style={{ position: "absolute", left: 18, top: -14, fontFamily: MONO, fontSize: 10, color: "#e6dcc0" }}>z</span>
-          </div>
+            <span className={scolding ? undefined : "b1-zzz"} style={{ position: "absolute", left: 18, top: -14, fontFamily: MONO, fontSize: 10, color: "#e6dcc0" }}>
+              {scolding ? "!" : "z"}
+            </span>
+          </button>
+          {scolding && !defender && (
+            <span aria-hidden style={{ position: "absolute", left: 120, top: 104, zIndex: 10, background: "#e6dcc0", color: "#14110f", fontFamily: MONO, fontSize: 11, fontWeight: 500, padding: "3px 7px", border: "2px solid #14110f" }}>
+              HSSS!
+            </span>
+          )}
+          <span aria-live="polite" className="sr-only">
+            {scolding ? `${defender ? defender.name : "Kernel"}: ${defender ? "Leave him alone!" : "Hsss!"}` : ""}
+          </span>
+
+          {/* Double-click the arcade cabinet to play. (Keyboard: Enter.) */}
+          <button
+            ref={cabinet}
+            type="button"
+            onDoubleClick={() => setArcade(true)}
+            onClick={(e) => e.detail === 0 && setArcade(true)}
+            aria-label="Arcade cabinet: play Packet Storm"
+            title="Arcade cabinet. Double-click to play."
+            className="b1-agent"
+            style={{ position: "absolute", left: 1180, top: 300, width: 84, height: 220, zIndex: 4, padding: 0, border: 0, background: "none", cursor: "pointer" }}
+          />
           <div aria-hidden className="b1-vacuum" title="The robot vacuum. It has opinions about cables." style={{ position: "absolute", left: 300, top: 700, width: 40, height: 14, zIndex: 8 }}>
             <span style={{ position: "absolute", inset: 0, background: "#3b4450", border: "3px solid #14110f", borderRadius: "12px 12px 4px 4px" }} />
             <span className="b1-led" style={{ position: "absolute", left: 16, top: 3, width: 6, height: 3, background: "#4dff9a" }} />
@@ -326,6 +375,7 @@ export function BasementView({
       </div>
 
       <AgentPanelDialog agentId={open} onClose={() => setOpen(null)} />
+      <ArcadeGame open={arcade} onClose={() => setArcade(false)} returnFocus={cabinet} />
 
       <section aria-labelledby="basement-who" className="grid gap-3">
         <h2 id="basement-who" className="text-base font-semibold text-ink dark:text-beige">
