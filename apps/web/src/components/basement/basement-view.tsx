@@ -24,7 +24,7 @@ export interface BasementAgent {
 }
 
 const DOING: Record<string, string> = {
-  schedule: "On a scheduled task",
+  schedule: "On a recurring task",
   chat: "Answering a chat",
   ticket: "Working a ticket",
   event: "Handling an event",

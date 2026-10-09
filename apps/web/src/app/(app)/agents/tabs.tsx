@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 
 const TABS = [
   { href: "/agents", label: "Team" },
+  { href: "/agents/recurring", label: "Recurring tasks" },
   { href: "/agents/tools", label: "Tool access" },
   { href: "/agents/custom-tools", label: "Custom tools" },
   { href: "/agents/knowledge", label: "Knowledge base" },

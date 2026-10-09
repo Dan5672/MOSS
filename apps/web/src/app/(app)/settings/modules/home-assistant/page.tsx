@@ -293,7 +293,7 @@ export default async function HomeAssistantModulePage() {
                 options={Array.from({ length: 24 }, (_, h) => ({ value: String(h), label: `${String(h).padStart(2, "0")}:00` }))}
               />
             </div>
-            <p className="text-xs text-muted-foreground">Saving gives the agent the Home Assistant skill and the token, and adds the schedule to its page.</p>
+            <p className="text-xs text-muted-foreground">Saving gives the agent the Home Assistant skill and the token, and adds a recurring task to its page.</p>
           </ActionForm>
           {logAgent && <RoleWarning agent={logAgent.name} tools={logBlocked} />}
           {p.schedule && c.logReview.enabled && (

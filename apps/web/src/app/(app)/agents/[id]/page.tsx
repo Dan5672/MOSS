@@ -17,20 +17,16 @@ import { describeCron } from "@/lib/schedule";
 import { taskSuggestions } from "@/lib/task-suggestions";
 import { db } from "@/server/db";
 import {
-  addScheduleAction,
   addSkillAction,
-  deleteScheduleAction,
   deleteBudgetAction,
   removeSkillAction,
   runNowAction,
   setBudgetAction,
   setMascotAction,
   setModelAction,
-  setScheduleEnabledAction,
   setStatusAction,
-  updateScheduleAction,
 } from "../actions";
-import { ScheduleFields } from "./schedule-fields";
+import { RecurringTaskList } from "../recurring-task-list";
 import { TaskSuggestionButtons } from "./task-suggestions";
 
 export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
@@ -289,52 +285,10 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
 
           <Card>
             <CardHeader>
-              <CardTitle>Schedules</CardTitle>
+              <CardTitle>Recurring tasks</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-4 text-sm">
-              {schedules.length === 0 && <p className="text-muted-foreground">No scheduled tasks. {agent.name} only works when asked.</p>}
-              {schedules.map((s) => {
-                const lastRun = lastRunOf(s.id);
-                return (
-                  <div key={s.id} className="grid gap-1.5 border-b-2 pb-4 last:border-b-0 last:pb-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={s.enabled ? "font-medium" : "font-medium text-muted-foreground line-through"}>{describeCron(s.cron)}</span>
-                      {!s.enabled && <Pill>off</Pill>}
-                    </div>
-                    <p className="text-muted-foreground">{s.task}</p>
-                    <p className="font-mono text-xs text-dim">{lastRun ? `Last ran ${timeAgo(lastRun)}` : "Hasn't run yet"}</p>
-                    {canManage && (
-                      <div className="flex flex-wrap items-start gap-2">
-                        <ActionForm
-                          action={setScheduleEnabledAction.bind(null, id, s.id, !s.enabled)}
-                          submitLabel={s.enabled ? "Turn off" : "Turn on"}
-                          submitVariant="outline"
-                        />
-                        <ActionForm
-                          action={deleteScheduleAction.bind(null, id, s.id)}
-                          submitLabel="Delete"
-                          submitVariant="outline"
-                          confirm={`Delete this schedule? ${agent.name} will stop doing it: ${describeCron(s.cron)}.`}
-                        />
-                        <details className="basis-full">
-                          <summary className="cursor-pointer text-xs text-muted-foreground">Edit</summary>
-                          <ActionForm action={updateScheduleAction.bind(null, id, s.id)} submitLabel="Save schedule" className="mt-3">
-                            <ScheduleFields cron={s.cron} task={s.task} />
-                          </ActionForm>
-                        </details>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-              {canManage && (
-                <details className="border-t-2 pt-4">
-                  <summary className="cursor-pointer font-medium">Add a schedule</summary>
-                  <ActionForm action={addScheduleAction.bind(null, id)} submitLabel="Add schedule" resetOnSuccess className="mt-3">
-                    <ScheduleFields />
-                  </ActionForm>
-                </details>
-              )}
+              <RecurringTaskList agentId={id} agentName={agent.name} tasks={schedules} lastRun={lastRunOf} canManage={canManage} />
               <p className="font-mono text-xs text-dim">Times are in {timeZone}.</p>
             </CardContent>
           </Card>

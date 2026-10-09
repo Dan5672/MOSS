@@ -53,7 +53,7 @@ export default async function RunsPage({ searchParams }: PageProps<"/runs">) {
                   </Link>
                 </TableCell>
                 <TableCell className="text-sm">{agentName}</TableCell>
-                <TableCell className="text-sm">{run.trigger}</TableCell>
+                <TableCell className="text-sm">{run.trigger === "schedule" ? "recurring task" : run.trigger}</TableCell>
                 <TableCell>
                   <StatusBadge status={run.status} />
                 </TableCell>
