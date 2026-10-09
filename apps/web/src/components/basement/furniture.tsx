@@ -148,7 +148,7 @@ export function BasementFurniture({ alarm }: { alarm: boolean }) {
       <At x={640} y={260} w={4} h={80} style={{ background: "#5ad8ff" }} />
       <At x={470} y={260} w={4} h={36} style={{ background: "#4dff9a" }} />
 
-      <At x={820} y={110} w={80} h={40} style={{ ...centred, background: "#0e1311", border: "4px solid #3a423e", fontFamily: PIXEL, fontSize: 10, color: "#e6dcc0", letterSpacing: 1, whiteSpace: "nowrap", transform: "rotate(-3deg)" }}>
+      <At x={800} y={110} w={120} h={40} style={{ ...centred, background: "#0e1311", border: "4px solid #3a423e", fontFamily: PIXEL, fontSize: 10, color: "#e6dcc0", letterSpacing: 1, whiteSpace: "nowrap", transform: "rotate(-3deg)" }}>
         B1 · IT
       </At>
       <At x={924} y={222} w={4} h={28} style={{ background: "#ffb547" }} />
@@ -170,7 +170,6 @@ export function BasementFurniture({ alarm }: { alarm: boolean }) {
         <span style={{ position: "absolute", left: 144, top: 40, width: 34, height: 20, border: "2px solid #e0483e" }} />
         <span style={{ position: "absolute", left: 46, top: 21, width: 34, height: 2, background: "#3a5bd9" }} />
         <span style={{ position: "absolute", left: 114, top: 26, width: 34, height: 2, background: "#3a5bd9", transform: "rotate(20deg)" }} />
-        <span style={{ position: "absolute", left: 152, top: 30, fontFamily: MONO, fontSize: 12, color: "#e0483e" }}>??</span>
         <span style={{ position: "absolute", left: 12, top: 68, fontFamily: MONO, fontSize: 11, fontWeight: 500, color: "#14110f", transform: "rotate(-3deg)", whiteSpace: "nowrap" }}>
           IT&apos;S ALWAYS DNS
         </span>

@@ -725,7 +725,27 @@ test("basement: shows every agent at a desk or on a break, as a scene and as a l
   await page.goto("/");
   await page.getByRole("link", { name: "Basement" }).click();
   await expect(page.getByRole("heading", { name: "The Basement" })).toBeVisible();
-  await expect(page.getByRole("img", { name: /^\d+ agents?: \d+ at desks, \d+ on break\./ })).toBeVisible();
+  await expect(page.getByText(/^\d+ agents?: \d+ at desks, \d+ on break\./)).toBeAttached();
+
+  // The scene fits the page: no sideways scrolling, on a desktop or a phone.
+  const noSidewaysScroll = () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+  expect(await noSidewaysScroll()).toBe(true);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await noSidewaysScroll()).toBe(true);
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  // Clicking an agent in the scene shows what they're doing.
+  await page.getByRole("button", { name: /^Nina: .*Show what they're doing$/ }).click();
+  const panel = page.getByRole("dialog", { name: "Nina" });
+  await expect(panel).toContainText(/Network Admin · (hasn't run yet|working now|last run)/);
+  await expect(panel.getByRole("link", { name: "Nina's page" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
+
+  // The coffee machine keeps count.
+  await page.getByRole("button", { name: /^Coffee machine: 4 pots/ }).click();
+  await expect(page.getByRole("button", { name: /^Coffee machine: 5 pots/ })).toBeVisible();
+
   const nina = page.getByRole("listitem").filter({ has: page.getByRole("link", { name: "Nina", exact: true }) });
   await expect(nina).toContainText(/WORKING|ON BREAK|RESPONDING/);
   await nina.getByRole("link", { name: "Nina", exact: true }).click();
