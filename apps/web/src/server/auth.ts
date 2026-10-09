@@ -10,7 +10,7 @@ import {
   writeAudit,
   type Permission,
 } from "@moss/core";
-import { orgs, sessions, users } from "@moss/db";
+import { orgs, sessions, users, type UserPreferences } from "@moss/db";
 import { and, eq, gt } from "drizzle-orm";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -34,6 +34,7 @@ export interface CurrentUser {
   displayName: string;
   totpEnabled: boolean;
   motion: "system" | "on" | "off";
+  preferences: UserPreferences;
   permissions: Set<Permission>;
 }
 
@@ -54,6 +55,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     displayName: row.user.displayName,
     totpEnabled: !!row.user.totpSecretRef,
     motion: row.user.motion,
+    preferences: row.user.preferences,
     permissions: await userPermissions(db(), row.user.id),
   };
 });

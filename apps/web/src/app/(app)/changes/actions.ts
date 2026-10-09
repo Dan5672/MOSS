@@ -1,6 +1,6 @@
 "use server";
 
-import { addChangeComment, approveChange, cancelChange, createChangeRequest, recordManualResult, rejectChange } from "@moss/core";
+import { addChangeComment, approveChange, cancelChange, createChangeRequest, getChange, isManualChange, recordManualResult, rejectChange } from "@moss/core";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { act, formObject, type ActionState } from "@/server/action";
@@ -12,7 +12,8 @@ export async function approveAction(changeId: string, _: ActionState, form: Form
     const user = await requirePermission("changes.approve");
     const f = formObject(form);
     await approveChange(db(), user.orgId, changeId, user.id, { comment: f.comment, force: f.force === "on" });
-    return "Approved. The agent will be told to carry it out.";
+    const change = await getChange(db(), user.orgId, changeId);
+    return change && isManualChange(change) ? "Approved. Go ahead and make the change, then record the result here." : "Approved. The agent will be told to carry it out.";
   });
 }
 

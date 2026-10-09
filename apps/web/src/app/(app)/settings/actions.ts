@@ -32,6 +32,18 @@ export async function setMotionAction(_: ActionState, form: FormData): Promise<A
   });
 }
 
+/** Hides or brings back the dashboard's Getting started checklist, for this person only. */
+export async function setSetupChecklistHiddenAction(hidden: boolean, _: ActionState): Promise<ActionState> {
+  return act(async () => {
+    const user = await requireUser();
+    await db()
+      .update(users)
+      .set({ preferences: { ...user.preferences, hideSetupChecklist: hidden }, updatedAt: new Date() })
+      .where(eq(users.id, user.id));
+    return hidden ? "Getting started dismissed. Bring it back from Settings, Display." : "Getting started is back on the dashboard.";
+  });
+}
+
 // --- Two-factor enrolment: the pending secret lives in a short-lived httpOnly cookie until confirmed. ---
 const PENDING_TOTP = "moss_totp_pending";
 

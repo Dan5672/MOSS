@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/page";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
-import { confirmTotpAction, disableTotpAction, setMotionAction, startTotpAction, toggleSettingAction } from "./actions";
+import { confirmTotpAction, disableTotpAction, setMotionAction, setSetupChecklistHiddenAction, startTotpAction, toggleSettingAction } from "./actions";
 import { SettingsTabs } from "./tabs";
 
 export const metadata = { title: "Settings" };
@@ -70,6 +70,12 @@ export default async function SettingsPage() {
                 ]}
               />
             </ActionForm>
+            {user.preferences.hideSetupChecklist && (
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t-2 pt-4 text-sm">
+                <span>The dashboard&apos;s Getting started checklist is dismissed.</span>
+                <ActionForm action={setSetupChecklistHiddenAction.bind(null, false)} submitLabel="Show it again" submitVariant="outline" inline />
+              </div>
+            )}
           </CardContent>
         </Card>
         <Card>

@@ -465,7 +465,7 @@ test("changes: a person raises one by hand, it's approved, and they record the r
   await expect(page.getByRole("heading", { name: "Carried out by hand" })).toBeVisible();
 
   await page.getByRole("button", { name: "Approve" }).click();
-  await expect(page.getByText("Approved.")).toBeVisible();
+  await expect(page.getByText("Approved. Go ahead and make the change, then record the result here.")).toBeVisible();
   await page.getByLabel("What happened").fill("Swapped it; all ports up.");
   await page.getByRole("button", { name: "Record result" }).click();
   await expect(page.getByText("Recorded: the change succeeded.")).toBeVisible();
@@ -634,6 +634,20 @@ test("tables: columns sort by clicking their header, and the order is in the URL
   await page.getByRole("columnheader", { name: /^IP/ }).getByRole("link").click();
   await expect(page).toHaveURL(/sort=ip&dir=desc/);
   await expect(page.getByRole("columnheader", { name: /^IP/ })).toHaveAttribute("aria-sort", "descending");
+});
+
+test("dashboard: Getting started can be dismissed, and brought back from Settings", async () => {
+  await page.goto("/");
+  const checklist = page.getByRole("region", { name: "Getting started" });
+  await expect(checklist).toBeVisible();
+  await checklist.getByRole("button", { name: "Dismiss" }).click();
+  await expect(page.getByText("Getting started dismissed.")).toBeVisible();
+  await expect(checklist).toHaveCount(0);
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "Show it again" }).click();
+  await expect(page.getByText("Getting started is back on the dashboard.")).toBeVisible();
+  await page.goto("/");
+  await expect(page.getByRole("region", { name: "Getting started" })).toBeVisible();
 });
 
 test("settings: the kill switch stops agents and shows everywhere", async () => {

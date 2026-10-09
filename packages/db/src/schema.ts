@@ -49,6 +49,11 @@ export const sites = pgTable("sites", {
 // ---------------------------------------------------------------------------
 // Users & access
 // ---------------------------------------------------------------------------
+export interface UserPreferences {
+  /** The dashboard's Getting started checklist was dismissed. */
+  hideSetupChecklist?: boolean;
+}
+
 export const users = pgTable(
   "users",
   {
@@ -61,6 +66,8 @@ export const users = pgTable(
     oidcSubject: text("oidc_subject"),
     /** Animation preference: follow the OS's reduced-motion setting, or always on / always off. */
     motion: text("motion", { enum: ["system", "on", "off"] }).notNull().default("system"),
+    /** Small per-person choices, e.g. { hideSetupChecklist: true }. */
+    preferences: jsonb("preferences").$type<UserPreferences>().notNull().default({}),
     status: text("status", { enum: ["active", "invited", "disabled"] }).notNull().default("active"),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     ...timestamps(),
