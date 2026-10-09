@@ -16,10 +16,10 @@ import {
   type RunInput,
   unansweredThreads,
 } from "@moss/agent";
-import { changeRef, dispatchEvents, ensureBuiltInRoles, incidentRef, type StoredEvent } from "@moss/core";
-import { agents, agentSchedules, changeNotes, changeRequests, incidentComments, incidents, orgs, users, type Database } from "@moss/db";
+import { actorName, changeRef, dispatchEvents, ensureBuiltInRoles, incidentRef, type StoredEvent } from "@moss/core";
+import { agents, agentSchedules, changeNotes, changeRequests, incidentComments, incidents, orgs, type Database } from "@moss/db";
 import { createProvider } from "@moss/llm";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { PgBoss } from "pg-boss";
 import { notifyIncident, runHomeAssistantTick, type HaCaller } from "./home-assistant.js";
 import { handleMonitorEvent, pruneAllMonitorResults, runDueChecks, type MonitorChecker } from "./monitor-runner.js";
@@ -76,6 +76,17 @@ export async function syncSchedules(db: Database, boss: PgBoss): Promise<{ added
   return { added, removed };
 }
 
+/** The agents a comment @mentions. */
+const agentMentions = (mentions: { type: string; id: string }[]) => mentions.filter((m) => m.type === "agent").map((m) => m.id);
+
+/** The active agents among these ids, each once, in order. */
+async function activeAgents(db: Database, ids: (string | null)[]): Promise<string[]> {
+  const unique = [...new Set(ids.filter((id): id is string => !!id))];
+  if (!unique.length) return [];
+  const rows = await db.select({ id: agents.id, status: agents.status }).from(agents).where(inArray(agents.id, unique));
+  return unique.filter((id) => rows.some((r) => r.id === id && r.status === "active"));
+}
+
 /** Turns domain events into agent runs. Tasks reference tickets by id; the agent reads them with its tools. */
 export async function handleEvent(db: Database, boss: PgBoss, event: StoredEvent, opts: { homeAssistant?: HaCaller; log?: (msg: string, extra?: Record<string, unknown>) => void } = {}): Promise<void> {
   const p = event.payload as Record<string, string | undefined>;
@@ -107,40 +118,48 @@ export async function handleEvent(db: Database, boss: PgBoss, event: StoredEvent
     case "incident.commented": {
       if (!p.incidentId || !p.commentId) return;
       const [inc] = await db.select().from(incidents).where(eq(incidents.id, p.incidentId));
-      if (!inc?.assignedAgentId || inc.status === "closed") return;
       const [comment] = await db.select().from(incidentComments).where(eq(incidentComments.id, p.commentId));
-      if (!comment) return;
-      const [agent] = await db.select({ status: agents.status }).from(agents).where(eq(agents.id, inc.assignedAgentId));
-      if (agent?.status !== "active") return;
-      const who = comment.authorUserId ? ((await db.select({ name: users.displayName }).from(users).where(eq(users.id, comment.authorUserId)))[0]?.name ?? "Someone") : "Someone";
-      await enqueueRun(boss, {
-        agentId: inc.assignedAgentId,
-        trigger: "ticket",
-        triggerRef: inc.id,
-        task:
-          `${who} commented on incident ${incidentRef(inc.number)} (id ${inc.id}), which is assigned to you:\n\n"${comment.body.slice(0, 2000)}"\n\n` +
-          "Read the incident with incident_get, then reply with incident_comment: answer their question, or say what you'll do " +
-          "next. If they asked for something, do it (anything that changes a system needs a change request).",
-      });
+      if (!inc || !comment || inc.status === "closed") return;
+      const who = await actorName(db, { type: "user", id: comment.authorUserId });
+      const said = `\n\n"${comment.body.slice(0, 2000)}"\n\n`;
+      const ref = `incident ${incidentRef(inc.number)} (id ${inc.id})`;
+      const reply = "Read the incident with incident_get, then reply with incident_comment";
+      for (const agentId of await activeAgents(db, [inc.assignedAgentId, ...agentMentions(comment.mentions)])) {
+        await enqueueRun(boss, {
+          agentId,
+          trigger: "ticket",
+          triggerRef: inc.id,
+          task:
+            agentId === inc.assignedAgentId
+              ? `${who} commented on ${ref}, which is assigned to you:${said}${reply}: answer their question, or say what you'll do next. ` +
+                "If they asked for something, do it (anything that changes a system needs a change request)."
+              : `${who} mentioned you in a comment on ${ref}:${said}${reply} to answer them. It isn't assigned to you: help with ` +
+                "what they asked, and leave the rest to the assignee.",
+        });
+      }
       return;
     }
     case "change.commented": {
       if (!p.changeId || !p.noteId) return;
       const [cr] = await db.select().from(changeRequests).where(eq(changeRequests.id, p.changeId));
-      if (!cr?.requestedByAgentId || ["succeeded", "rolled_back", "cancelled", "rejected"].includes(cr.status)) return;
       const [note] = await db.select().from(changeNotes).where(eq(changeNotes.id, p.noteId));
-      if (!note) return;
-      const [agent] = await db.select({ status: agents.status }).from(agents).where(eq(agents.id, cr.requestedByAgentId));
-      if (agent?.status !== "active") return;
-      const who = note.authorUserId ? ((await db.select({ name: users.displayName }).from(users).where(eq(users.id, note.authorUserId)))[0]?.name ?? "Someone") : "Someone";
-      await enqueueRun(boss, {
-        agentId: cr.requestedByAgentId,
-        trigger: "event",
-        triggerRef: cr.id,
-        task:
-          `${who} commented on change ${changeRef(cr.number)} (id ${cr.id}), which you're carrying out:\n\n"${note.body.slice(0, 2000)}"\n\n` +
-          "Read the change with change_get, then reply with change_comment: answer their question, or say what you'll do.",
-      });
+      if (!cr || !note) return;
+      const finished = ["succeeded", "rolled_back", "cancelled", "rejected"].includes(cr.status);
+      const who = await actorName(db, { type: "user", id: note.authorUserId });
+      const said = `\n\n"${note.body.slice(0, 2000)}"\n\n`;
+      const ref = `change ${changeRef(cr.number)} (id ${cr.id})`;
+      for (const agentId of await activeAgents(db, [finished ? null : cr.requestedByAgentId, ...agentMentions(note.mentions)])) {
+        await enqueueRun(boss, {
+          agentId,
+          trigger: "event",
+          triggerRef: cr.id,
+          task:
+            agentId === cr.requestedByAgentId && !finished
+              ? `${who} commented on ${ref}, which you're carrying out:${said}Read the change with change_get, then reply with ` +
+                "change_comment: answer their question, or say what you'll do."
+              : `${who} mentioned you in a comment on ${ref}:${said}Read the change with change_get, then reply with change_comment.`,
+        });
+      }
       return;
     }
     case "change.approved":

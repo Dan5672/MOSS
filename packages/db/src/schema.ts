@@ -440,6 +440,8 @@ export const incidentComments = pgTable("incident_comments", {
   authorUserId: uuid("author_user_id").references(() => users.id),
   authorAgentId: uuid("author_agent_id").references(() => agents.id),
   body: text("body").notNull(),
+  /** Agents and people @mentioned in the body. */
+  mentions: jsonb("mentions").$type<{ type: "agent" | "user"; id: string }[]>().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -524,6 +526,8 @@ export const changeNotes = pgTable("change_notes", {
   authorAgentId: uuid("author_agent_id").references(() => agents.id),
   kind: text("kind", { enum: ["comment", "execution", "system"] }).notNull(),
   body: text("body").notNull(),
+  /** Agents and people @mentioned in a comment. */
+  mentions: jsonb("mentions").$type<{ type: "agent" | "user"; id: string }[]>().notNull().default([]),
   data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

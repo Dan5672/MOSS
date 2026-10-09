@@ -432,6 +432,17 @@ test("incidents: raise, comment and update", async () => {
   await page.getByRole("button", { name: "Add comment" }).click();
   await expect(page.getByText("Checked the cable.")).toBeVisible();
 
+  // @mentions: typing @ suggests agents and people; the mention is highlighted in the comment.
+  const box = page.getByLabel("Comment");
+  await expect(box).toHaveValue("");
+  await box.pressSequentially("Over to you @Ni");
+  await expect(page.getByRole("option", { name: /@Nina/ })).toBeVisible();
+  await box.press("Enter");
+  await expect(box).toHaveValue("Over to you @Nina ");
+  await box.pressSequentially("please check the driver.");
+  await page.getByRole("button", { name: "Add comment" }).click();
+  await expect(page.locator("strong", { hasText: "@Nina" })).toBeVisible();
+
   await page.getByLabel("Status").selectOption("in_progress");
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("Incident updated.")).toBeVisible();

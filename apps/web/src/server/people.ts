@@ -1,4 +1,5 @@
 import "server-only";
+import { mentionables } from "@moss/core";
 import { agents, users } from "@moss/db";
 import { and, eq, ne } from "drizzle-orm";
 import { db } from "./db";
@@ -17,6 +18,11 @@ export async function assigneeOptions(orgId: string) {
 }
 
 /** Names for display: id -> name for agents and users. */
+/** Agents and people who can be @mentioned, for comment boxes. */
+export async function mentionOptions(orgId: string) {
+  return (await mentionables(db(), orgId)).map((m) => ({ name: m.name, kind: m.type === "agent" ? "agent" : "person" }));
+}
+
 export async function nameLookup(orgId: string) {
   const [agentRows, userRows] = await Promise.all([
     db().select({ id: agents.id, name: agents.name }).from(agents).where(eq(agents.orgId, orgId)),

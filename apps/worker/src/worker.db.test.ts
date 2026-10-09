@@ -178,6 +178,16 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
 
     await addChangeComment(db, actor.orgId, cr.id, "Can this wait until tonight?", { type: "user", id: actor.userId });
     await waitFor(async () => ((await runsFor(cr.id)) === 2 ? true : undefined));
+
+    // An @mentioned agent gets a task too, alongside the assignee.
+    const pip = await hireFromTemplate(db, actor, { template: lib.templates.get("network-admin")!, modelId, name: "Pip" });
+    await addIncidentComment(db, actor.orgId, inc.id, "@Pip can you check the switch port too?", { type: "user", id: actor.userId });
+    const pipRun = await waitFor(async () => {
+      const [r] = await db.select().from(agentRuns).where(and(eq(agentRuns.triggerRef, inc.id), eq(agentRuns.agentId, pip.id)));
+      return r;
+    });
+    expect(pipRun).toMatchObject({ trigger: "ticket" });
+    await waitFor(async () => ((await runsFor(inc.id)) === 4 ? true : undefined)); // Nina answers as well
   });
 
   it("monitors: a failing check raises an incident for the responder agent, and recovery hands it back", async () => {

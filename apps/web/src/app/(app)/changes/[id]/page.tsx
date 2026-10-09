@@ -8,9 +8,10 @@ import { Pill, StatusBadge } from "@/components/badges";
 import { SelectField, TextAreaField } from "@/components/field";
 import { PageHeader, Section, timeAgo, NoPermission } from "@/components/page";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CommentText, MentionTextarea } from "@/components/mention-textarea";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
-import { nameLookup } from "@/server/people";
+import { mentionOptions, nameLookup } from "@/server/people";
 import { approveAction, cancelAction, changeCommentAction, recordResultAction, rejectAction } from "../actions";
 
 function Calls({ calls }: { calls: { tool: string; args: Record<string, unknown> }[] }) {
@@ -35,9 +36,10 @@ export default async function ChangePage({ params }: PageProps<"/changes/[id]">)
   if (!user.permissions.has("changes.read")) return <NoPermission />;
   const change = await getChange(db(), user.orgId, id);
   if (!change) notFound();
-  const [name, [incident]] = await Promise.all([
+  const [name, [incident], mentions] = await Promise.all([
     nameLookup(user.orgId),
     change.incidentId ? db().select().from(incidents).where(eq(incidents.id, change.incidentId)) : Promise.resolve([]),
+    mentionOptions(user.orgId),
   ]);
   const canApprove = user.permissions.has("changes.approve") && change.status === "submitted";
   const byHand = isManualChange(change);
@@ -103,13 +105,13 @@ export default async function ChangePage({ params }: PageProps<"/changes/[id]">)
                     <span className="font-medium text-foreground">{name(n.authorAgentId ?? n.authorUserId)}</span>
                     <span className="font-mono">{timeAgo(n.createdAt)}</span>
                   </div>
-                  <p className="whitespace-pre-wrap">{n.body}</p>
+                  <CommentText text={n.body} names={mentions.map((m) => m.name)} />
                 </li>
               ))}
             </ol>
             {canComment && (
               <ActionForm action={changeCommentAction.bind(null, id)} submitLabel="Add comment" resetOnSuccess>
-                <TextAreaField label="Comment" name="body" rows={2} required />
+                <MentionTextarea label="Comment" name="body" rows={2} options={mentions} required />
               </ActionForm>
             )}
           </Section>

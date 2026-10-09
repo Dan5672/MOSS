@@ -306,4 +306,15 @@ describe.skipIf(!TEST_DATABASE_URL)("incidents and changes (postgres)", () => {
       await expect(createChangeRequest(db, orgId, { type: "normal", ...base, manual: true }, agent(), opts)).rejects.toThrow(/Only a person/);
     });
   });
+
+  describe("@mentions", () => {
+    it("stores who was mentioned and notifies the people (not the author)", async () => {
+      const inc = await createIncident(db, orgId, { type: "request", title: "New printer" }, owner());
+      const c = await addIncidentComment(db, orgId, inc.id, "@V can you approve the purchase? @O fyi", owner());
+      expect(c.mentions).toEqual([{ type: "user", id: viewerId }, { type: "user", id: ownerId }]);
+      const mine = await db.select().from(notifications).where(eq(notifications.userId, viewerId));
+      expect(mine.find((n) => n.kind === "mention")).toMatchObject({ title: `O mentioned you on INC-${inc.number}`, link: `/incidents/${inc.id}` });
+      expect((await db.select().from(notifications).where(eq(notifications.userId, ownerId))).some((n) => n.kind === "mention")).toBe(false);
+    });
+  });
 });

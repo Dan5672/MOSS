@@ -20,6 +20,7 @@ import { getSetting } from "../store/settings-store.js";
 import { writeAudit } from "../store/audit-store.js";
 import type { Actor } from "./assets.js";
 import { emitEvent } from "./events.js";
+import { actorName, mentionables, notifyMentioned, parseMentions } from "./mentions.js";
 import { notifyPermission, userPermissions } from "./notifications.js";
 
 export type ChangeStatus = (typeof changeRequests.$inferSelect)["status"];
@@ -399,8 +400,11 @@ export async function cancelChange(db: Database, orgId: string, changeId: string
 }
 
 export async function addChangeComment(db: Database, orgId: string, changeId: string, body: string, actor: Actor) {
-  await loadChange(db, orgId, changeId);
+  const change = await loadChange(db, orgId, changeId);
+  const mentions = body.includes("@") ? parseMentions(body, await mentionables(db, orgId)) : [];
+  const author = mentions.length ? await actorName(db, actor) : "";
   return db.transaction(async (tx) => {
+    await notifyMentioned(tx, orgId, mentions, { ...actor, name: author }, { ref: changeRef(change.number), link: `/changes/${changeId}`, body });
     const [note] = await tx
       .insert(changeNotes)
       .values({
@@ -409,6 +413,7 @@ export async function addChangeComment(db: Database, orgId: string, changeId: st
         authorAgentId: actor.type === "agent" ? actor.id : null,
         kind: "comment",
         body,
+        mentions,
       })
       .returning();
     // As with incidents: a person's comment reaches the agent carrying out the change.

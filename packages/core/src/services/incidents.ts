@@ -4,6 +4,7 @@ import { and, asc, desc, eq, inArray, type SQL } from "drizzle-orm";
 import { writeAudit } from "../store/audit-store.js";
 import type { Actor } from "./assets.js";
 import { emitEvent } from "./events.js";
+import { actorName, mentionables, notifyMentioned, parseMentions } from "./mentions.js";
 import { notifyPermission } from "./notifications.js";
 
 export type IncidentStatus = (typeof incidents.$inferSelect)["status"];
@@ -123,10 +124,13 @@ export async function listIncidents(
 }
 
 export async function addIncidentComment(db: Database, orgId: string, incidentId: string, body: string, actor: Actor) {
-  const [incident] = await db.select({ id: incidents.id }).from(incidents).where(and(eq(incidents.id, incidentId), eq(incidents.orgId, orgId)));
+  const [incident] = await db.select({ id: incidents.id, number: incidents.number }).from(incidents).where(and(eq(incidents.id, incidentId), eq(incidents.orgId, orgId)));
   if (!incident) throw new Error("Incident not found");
+  const mentions = body.includes("@") ? parseMentions(body, await mentionables(db, orgId)) : [];
+  const author = mentions.length ? await actorName(db, actor) : "";
   return db.transaction(async (tx) => {
-    const [comment] = await tx.insert(incidentComments).values({ incidentId, body, ...authorFields(actor) }).returning();
+    const [comment] = await tx.insert(incidentComments).values({ incidentId, body, mentions, ...authorFields(actor) }).returning();
+    await notifyMentioned(tx, orgId, mentions, { ...actor, name: author }, { ref: incidentRef(incident.number), link: `/incidents/${incidentId}`, body });
     // A person's comment gets the assigned agent's attention; an agent's own comments never trigger anything.
     if (actor.type === "user") await emitEvent(tx, orgId, { type: "incident.commented", payload: { incidentId, commentId: comment!.id } });
     return comment!;
