@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { H, LEVELS, newGame, step, type Game } from "./arcade-engine";
+import { H, LEVELS, newGame, POWER_TIME, step, type Game } from "./arcade-engine";
 
 const idle = { left: false, right: false, fire: false };
 const fire = { left: false, right: false, fire: true };
@@ -26,18 +26,14 @@ describe("Packet Storm", () => {
     expect(g.sounds).toContain("start");
     run(g, 2.1);
     expect(g.phase).toBe("playing");
-    // A tap shorter than a frame still fires.
-    g.shots = [];
-    step(g, 1 / 60, { ...idle, tap: true });
-    expect(g.shots).toHaveLength(1);
   });
 
-  it("moves within the screen and fires at a steady rate", () => {
+  it("moves within the screen and fires by itself at a steady rate", () => {
     const g = playing();
     run(g, 3, { left: true, right: false, fire: false });
     expect(g.player.x).toBe(8);
     g.shots = [];
-    run(g, 1, fire);
+    run(g, 1);
     expect(g.shots.length).toBeGreaterThanOrEqual(4);
     expect(g.shots.length).toBeLessThanOrEqual(6);
   });
@@ -46,7 +42,7 @@ describe("Packet Storm", () => {
     const g = playing();
     g.enemies = [{ x: g.player.x, y: 120, vy: 0, kind: 0, hp: 1, t: 0, fireIn: 9 }];
     g.toSpawn = 0;
-    run(g, 1, fire);
+    run(g, 1);
     expect(g.score).toBe(100);
     run(g, 0.1);
     expect(g.boss).toMatchObject({ hp: LEVELS[0]!.bossHp });
@@ -94,5 +90,54 @@ describe("Packet Storm", () => {
     h.player.x = 200;
     run(h, 0.2);
     expect(h.lives).toBe(3);
+  });
+
+  it("Space drops the one bomb a level: bugs and shots gone, the boss hurt", () => {
+    const g = playing();
+    expect(g.bombs).toBe(1);
+    g.toSpawn = 0;
+    g.enemies = [10, 60, 110].map((x) => ({ x, y: 50, vy: 0, kind: 0 as const, hp: 1, t: 0, fireIn: 9 }));
+    g.enemyShots = [{ x: 50, y: 100, vx: 0, vy: 0 }];
+    step(g, 1 / 60, { ...idle, tap: true }); // even a tap shorter than a frame
+    expect(g).toMatchObject({ bombs: 0, enemies: [], enemyShots: [], score: 300 });
+    expect(g.sounds).toContain("bomb");
+    step(g, 1 / 60, idle);
+    g.enemies = [{ x: 10, y: 50, vy: 0, kind: 0, hp: 1, t: 0, fireIn: 9 }];
+    step(g, 1 / 60, { ...idle, tap: true });
+    expect(g.enemies).toHaveLength(1); // none left this level
+    g.enemies = [];
+    run(g, 0.05);
+    g.boss!.y = 44;
+    const hp = g.boss!.hp;
+    g.bombs = 1;
+    step(g, 1 / 60, { ...idle, tap: true });
+    expect(g.boss!.hp).toBeLessThanOrEqual(hp - LEVELS[0]!.bossHp / 4);
+  });
+
+  it("power-ups: picked up by flying into them, and they wear off", () => {
+    const g = playing();
+    g.toSpawn = 0;
+    g.enemies = [{ x: 200, y: 0, vy: 0, kind: 0, hp: 1, t: 0, fireIn: 9 }]; // keeps the boss away
+    g.drops = [{ x: g.player.x, y: g.player.y, kind: "double" }];
+    step(g, 1 / 60, idle);
+    expect(g.power.double).toBeGreaterThan(POWER_TIME - 0.1);
+    g.shots = [];
+    g.player.cooldown = 0;
+    step(g, 1 / 60, idle);
+    expect(g.shots).toHaveLength(2);
+    run(g, POWER_TIME);
+    expect(g.power.double).toBe(0);
+
+    // The laser burns through everything in line with the ship.
+    g.power.laser = POWER_TIME;
+    g.enemies = [{ x: g.player.x, y: 60, vy: 0, kind: 2, hp: 2, t: 0, fireIn: 9 }, { x: 200, y: 0, vy: 0, kind: 0, hp: 1, t: 0, fireIn: 9 }];
+    run(g, 0.3);
+    expect(g.enemies.map((e) => e.x)).toEqual([200]);
+
+    // Speed: moves and fires faster.
+    g.power = { double: 0, speed: POWER_TIME, laser: 0 };
+    g.shots = [];
+    run(g, 1);
+    expect(g.shots.length).toBeGreaterThanOrEqual(9);
   });
 });

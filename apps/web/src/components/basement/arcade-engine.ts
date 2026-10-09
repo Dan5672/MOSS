@@ -1,17 +1,30 @@
-// Packet Storm: the basement arcade's game. A small ship at the bottom shoots falling bugs before they
-// reach it; three levels, each ending with a boss. Pure logic (no DOM), stepped by the arcade modal.
+// Packet Storm: the basement arcade's game. A small ship at the bottom fires on its own at falling bugs
+// before they reach it; three levels, each ending with a boss. Bugs sometimes drop power-ups, and each
+// level gives you one bomb. Pure logic (no DOM), stepped by the arcade modal.
 
 export const W = 224;
 export const H = 288;
 
 export type Phase = "title" | "banner" | "playing" | "over" | "won";
-export type Sound = "shoot" | "hit" | "boom" | "hurt" | "boss" | "level" | "start";
+export type Sound = "shoot" | "hit" | "boom" | "hurt" | "boss" | "level" | "start" | "powerup" | "bomb";
 export interface Input {
   left: boolean;
   right: boolean;
+  /** Space: starts the game, then drops the bomb. (Firing is automatic.) */
   fire: boolean;
-  /** Fire was pressed since the last step, even if already let go: a quick tap still counts. */
+  /** Space was pressed since the last step, even if already let go: a quick tap still counts. */
   tap?: boolean;
+}
+
+/** Power-ups: double shot, speed (moves and fires faster) and a laser beam. Each lasts POWER_TIME. */
+export type PowerKind = "double" | "speed" | "laser";
+export const POWER_KINDS: PowerKind[] = ["double", "speed", "laser"];
+export const POWER_TIME = 8;
+const DROP_CHANCE = 0.12;
+export interface Drop {
+  x: number;
+  y: number;
+  kind: PowerKind;
 }
 
 interface Bullet {
@@ -78,6 +91,14 @@ export interface Game {
   enemies: Enemy[];
   boss: Boss | null;
   sparks: Spark[];
+  drops: Drop[];
+  /** Seconds left on each power-up. */
+  power: Record<PowerKind, number>;
+  /** Bombs left this level (one per level). */
+  bombs: number;
+  /** A bomb's white flash, fading out. */
+  flash: number;
+  laserTick: number;
   toSpawn: number;
   spawnIn: number;
   bannerFor: number;
@@ -102,6 +123,11 @@ export function newGame(seed = Date.now() % 2 ** 31): Game {
     enemies: [],
     boss: null,
     sparks: [],
+    drops: [],
+    power: { double: 0, speed: 0, laser: 0 },
+    bombs: 1,
+    flash: 0,
+    laserTick: 0,
     toSpawn: 0,
     spawnIn: 0,
     bannerFor: 0,
@@ -129,7 +155,9 @@ function beginLevel(g: Game, level: number) {
   g.enemies = [];
   g.shots = [];
   g.enemyShots = [];
+  g.drops = [];
   g.boss = null;
+  g.bombs = 1;
   g.sounds.push(level === 0 ? "start" : "level");
 }
 
@@ -151,6 +179,30 @@ function burst(g: Game, x: number, y: number, color: string, n: number) {
   }
 }
 
+/** A bug destroyed: score, sparks, and now and then a power-up falls from it. */
+function killEnemy(g: Game, e: Enemy) {
+  e.hp = 0;
+  g.score += 100 * (g.level + 1);
+  g.sounds.push("hit");
+  burst(g, e.x, e.y, e.kind === 2 ? "#ff7ad9" : e.kind === 1 ? "#ffb547" : "#e0483e", 8);
+  if (rand(g) < DROP_CHANCE) g.drops.push({ x: e.x, y: e.y, kind: POWER_KINDS[Math.floor(rand(g) * POWER_KINDS.length)]! });
+}
+
+/** The bomb: every bug on screen and every shot coming at you is gone, and the boss takes a quarter of its health. */
+function dropBomb(g: Game) {
+  if (g.bombs <= 0) return;
+  g.bombs -= 1;
+  g.flash = 0.6;
+  g.sounds.push("bomb");
+  for (const e of g.enemies) if (e.hp > 0) killEnemy(g, e);
+  g.enemies = [];
+  g.enemyShots = [];
+  if (g.boss && g.boss.y >= 20) {
+    g.boss.hp -= Math.ceil(g.boss.maxHp / 4);
+    burst(g, g.boss.x, g.boss.y, "#ffd23f", 16);
+  }
+}
+
 function hurtPlayer(g: Game) {
   if (g.player.invuln > 0) return;
   g.lives -= 1;
@@ -164,8 +216,8 @@ export function step(g: Game, dt: number, input: Input) {
   dt = Math.min(dt, 1 / 20); // a dropped frame shouldn't teleport anything
   g.time += dt;
   const pressed = (input.fire && !g.fireHeld) || !!input.tap;
-  const firing = input.fire || !!input.tap;
   g.fireHeld = input.fire;
+  g.flash = Math.max(0, g.flash - dt);
 
   for (const s of g.sparks) {
     s.x += s.vx * dt;
@@ -181,7 +233,8 @@ export function step(g: Game, dt: number, input: Input) {
 
   // The ship moves during the level banner too.
   const p = g.player;
-  p.x = Math.max(8, Math.min(W - 8, p.x + ((input.right ? 1 : 0) - (input.left ? 1 : 0)) * 120 * dt));
+  const speed = g.power.speed > 0 ? 1.6 : 1;
+  p.x = Math.max(8, Math.min(W - 8, p.x + ((input.right ? 1 : 0) - (input.left ? 1 : 0)) * 120 * speed * dt));
   p.cooldown -= dt;
   p.invuln = Math.max(0, p.invuln - dt);
   if (g.phase === "banner") {
@@ -191,11 +244,40 @@ export function step(g: Game, dt: number, input: Input) {
   }
 
   const L = LEVELS[g.level]!;
-  if (firing && p.cooldown <= 0) {
-    g.shots.push({ x: p.x, y: p.y - 8, vx: 0, vy: -240 });
-    p.cooldown = 0.2;
+  for (const k of POWER_KINDS) g.power[k] = Math.max(0, g.power[k] - dt);
+  if (pressed) dropBomb(g);
+
+  // Firing is automatic: the laser while it lasts, otherwise shots (two at a time with double shot).
+  if (g.power.laser > 0) {
+    g.laserTick -= dt;
+    if (g.laserTick <= 0) {
+      g.laserTick = 0.06;
+      for (const e of g.enemies) if (e.hp > 0 && Math.abs(e.x - p.x) < 8 && e.y < p.y) (e.hp -= 1) <= 0 && killEnemy(g, e);
+      const boss = g.boss;
+      if (boss && boss.y >= 20 && Math.abs(boss.x - p.x) < 22) {
+        boss.hp -= 1;
+        g.score += 10;
+        burst(g, p.x, boss.y + 10, "#5ad1ff", 1);
+      }
+    }
+  } else if (p.cooldown <= 0) {
+    if (g.power.double > 0) g.shots.push({ x: p.x - 4, y: p.y - 8, vx: 0, vy: -240 }, { x: p.x + 4, y: p.y - 8, vx: 0, vy: -240 });
+    else g.shots.push({ x: p.x, y: p.y - 8, vx: 0, vy: -240 });
+    p.cooldown = g.power.speed > 0 ? 0.1 : 0.2;
     g.sounds.push("shoot");
   }
+
+  // Power-ups fall; fly into one to pick it up.
+  for (const d of g.drops) d.y += 50 * dt;
+  for (const d of g.drops) {
+    if (hit(d.x, d.y, 10, 10, p.x, p.y, 12, 10)) {
+      g.power[d.kind] = POWER_TIME;
+      g.sounds.push("powerup");
+      burst(g, d.x, d.y, "#5ad1ff", 10);
+      d.y = H + 100;
+    }
+  }
+  g.drops = g.drops.filter((d) => d.y < H + 8);
 
   // Spawn the level's bugs, then its boss.
   if (g.toSpawn > 0) {
@@ -276,11 +358,7 @@ export function step(g: Game, dt: number, input: Input) {
     if (e) {
       spent.add(s);
       e.hp -= 1;
-      if (e.hp <= 0) {
-        g.score += 100 * (g.level + 1);
-        g.sounds.push("hit");
-        burst(g, e.x, e.y, e.kind === 2 ? "#ff7ad9" : e.kind === 1 ? "#ffb547" : "#e0483e", 8);
-      }
+      if (e.hp <= 0) killEnemy(g, e);
       continue;
     }
     if (b && b.y >= 20 && hit(s.x, s.y, 2, 6, b.x, b.y, 44, 20)) {

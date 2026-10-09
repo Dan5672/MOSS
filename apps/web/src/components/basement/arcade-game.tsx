@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { H, LEVELS, newGame, startGame, step, W, type Game, type Input, type Sound } from "./arcade-engine";
+import { H, LEVELS, newGame, POWER_KINDS, POWER_TIME, startGame, step, W, type Game, type Input, type PowerKind, type Sound } from "./arcade-engine";
 
 const HIGH_SCORE_KEY = "moss.arcade.highScore";
 const GAME_KEYS = new Set(["ArrowLeft", "ArrowRight", "a", "A", "d", "D", " ", "Spacebar", "p", "P"]);
@@ -53,6 +53,12 @@ const BOSS = [
   "y..y....y..y....y..y",
 ];
 const BOSS_TINT = ["#ffd23f", "#ffb547", "#e0483e"];
+const POWER_LOOK: Record<PowerKind, { letter: string; color: string; label: string }> = {
+  double: { letter: "2", color: "#4dff9a", label: "2X SHOT" },
+  speed: { letter: "S", color: "#ffd23f", label: "SPEED" },
+  laser: { letter: "L", color: "#5ad1ff", label: "LASER" },
+};
+const BOMB = ["..k..", ".rrr.", "rrrrr", "rrwrr", ".rrr."];
 
 function sprite(ctx: CanvasRenderingContext2D, rows: string[], cx: number, cy: number, scale = 1, tint?: string) {
   const w = rows[0]!.length * scale;
@@ -104,6 +110,22 @@ function draw(ctx: CanvasRenderingContext2D, g: Game, high: number, paused: bool
       ctx.fillRect(40, 14, ((W - 80) * Math.max(0, g.boss.hp)) / g.boss.maxHp, 4);
       text(ctx, font, LEVELS[g.level]!.boss, W / 2, 21, 6, "#e6dcc0");
     }
+    // The laser: a flickering beam from the ship to the top of the screen.
+    if (g.power.laser > 0 && g.phase === "playing") {
+      ctx.fillStyle = Math.floor(g.time * 30) % 2 ? "rgba(90,209,255,.55)" : "rgba(90,209,255,.8)";
+      ctx.fillRect(g.player.x - 3, 0, 6, g.player.y - 6);
+      ctx.fillStyle = "#e6f9ff";
+      ctx.fillRect(g.player.x - 1, 0, 2, g.player.y - 6);
+    }
+    // Falling power-ups: a lettered box, blinking in their last stretch.
+    for (const d of g.drops) {
+      const look = POWER_LOOK[d.kind];
+      ctx.fillStyle = "#14110f";
+      ctx.fillRect(d.x - 6, d.y - 6, 12, 12);
+      ctx.fillStyle = look.color;
+      ctx.fillRect(d.x - 5, d.y - 5, 10, 10);
+      text(ctx, font, look.letter, d.x, d.y - 3, 7, "#14110f");
+    }
     ctx.fillStyle = "#4dff9a";
     for (const s of g.shots) ctx.fillRect(s.x - 1, s.y - 3, 2, 6);
     ctx.fillStyle = "#ff7ad9";
@@ -121,7 +143,22 @@ function draw(ctx: CanvasRenderingContext2D, g: Game, high: number, paused: bool
   text(ctx, font, `HI ${String(Math.max(high, g.score)).padStart(6, "0")}`, W - 6, 4, 7, "#ffd23f", "right");
   if (g.phase !== "title") {
     for (let i = 0; i < g.lives; i++) sprite(ctx, SHIP, 10 + i * 12, H - 7, 1);
+    for (let i = 0; i < g.bombs; i++) sprite(ctx, BOMB, 64 + i * 12, H - 8, 2);
     text(ctx, font, `L${g.level + 1}`, W - 6, H - 11, 7, "#6b6f8a", "right");
+    // Active power-ups and how long they have left.
+    let y = 14;
+    for (const k of POWER_KINDS) {
+      if (g.power[k] <= 0) continue;
+      const look = POWER_LOOK[k];
+      ctx.fillStyle = look.color;
+      ctx.fillRect(6, y + 1, 40 * (g.power[k] / POWER_TIME), 3);
+      text(ctx, font, look.label, 50, y - 1, 6, look.color, "left");
+      y += 9;
+    }
+  }
+  if (g.flash > 0) {
+    ctx.fillStyle = `rgba(255,255,255,${Math.min(0.8, g.flash * 1.4)})`;
+    ctx.fillRect(0, 0, W, H);
   }
 
   const centre = (lines: [string, number, string][]) => {
@@ -137,11 +174,13 @@ function draw(ctx: CanvasRenderingContext2D, g: Game, high: number, paused: bool
       ["PACKET STORM", 14, "#4dff9a"],
       ["Shoot the bugs before", 7, "#e6dcc0"],
       ["they reach your ship.", 7, "#e6dcc0"],
-      ["3 levels. 3 bosses.", 7, "#ffb547"],
+      ["Grab 2X, S and L power-ups.", 7, "#5ad1ff"],
+      ["P pauses.", 7, "#6b6f8a"],
       [Math.floor(g.time * 2) % 2 ? "" : "PRESS SPACE", 9, "#ffd23f"],
     ]);
-    text(ctx, font, "<- -> or A D to move", W / 2, H - 46, 7, "#6b6f8a");
-    text(ctx, font, "SPACE to fire   P to pause", W / 2, H - 34, 7, "#6b6f8a");
+    text(ctx, font, "<- -> or A D: move", W / 2, H - 58, 7, "#6b6f8a");
+    text(ctx, font, "Your ship fires itself", W / 2, H - 46, 7, "#6b6f8a");
+    text(ctx, font, "SPACE: bomb (1 a level)", W / 2, H - 34, 7, "#6b6f8a");
     sprite(ctx, SHIP, W / 2, H - 16);
   } else if (g.phase === "banner") {
     centre([
@@ -197,6 +236,11 @@ function play(ctx: AudioContext, sound: Sound) {
   }
   if (sound === "boss") [220, 196, 175, 165].forEach((f, i) => tone("square", f, f, 0.14, 0.04, i * 0.15));
   if (sound === "level" || sound === "start") [523, 659, 784, 1047].forEach((f, i) => tone("square", f, f, 0.09, 0.035, i * 0.08));
+  if (sound === "powerup") [660, 880, 1320].forEach((f, i) => tone("triangle", f, f * 1.2, 0.07, 0.05, i * 0.05));
+  if (sound === "bomb") {
+    tone("sawtooth", 220, 25, 1.0, 0.1);
+    tone("square", 60, 20, 1.2, 0.07, 0.05);
+  }
 }
 
 /**
@@ -373,7 +417,7 @@ export function ArcadeGame({ open, onClose, returnFocus }: { open: boolean; onCl
             <div className="mb-3 border-4 border-[#0b0816] bg-[#2b1b5e] px-3 py-2 text-center shadow-[inset_0_0_12px_rgba(255,210,63,.35)]">
               <DialogPrimitive.Title className="font-pixel text-[15px] tracking-wider text-[#ffd23f] [text-shadow:2px_2px_0_#e0483e]">PACKET STORM</DialogPrimitive.Title>
               <DialogPrimitive.Description className="mt-1 font-mono text-[11px] text-[#e6dcc0]">
-                Move with ← → or A D · Space fires · P pauses · Esc leaves
+                Move with ← → or A D · it fires by itself · Space drops a bomb · P pauses · Esc leaves
               </DialogPrimitive.Description>
             </div>
             <div className="rounded-[10px] border-[10px] border-[#0b0816] bg-black p-1 shadow-[inset_0_0_20px_#000]">
@@ -399,7 +443,7 @@ export function ArcadeGame({ open, onClose, returnFocus }: { open: boolean; onCl
                   ▶
                 </button>
                 <button type="button" tabIndex={-1} className={`${button} bg-[#e0483e]`} {...hold("fire")}>
-                  FIRE
+                  BOMB
                 </button>
               </div>
               <div className="grid gap-1.5 text-right">
