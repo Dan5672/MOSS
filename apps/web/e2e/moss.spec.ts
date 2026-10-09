@@ -111,7 +111,7 @@ test("agents: hire, budget, pause and resume", async () => {
   await page.getByRole("button", { name: /^Discover devices on all allowed networks/ }).click();
   await expect(page.getByRole("textbox", { name: "Task", exact: true })).toHaveValue(/^Discover devices on all allowed networks/);
 
-  await page.getByLabel("Per").selectOption("day");
+  await page.getByRole("combobox", { name: "Per", exact: true }).selectOption("day");
   await page.getByLabel("Hard limit").fill("2");
   await page.getByRole("button", { name: "Set budget" }).click();
   await expect(page.getByText("Budget saved.")).toBeVisible();

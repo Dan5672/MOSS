@@ -107,12 +107,14 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
               ) : (
                 <ActionForm action={setStatusAction.bind(null, id, "active")} submitLabel="Resume" submitVariant="outline" />
               )}
-              <ActionForm
-                action={setStatusAction.bind(null, id, "fired")}
-                submitLabel="Fire"
-                submitVariant="destructive"
-                confirm={`Fire ${agent.name}? This removes all of their skills, secret access and schedules, and can't be undone.`}
-              />
+              {agent.templateKey !== "moss" && (
+                <ActionForm
+                  action={setStatusAction.bind(null, id, "fired")}
+                  submitLabel="Fire"
+                  submitVariant="destructive"
+                  confirm={`Fire ${agent.name}? This removes all of their skills, secret access and schedules, and can't be undone.`}
+                />
+              )}
               </>
             )}
           </>

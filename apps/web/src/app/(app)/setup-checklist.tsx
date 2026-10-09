@@ -23,7 +23,7 @@ export function SetupChecklist({ s, user }: { s: Awaited<ReturnType<typeof setup
   const steps: Step[] = [
     { done: s.hasModel, title: "Add a model", detail: "Agents need an LLM to think with: an API key, a Claude subscription or a local Ollama.", action: <Link href="/models" className={linkClass}>Models</Link> },
     { done: s.hasAllowedNetwork, title: "Allow your network", detail: "Add your LAN (for example 10.0.0.0/24) and mark it allowed. Nothing is scanned until you do.", action: <Link href="/networks" className={linkClass}>Networks</Link> },
-    { done: s.hasAgent, title: "Hire an agent", detail: "A Network Admin is a good first hire: it finds and names your devices.", action: <Link href="/agents" className={linkClass}>Agents</Link> },
+    { done: s.hasAgent, title: "Hire an agent", detail: "A Network Admin is a good first hire: it finds and names your devices. (Moss, who knows MOSS itself, joins on its own once you add a model.)", action: <Link href="/agents" className={linkClass}>Agents</Link> },
     {
       done: s.hasAssets,
       title: "Run a network discovery",

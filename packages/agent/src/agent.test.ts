@@ -12,6 +12,7 @@ describe("library", () => {
       "developer",
       "home-automation",
       "it-manager",
+      "moss",
       "network-admin",
       "security-admin",
       "systems-admin",

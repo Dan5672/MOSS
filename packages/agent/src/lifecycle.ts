@@ -1,16 +1,20 @@
 // Agent lifecycle: hire (from a template or custom), pause, resume, fire and upskill. Every action is audited.
 import { writeAudit } from "@moss/core";
-import { agents, agentSchedules, agentSkills, roles, secretGrants, skills, type Database } from "@moss/db";
-import { and, eq, inArray, ne } from "drizzle-orm";
+import { agents, agentSchedules, agentSkills, models, roles, secretGrants, skills, type Database } from "@moss/db";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import type { AgentTemplate } from "./library.js";
 
 export interface Actor {
   orgId: string;
-  userId: string;
+  /** null when MOSS itself acts (e.g. hiring Moss on a new install). */
+  userId: string | null;
 }
 
+/** The template of the MOSS expert every install has. It can be paused, but not fired. */
+export const MOSS_TEMPLATE = "moss";
+
 async function audit(db: Database, actor: Actor, action: string, agentId: string, details: Record<string, unknown> = {}) {
-  await writeAudit(db, { orgId: actor.orgId, actorType: "user", actorId: actor.userId, action, targetType: "agent", targetId: agentId, details });
+  await writeAudit(db, { orgId: actor.orgId, actorType: actor.userId ? "user" : "system", actorId: actor.userId, action, targetType: "agent", targetId: agentId, details });
 }
 
 async function loadOwnAgent(db: Database, actor: Actor, agentId: string) {
@@ -121,7 +125,8 @@ export async function resumeAgent(db: Database, actor: Actor, agentId: string) {
 
 /** Firing is permanent: the agent is archived and loses every skill, secret grant and schedule. */
 export async function fireAgent(db: Database, actor: Actor, agentId: string) {
-  await loadOwnAgent(db, actor, agentId);
+  const agent = await loadOwnAgent(db, actor, agentId);
+  if (agent.templateKey === MOSS_TEMPLATE) throw new Error(`${agent.name} looks after MOSS itself and can't be fired. Pause it instead.`);
   await db.transaction(async (tx) => {
     await tx.update(agents).set({ status: "fired", firedAt: new Date(), updatedAt: new Date() }).where(eq(agents.id, agentId));
     await tx.delete(agentSkills).where(eq(agentSkills.agentId, agentId));
@@ -129,6 +134,29 @@ export async function fireAgent(db: Database, actor: Actor, agentId: string) {
     await tx.update(agentSchedules).set({ enabled: false }).where(eq(agentSchedules.agentId, agentId));
   });
   await audit(db, actor, "agent.fire", agentId);
+}
+
+/**
+ * Every install has a Moss: the expert on MOSS itself. Hired automatically once the org has a model to
+ * run it on, and again if it's ever missing. Returns the new agent's id, or null if nothing was needed.
+ */
+export async function ensureMoss(db: Database, orgId: string, template: AgentTemplate | undefined): Promise<string | null> {
+  if (!template) return null;
+  const [existing] = await db.select({ id: agents.id }).from(agents).where(and(eq(agents.orgId, orgId), eq(agents.templateKey, MOSS_TEMPLATE), ne(agents.status, "fired")));
+  if (existing) return null;
+  // The model the newest active agent uses (most likely the one the owner prefers), else any enabled model.
+  const [recent] = await db
+    .select({ id: models.id })
+    .from(agents)
+    .innerJoin(models, and(eq(models.id, agents.modelId), eq(models.enabled, true)))
+    .where(and(eq(agents.orgId, orgId), eq(agents.status, "active")))
+    .orderBy(desc(agents.hiredAt))
+    .limit(1);
+  const [any] = recent ? [] : await db.select({ id: models.id }).from(models).where(and(eq(models.orgId, orgId), eq(models.enabled, true))).limit(1);
+  const model = recent ?? any;
+  if (!model) return null;
+  const agent = await hireFromTemplate(db, { orgId, userId: null }, { template, modelId: model.id });
+  return agent.id;
 }
 
 export async function upskillAgent(db: Database, actor: Actor, agentId: string, skillKey: string) {

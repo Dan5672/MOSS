@@ -13,6 +13,7 @@ import { z } from "zod";
 import type { GateClient } from "./gate-client.js";
 import { MEMORY_TOOLS } from "./memory-tools.js";
 import { CHAT_TOOLS } from "./chat-tools.js";
+import { MOSS_TOOLS } from "./moss-tools.js";
 import { MONITOR_TOOLS } from "./monitor-tools.js";
 import { TICKET_TOOLS } from "./ticket-tools.js";
 
@@ -22,6 +23,8 @@ export interface PlatformContext {
   agentId: string;
   gate: GateClient;
   runId: string;
+  /** Runs another agent on a question and returns its answer (ask_moss). Absent where it can't be offered. */
+  consult?: (agentId: string, task: string) => Promise<{ status: string; summary: string }>;
 }
 
 export interface PlatformTool {
@@ -127,7 +130,7 @@ const INVENTORY_TOOLS: PlatformTool[] = [
   },
 ];
 
-export const PLATFORM_TOOLS: PlatformTool[] = [...INVENTORY_TOOLS, ...TICKET_TOOLS, ...MONITOR_TOOLS, ...MEMORY_TOOLS, ...CHAT_TOOLS];
+export const PLATFORM_TOOLS: PlatformTool[] = [...INVENTORY_TOOLS, ...TICKET_TOOLS, ...MONITOR_TOOLS, ...MEMORY_TOOLS, ...CHAT_TOOLS, ...MOSS_TOOLS];
 
 export const PLATFORM_TOOL_MAP: ReadonlyMap<string, PlatformTool> = new Map(PLATFORM_TOOLS.map((t) => [t.name, t]));
 

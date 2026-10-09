@@ -1,6 +1,8 @@
 // The worker: runs agent jobs from the queue, turns agent schedules into jobs, and runs monitor checks.
 import {
   chatSnapshot,
+  ensureMoss,
+  MOSS_TEMPLATE,
   enqueueRun,
   ensureQueues,
   HttpGateClient,
@@ -229,11 +231,19 @@ export async function startWorker(cfg: WorkerConfig) {
   // Built-in roles are re-synced on every boot so upgrades can add permissions.
   for (const org of await db.select({ id: orgs.id }).from(orgs)) await ensureBuiltInRoles(db, org.id);
 
-  if (cfg.libraryDir) {
-    const lib = await loadLibrary(cfg.libraryDir);
+  const lib = cfg.libraryDir ? await loadLibrary(cfg.libraryDir) : null;
+  if (lib) {
     for (const org of await db.select({ id: orgs.id }).from(orgs)) await syncBuiltInSkills(db, org.id, lib.skills.values());
     log("library synced", { skills: lib.skills.size, templates: lib.templates.size });
   }
+  // Every install has a Moss, the expert on MOSS itself, once there is a model to run it on.
+  const mossTemplate = lib?.templates.get(MOSS_TEMPLATE);
+  const hireMoss = async () => {
+    for (const org of await db.select({ id: orgs.id }).from(orgs)) {
+      const id = await ensureMoss(db, org.id, mossTemplate);
+      if (id) log("hired Moss", { orgId: org.id, agentId: id });
+    }
+  };
 
   await ensureQueues(boss);
 
@@ -268,6 +278,7 @@ export async function startWorker(cfg: WorkerConfig) {
 
   const sync = async () => {
     try {
+      await hireMoss();
       const res = await syncSchedules(db, boss);
       if (res.added || res.removed) log("schedules synced", res);
     } catch (err) {

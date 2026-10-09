@@ -3,6 +3,7 @@ import { agentToolGrants, getSetting, periodStart } from "@moss/core";
 import { agentRuns, agents, assets, auditLog, budgets, changeRequests, incidents, models, monitors, networks, providers, tokenUsage, users } from "@moss/db";
 import { and, asc, count, desc, eq, gte, inArray, ne, sql, sum } from "drizzle-orm";
 import { db } from "./db";
+import { workingAgents } from "@/server/people";
 
 export async function dashboard(orgId: string) {
   const d = db();
@@ -228,7 +229,8 @@ export async function setupProgress(orgId: string) {
       break;
     }
   }
-  const [anyAgent] = await d.select({ n: count() }).from(agents).where(and(eq(agents.orgId, orgId), ne(agents.status, "fired")));
+  // Moss is hired automatically, so it doesn't count as having hired an agent.
+  const [anyAgent] = await d.select({ n: count() }).from(agents).where(and(eq(agents.orgId, orgId), ne(agents.status, "fired"), workingAgents));
   return {
     hasModel: (modelCount?.n ?? 0) > 0,
     hasAllowedNetwork: (allowed?.n ?? 0) > 0,

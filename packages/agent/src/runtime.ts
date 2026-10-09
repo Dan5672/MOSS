@@ -60,6 +60,8 @@ export interface RunDeps {
   /** How to run agents whose model is on a Claude subscription. Without it, those runs fail cleanly. */
   claudeCode?: ClaudeCodeConfig;
   now?: () => Date;
+  /** Set for a run started by another agent's ask_moss: it can't consult in turn. */
+  consulting?: boolean;
 }
 
 export interface RunOutcome {
@@ -281,7 +283,10 @@ async function prepareRun(deps: RunDeps, input: RunInput): Promise<PreparedRun |
           content = { error: `Invalid arguments: ${z.prettifyError(parsed.error)}` };
         } else {
           try {
-            content = await tool.run({ db, orgId, agentId: agent.id, gate: deps.gate, runId }, parsed.data);
+            // Consulting another agent (ask_moss) runs it now, inside this run; it can't consult anyone itself.
+            const consult = (otherId: string, task: string) =>
+              runAgent({ ...deps, consulting: true }, { agentId: otherId, task, trigger: "event", triggerRef: runId }).then((o) => ({ status: o.status, summary: o.summary ?? "" }));
+            content = await tool.run({ db, orgId, agentId: agent.id, gate: deps.gate, runId, consult: deps.consulting ? undefined : consult }, parsed.data);
           } catch (err) {
             isError = true;
             content = { error: (err as Error).message };

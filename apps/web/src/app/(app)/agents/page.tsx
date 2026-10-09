@@ -111,7 +111,7 @@ export default async function AgentsPage({ searchParams }: PageProps<"/agents">)
               </Empty>
             ) : (
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {[...lib.templates.values()].map((t) => (
+                {[...lib.templates.values()].filter((t) => t.key !== "moss").map((t) => (
                   <Card key={t.key}>
                     <CardHeader>
                       <CardTitle>{t.title}</CardTitle>

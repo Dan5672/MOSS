@@ -4,6 +4,11 @@
 /** Ideas per skill, in priority order (whatever order the agent's skills come in). Skills that only change
  * things (with approval) have none. */
 const BY_SKILL: Record<string, string[]> = {
+  "moss-expert": [
+    "Look at the recent policy denials and failed runs, and explain what's going wrong and how to fix it.",
+    "Check how MOSS is set up here and suggest what to set up next.",
+    "Explain how the Home Assistant module works and what I'd need to set it up.",
+  ],
   "network-discovery": ["Discover devices on all allowed networks, then identify and classify any new or unidentified ones."],
   "asset-inventory": ["Go through the inventory and name and classify any assets that are still unidentified."],
   "monitoring-response": ["Check every monitor that is down or degraded and find out why."],

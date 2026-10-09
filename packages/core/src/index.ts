@@ -24,3 +24,4 @@ export * from "./services/conversations.js";
 export * from "./services/home-assistant.js";
 export * from "./monitoring/state.js";
 export * from "./monitoring/webhooks.js";
+export { BUILT_IN_TOOLS } from "@moss/tools";

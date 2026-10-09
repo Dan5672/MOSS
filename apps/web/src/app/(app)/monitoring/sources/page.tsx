@@ -12,6 +12,7 @@ import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { deleteSourceAction, setSourceEnabledAction } from "../actions";
 import { NewSourceForm } from "./new-source-form";
+import { workingAgents } from "@/server/people";
 
 export const metadata = { title: "Webhook sources" };
 
@@ -34,7 +35,7 @@ export default async function SourcesPage() {
     db()
       .select({ id: agents.id, name: agents.name, title: agents.title })
       .from(agents)
-      .where(and(eq(agents.orgId, user.orgId), ne(agents.status, "fired"))),
+      .where(and(eq(agents.orgId, user.orgId), ne(agents.status, "fired"), workingAgents)),
     baseUrl(),
   ]);
 

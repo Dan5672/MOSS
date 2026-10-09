@@ -1,13 +1,16 @@
 import "server-only";
 import { mentionables } from "@moss/core";
 import { agents, users } from "@moss/db";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, isNull, ne, or } from "drizzle-orm";
 import { db } from "./db";
+
+/** Agents that do the work: everyone but Moss, who knows MOSS itself and isn't given tickets or monitors. */
+export const workingAgents = or(isNull(agents.templateKey), ne(agents.templateKey, "moss"))!;
 
 /** Everyone a ticket can be assigned to: active agents and users. Values are "agent:<id>" / "user:<id>". */
 export async function assigneeOptions(orgId: string) {
   const [agentRows, userRows] = await Promise.all([
-    db().select({ id: agents.id, name: agents.name, title: agents.title }).from(agents).where(and(eq(agents.orgId, orgId), ne(agents.status, "fired"))),
+    db().select({ id: agents.id, name: agents.name, title: agents.title }).from(agents).where(and(eq(agents.orgId, orgId), ne(agents.status, "fired"), workingAgents)),
     db().select({ id: users.id, name: users.displayName }).from(users).where(and(eq(users.orgId, orgId), eq(users.status, "active"))),
   ]);
   return [

@@ -14,11 +14,12 @@ import { db } from "@/server/db";
 import { nameLookup } from "@/server/people";
 import { plannableTools } from "@/server/tool-catalog";
 import { RaiseChangeForm } from "./raise-change-form";
+import { workingAgents } from "@/server/people";
 
 /** What the "Raise a change" form offers: agents to carry it out, open incidents, assets and tools. */
 async function raiseOptions(orgId: string) {
   const [agentRows, incidentRows, assetRows, tools] = await Promise.all([
-    db().select({ id: agents.id, name: agents.name, title: agents.title }).from(agents).where(and(eq(agents.orgId, orgId), eq(agents.status, "active"))).orderBy(asc(agents.name)),
+    db().select({ id: agents.id, name: agents.name, title: agents.title }).from(agents).where(and(eq(agents.orgId, orgId), eq(agents.status, "active"), workingAgents)).orderBy(asc(agents.name)),
     listIncidents(db(), orgId, { status: ["new", "in_progress", "on_hold"], limit: 100 }),
     db().select({ id: assets.id, name: assets.name, ip: assets.primaryIp }).from(assets).where(and(eq(assets.orgId, orgId), ne(assets.status, "retired"))).orderBy(asc(assets.name)).limit(500),
     plannableTools(orgId),

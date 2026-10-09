@@ -79,6 +79,7 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
       "homelab-integrations",
       "incident-management",
       "monitoring-response",
+      "moss-expert",
       "network-discovery",
       "network-insight",
       "security-baseline",
