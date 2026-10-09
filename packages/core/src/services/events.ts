@@ -9,6 +9,7 @@ export type DomainEvent =
   | { type: "change.submitted"; payload: { changeId: string } }
   | { type: "change.approved"; payload: { changeId: string } }
   | { type: "change.rejected"; payload: { changeId: string } }
+  | { type: "change.access_granted"; payload: { changeId: string } }
   | { type: "change.completed"; payload: { changeId: string; outcome: string } }
   | { type: "monitor.down"; payload: { monitorId: string } }
   | { type: "monitor.degraded"; payload: { monitorId: string } }

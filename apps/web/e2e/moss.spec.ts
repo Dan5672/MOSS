@@ -565,6 +565,26 @@ test("changes: a person raises one by hand, it's approved, and they record the r
   await d2.getByRole("button", { name: "Submit for approval" }).click();
   await expect(page.getByRole("heading", { name: /CR-\d+: Wake the media PC/ })).toBeVisible();
   await expect(page.getByText(/Nina runs these once it's approved/)).toBeVisible();
+
+  // Only the title is required.
+  await page.goto("/changes");
+  await page.getByRole("button", { name: "Raise a change" }).click();
+  const d3 = page.getByRole("dialog", { name: "Raise a change" });
+  await d3.getByLabel("Title").fill("Tidy the cupboard cables");
+  await d3.getByRole("button", { name: "Submit for approval" }).click();
+  await expect(page.getByRole("heading", { name: /CR-\d+: Tidy the cupboard cables/ })).toBeVisible();
+
+  // The board: one column per stage, and a card's ref opens the change.
+  await page.goto("/changes");
+  await page.getByRole("navigation", { name: "Layout" }).getByRole("link", { name: "Board" }).click();
+  const waiting = page.getByRole("listitem", { name: /^Waiting for approval/ });
+  await expect(waiting.getByText("Wake the media PC")).toBeVisible();
+  await expect(page.getByRole("listitem", { name: /^Done/ }).getByText("Replace the garage switch")).toBeVisible();
+  await waiting.getByRole("link", { name: /Tidy the cupboard cables/ }).click();
+  await expect(page.getByRole("heading", { name: /CR-\d+: Tidy the cupboard cables/ })).toBeVisible();
+  await page.goto("/changes?view=all");
+  await page.getByRole("link", { name: /^CR-\d+$/ }).first().click();
+  await expect(page.getByRole("heading", { name: /^CR-\d+: / })).toBeVisible();
 });
 
 /** What the worker does with monitor events (the e2e stack runs no worker). */

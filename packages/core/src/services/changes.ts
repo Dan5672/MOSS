@@ -3,14 +3,19 @@
 // (only if enabled) and are flagged for review afterwards.
 import {
   agents,
+  agentToolOverrides,
   changeApprovals,
   changeAssets,
   changeNotes,
   changeRequests,
+  customToolGrants,
   customTools,
   incidentComments,
   incidents,
+  secretGrants,
+  secrets,
   standardChangeTemplates,
+  type AccessGrant,
   type Database,
   type PlannedToolCall,
 } from "@moss/db";
@@ -20,6 +25,7 @@ import { getSetting } from "../store/settings-store.js";
 import { writeAudit } from "../store/audit-store.js";
 import type { Actor } from "./assets.js";
 import { emitEvent } from "./events.js";
+import { agentToolGrants } from "./tool-grants.js";
 import { actorName, mentionables, notifyMentioned, parseMentions } from "./mentions.js";
 import { notifyPermission, userPermissions } from "./notifications.js";
 
@@ -118,6 +124,8 @@ export interface NewChange {
   forAgentId?: string;
   /** A person carries it out by hand: no tool calls, and they record the result themselves. */
   manual?: boolean;
+  /** An agent's access request (see requestAccess): no tool calls; approval grants exactly this. */
+  accessGrant?: AccessGrant;
 }
 
 export async function createChangeRequest(db: Database, orgId: string, input: NewChange, actor: Actor, opts: ChangeOptions = {}) {
@@ -144,7 +152,7 @@ export async function createChangeRequest(db: Database, orgId: string, input: Ne
     planned = instantiateTemplate(template, input.templateParams ?? {});
     risk = template.risk;
   }
-  if (input.manual) planned = [];
+  if (input.manual || input.accessGrant) planned = [];
   else if (planned.length === 0) throw new ChangeError("A change needs at least one planned tool call (or carry it out by hand)");
   const tools = opts.tools ?? (await orgToolDefinitions(db, orgId));
   const plannedCalls = normalizeCalls(planned, tools);
@@ -186,6 +194,7 @@ export async function createChangeRequest(db: Database, orgId: string, input: Ne
         windowStart: input.windowStart ?? null,
         windowEnd: input.windowEnd ?? null,
         postReviewRequired,
+        accessGrant: input.accessGrant ?? null,
       })
       .returning();
     const change = row!;
@@ -292,15 +301,102 @@ async function recordDecision(
       throw new ChangeError(`Conflicts with ${conflicts.map((c) => changeRef(c.number)).join(", ")} on the same assets; approve with force to override`);
     }
   }
+  // An access request has nothing to run: approving it grants the access and closes it.
+  const grant = decision === "approved" && change.accessGrant && change.requestedByAgentId ? change.accessGrant : null;
   const updated = await db.transaction(async (tx) => {
-    const [row] = await tx.update(changeRequests).set({ status: decision, updatedAt: new Date() }).where(eq(changeRequests.id, changeId)).returning();
+    const status = grant ? "succeeded" : decision;
+    const [row] = await tx.update(changeRequests).set({ status, updatedAt: new Date() }).where(eq(changeRequests.id, changeId)).returning();
     await tx.insert(changeApprovals).values({ changeId, userId, decision, comment: comment ?? null });
     await tx.insert(changeNotes).values({ changeId, authorUserId: userId, kind: "system", body: `${decision === "approved" ? "Approved" : "Rejected"}${comment ? `: ${comment}` : "."}` });
-    await emitEvent(tx, orgId, { type: decision === "approved" ? "change.approved" : "change.rejected", payload: { changeId } });
+    if (grant) {
+      const granted = await applyAccessGrant(tx, orgId, change.requestedByAgentId!, grant, userId);
+      await tx.insert(changeNotes).values({ changeId, kind: "system", body: `Access granted: ${granted.join(", ") || "nothing new"}.` });
+      await emitEvent(tx, orgId, { type: "change.access_granted", payload: { changeId } });
+    } else {
+      await emitEvent(tx, orgId, { type: decision === "approved" ? "change.approved" : "change.rejected", payload: { changeId } });
+    }
     return row!;
   });
   await writeAudit(db, { orgId, actorType: "user", actorId: userId, action: `change.${decision === "approved" ? "approve" : "reject"}`, targetType: "change", targetId: changeId, details: { comment, force } });
   return updated;
+}
+
+/** Grants what an approved access request asked for. Returns what was granted, by name. */
+async function applyAccessGrant(tx: Pick<Database, "select" | "insert">, orgId: string, agentId: string, grant: AccessGrant, userId: string) {
+  const granted: string[] = [];
+  const custom = grant.tools.length
+    ? await tx.select({ id: customTools.id, key: customTools.key }).from(customTools).where(and(eq(customTools.orgId, orgId), inArray(customTools.key, grant.tools)))
+    : [];
+  for (const tool of grant.tools) {
+    const c = custom.find((t) => t.key === tool);
+    if (c) await tx.insert(customToolGrants).values({ toolId: c.id, agentId, grantedBy: userId }).onConflictDoNothing();
+    else {
+      await tx
+        .insert(agentToolOverrides)
+        .values({ agentId, tool, granted: true, setBy: userId })
+        .onConflictDoUpdate({ target: [agentToolOverrides.agentId, agentToolOverrides.tool], set: { granted: true, setBy: userId, setAt: new Date() } });
+    }
+    granted.push(tool);
+  }
+  if (grant.secretIds.length) {
+    const rows = await tx.select({ id: secrets.id, name: secrets.name }).from(secrets).where(and(eq(secrets.orgId, orgId), inArray(secrets.id, grant.secretIds)));
+    for (const r of rows) {
+      await tx.insert(secretGrants).values({ secretId: r.id, agentId, grantedBy: userId }).onConflictDoNothing();
+      granted.push(`secret:${r.name}`);
+    }
+  }
+  return granted;
+}
+
+export interface AccessRequest {
+  tools?: string[];
+  secrets?: string[];
+  reason: string;
+  incidentId?: string;
+}
+
+/**
+ * An agent asks for tools or secrets it doesn't have. It becomes a normal change request: nothing
+ * runs, and approving it grants exactly what was asked for. `knownTools` are the built-in and MOSS
+ * tools an agent may be given; enabled custom tools are looked up here.
+ */
+export async function requestAccess(db: Database, orgId: string, agentId: string, req: AccessRequest, knownTools: ReadonlySet<string>) {
+  const [agent] = await db.select({ name: agents.name, status: agents.status }).from(agents).where(and(eq(agents.id, agentId), eq(agents.orgId, orgId)));
+  if (!agent || agent.status === "fired") throw new ChangeError("Unknown agent");
+  const wanted = [...new Set(req.tools ?? [])];
+  const custom = wanted.length
+    ? await db.select({ key: customTools.key }).from(customTools).where(and(eq(customTools.orgId, orgId), inArray(customTools.key, wanted), eq(customTools.enabled, true)))
+    : [];
+  const unknown = wanted.filter((t) => !knownTools.has(t) && !custom.some((c) => c.key === t));
+  if (unknown.length) throw new ChangeError(`No such tool: ${unknown.join(", ")}`);
+  const names = [...new Set((req.secrets ?? []).map((n) => n.replace(/^secret:/, "")))];
+  const found = names.length ? await db.select({ id: secrets.id, name: secrets.name }).from(secrets).where(and(eq(secrets.orgId, orgId), inArray(secrets.name, names))) : [];
+  const missing = names.filter((n) => !found.some((f) => f.name === n));
+  if (missing.length) throw new ChangeError(`No such secret: ${missing.join(", ")}. Ask the owner to store it first.`);
+  const [haveTools, haveSecrets] = await Promise.all([
+    agentToolGrants(db, agentId),
+    db.select({ id: secretGrants.secretId }).from(secretGrants).where(eq(secretGrants.agentId, agentId)),
+  ]);
+  const tools = wanted.filter((t) => !haveTools.has(t));
+  const newSecrets = found.filter((f) => !haveSecrets.some((h) => h.id === f.id));
+  if (!tools.length && !newSecrets.length) throw new ChangeError("You already have all of that");
+  const what = [...tools, ...newSecrets.map((f) => `secret:${f.name}`)].join(", ");
+  const change = await createChangeRequest(
+    db,
+    orgId,
+    {
+      type: "normal",
+      title: `Access for ${agent.name}: ${what}`.slice(0, 200),
+      description: `${agent.name} asks for access to ${what}.\n\nWhy: ${req.reason}`,
+      risk: "low",
+      rollbackPlan: "Remove the access again on the agent's Tool access page, or the secret's page.",
+      verificationPlan: "",
+      incidentId: req.incidentId,
+      accessGrant: { tools, secretIds: newSecrets.map((f) => f.id) },
+    },
+    { type: "agent", id: agentId },
+  );
+  return change;
 }
 
 /** Human-only: agents can never approve or reject (they don't hold changes.approve). */

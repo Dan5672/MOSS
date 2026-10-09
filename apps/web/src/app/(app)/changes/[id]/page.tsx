@@ -1,6 +1,6 @@
 import { changeRef, getChange, incidentRef, isManualChange } from "@moss/core";
-import { incidents } from "@moss/db";
-import { eq } from "drizzle-orm";
+import { incidents, secrets } from "@moss/db";
+import { and, eq, inArray } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
@@ -36,11 +36,15 @@ export default async function ChangePage({ params }: PageProps<"/changes/[id]">)
   if (!user.permissions.has("changes.read")) return <NoPermission />;
   const change = await getChange(db(), user.orgId, id);
   if (!change) notFound();
-  const [name, [incident], mentions] = await Promise.all([
+  const [name, [incident], mentions, secretRows] = await Promise.all([
     nameLookup(user.orgId),
     change.incidentId ? db().select().from(incidents).where(eq(incidents.id, change.incidentId)) : Promise.resolve([]),
     mentionOptions(user.orgId),
+    change.accessGrant?.secretIds.length
+      ? db().select({ name: secrets.name }).from(secrets).where(and(eq(secrets.orgId, user.orgId), inArray(secrets.id, change.accessGrant.secretIds)))
+      : Promise.resolve([]),
   ]);
+  const secretNames = secretRows.map((r) => r.name);
   const canApprove = user.permissions.has("changes.approve") && change.status === "submitted";
   const byHand = isManualChange(change);
   const canRecord = byHand && user.permissions.has("changes.create") && ["approved", "in_progress", "verifying"].includes(change.status);
@@ -70,13 +74,29 @@ export default async function ChangePage({ params }: PageProps<"/changes/[id]">)
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
-          <p className="px-frame p-4 text-sm whitespace-pre-wrap">{change.description}</p>
+          {change.description && <p className="px-frame p-4 text-sm whitespace-pre-wrap">{change.description}</p>}
           {(change.windowStart || change.windowEnd) && (
             <p className="text-sm">
               Window: <span className="font-mono">{change.windowStart?.toLocaleString() ?? "now"} – {change.windowEnd?.toLocaleString() ?? "open"}</span>
             </p>
           )}
-          {byHand ? (
+          {change.accessGrant ? (
+            <Section title="Access requested">
+              <p className="text-sm text-muted-foreground">Nothing runs. Approving gives {name(change.requestedByAgentId)} exactly this, and closes the change.</p>
+              <ul className="flex flex-wrap gap-2" aria-label="Access requested">
+                {change.accessGrant.tools.map((t) => (
+                  <li key={t}>
+                    <Pill tone="blue">{t}</Pill>
+                  </li>
+                ))}
+                {secretNames.map((n) => (
+                  <li key={n}>
+                    <Pill tone="amber">secret:{n}</Pill>
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          ) : byHand ? (
             <Section title="Carried out by hand">
               <p className="text-sm text-muted-foreground">A person makes this change and records the result here. No agent or tool runs for it.</p>
             </Section>
@@ -89,11 +109,13 @@ export default async function ChangePage({ params }: PageProps<"/changes/[id]">)
               <Calls calls={change.plannedCalls} />
             </Section>
           )}
-          <Section title="How it will be checked">
-            <p className="text-sm whitespace-pre-wrap">{change.verificationPlan}</p>
-          </Section>
+          {!change.accessGrant && (
+            <Section title="How it will be checked">
+              <p className="text-sm whitespace-pre-wrap">{change.verificationPlan || <span className="text-muted-foreground">Not given.</span>}</p>
+            </Section>
+          )}
           <Section title="Rollback">
-            <p className="text-sm whitespace-pre-wrap">{change.rollbackPlan}</p>
+            <p className="text-sm whitespace-pre-wrap">{change.rollbackPlan || <span className="text-muted-foreground">Not given.</span>}</p>
             <Calls calls={change.rollbackCalls} />
           </Section>
           <Section title="Timeline">
@@ -144,7 +166,11 @@ export default async function ChangePage({ params }: PageProps<"/changes/[id]">)
             <CardHeader>
               <CardTitle>Decision</CardTitle>
               <CardDescription>
-                {byHand ? "Approving lets the person go ahead and make this change." : "Approving lets the agent run exactly the calls listed here, and nothing else."}
+                {change.accessGrant
+                  ? "Approving gives the agent the access listed here, straight away."
+                  : byHand
+                    ? "Approving lets the person go ahead and make this change."
+                    : "Approving lets the agent run exactly the calls listed here, and nothing else."}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">

@@ -3,7 +3,7 @@ key: change-management
 name: Change Management
 description: Make changes safely through approved change requests.
 version: 1.0.0
-tools: [change_request_create, change_get, change_comment, change_execute, change_rollback, change_complete]
+tools: [change_request_create, change_get, change_comment, change_execute, change_rollback, change_complete, access_request]
 ---
 Every action that changes a system goes through a change request. You cannot call change tools
 directly; you plan the exact calls, a human approves them, and `change_execute` runs exactly

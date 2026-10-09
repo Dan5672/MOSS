@@ -14,7 +14,7 @@ export function RaiseChangeForm({ agents, incidents, assets, tools }: { agents: 
   return (
     <ActionForm action={createChangeAction} submitLabel="Submit for approval">
       <TextField label="Title" name="title" placeholder="Replace the garage switch" required maxLength={200} />
-      <TextAreaField label="What and why" name="description" rows={3} required />
+      <TextAreaField label="What and why" name="description" rows={3} />
       <div className="grid gap-3 sm:grid-cols-3">
         <SelectField
           label="Type"
@@ -55,8 +55,9 @@ export function RaiseChangeForm({ agents, incidents, assets, tools }: { agents: 
         <TextField label="Window ends" name="windowEnd" type="datetime-local" />
       </div>
       {by !== "hand" && <PlannedCallsField tools={tools} />}
-      <TextAreaField label="How it will be checked" name="verificationPlan" rows={2} required />
-      <TextAreaField label="How to undo it" name="rollbackPlan" rows={2} required />
+      <TextAreaField label="How it will be checked" name="verificationPlan" rows={2} />
+      <TextAreaField label="How to undo it" name="rollbackPlan" rows={2} />
+      <p className="text-xs text-muted-foreground">Only the title is required. The more you say, the easier it is to approve.</p>
     </ActionForm>
   );
 }

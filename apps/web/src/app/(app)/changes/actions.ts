@@ -44,15 +44,15 @@ export async function changeCommentAction(changeId: string, _: ActionState, form
 
 const changeSchema = z.object({
   title: z.string().trim().min(3, "Give the change a title").max(200),
-  description: z.string().trim().min(1, "Say what the change is and why").max(5000),
-  type: z.enum(["normal", "emergency"]),
-  risk: z.enum(["low", "medium", "high"]),
-  carriedOutBy: z.string().min(1),
+  description: z.string().trim().max(5000).optional(),
+  type: z.enum(["normal", "emergency"]).default("normal"),
+  risk: z.enum(["low", "medium", "high"]).default("medium"),
+  carriedOutBy: z.string().min(1).default("hand"),
   incidentId: z.uuid().optional(),
   windowStart: z.string().optional(),
   windowEnd: z.string().optional(),
-  verificationPlan: z.string().trim().min(1, "Say how you'll check it worked").max(5000),
-  rollbackPlan: z.string().trim().min(1, "Say how to undo it").max(5000),
+  verificationPlan: z.string().trim().max(5000).optional(),
+  rollbackPlan: z.string().trim().max(5000).optional(),
   plannedCalls: z.string().optional(),
 });
 
@@ -88,10 +88,10 @@ export async function createChangeAction(_: ActionState, form: FormData): Promis
       {
         type: f.type,
         title: f.title,
-        description: f.description,
+        description: f.description ?? "",
         risk: f.risk,
-        rollbackPlan: f.rollbackPlan,
-        verificationPlan: f.verificationPlan,
+        rollbackPlan: f.rollbackPlan ?? "",
+        verificationPlan: f.verificationPlan ?? "",
         incidentId: f.incidentId,
         assetIds: form.getAll("assetIds").map(String).filter((id) => z.uuid().safeParse(id).success),
         windowStart: when(f.windowStart),

@@ -1,5 +1,5 @@
 // Incidents, change management and the event outbox against Postgres.
-import { agents, assets, events, incidentComments, models, notifications, providers, roles, userRoles, users, type Database } from "@moss/db";
+import { agents, assets, events, incidentComments, models, notifications, providers, roles, secretGrants, secrets, userRoles, users, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { BUILT_IN_TOOLS, type ToolDefinition } from "@moss/tools";
 import { asc, eq } from "drizzle-orm";
@@ -15,10 +15,12 @@ import {
   markVerifying,
   recordManualResult,
   rejectChange,
+  requestAccess,
   startChange,
   upsertStandardTemplate,
 } from "./services/changes.js";
 import { dispatchEvents } from "./services/events.js";
+import { agentToolGrants } from "./services/tool-grants.js";
 import { addIncidentComment, createIncident, getIncident, updateIncident } from "./services/incidents.js";
 import { bootstrapOrg } from "./store/bootstrap.js";
 import { setSetting } from "./store/settings-store.js";
@@ -315,6 +317,37 @@ describe.skipIf(!TEST_DATABASE_URL)("incidents and changes (postgres)", () => {
       const mine = await db.select().from(notifications).where(eq(notifications.userId, viewerId));
       expect(mine.find((n) => n.kind === "mention")).toMatchObject({ title: `O mentioned you on INC-${inc.number}`, link: `/incidents/${inc.id}` });
       expect((await db.select().from(notifications).where(eq(notifications.userId, ownerId))).some((n) => n.kind === "mention")).toBe(false);
+    });
+  });
+
+  describe("access requests", () => {
+    it("asks for tools and secrets through a change, and approving grants exactly that", async () => {
+      const [secret] = await db
+        .insert(secrets)
+        .values({ orgId, name: "router-pw", type: "password", ciphertext: "x", wrappedDataKey: "y" })
+        .returning();
+      const known = new Set(["ping", "snmp_get"]);
+      await expect(requestAccess(db, orgId, agentId, { tools: ["format_disk"], reason: "x" }, known)).rejects.toThrow(/No such tool/);
+      await expect(requestAccess(db, orgId, agentId, { secrets: ["nope"], reason: "x" }, known)).rejects.toThrow(/No such secret/);
+
+      const cr = await requestAccess(db, orgId, agentId, { tools: ["snmp_get"], secrets: ["secret:router-pw"], reason: "Read the router's interfaces" }, known);
+      expect(cr).toMatchObject({ status: "submitted", plannedCalls: [], accessGrant: { tools: ["snmp_get"], secretIds: [secret!.id] } });
+      expect(cr.title).toBe("Access for Sam: snmp_get, secret:router-pw");
+      expect(await agentToolGrants(db, agentId)).not.toContain("snmp_get");
+
+      const done = await approveChange(db, orgId, cr.id, ownerId);
+      expect(done.status).toBe("succeeded");
+      expect(await agentToolGrants(db, agentId)).toContain("snmp_get");
+      expect(await db.select().from(secretGrants).where(eq(secretGrants.agentId, agentId))).toHaveLength(1);
+      const evs = await db.select().from(events).where(eq(events.orgId, orgId));
+      expect(evs.some((e) => e.type === "change.access_granted" && (e.payload as { changeId: string }).changeId === cr.id)).toBe(true);
+      expect(evs.some((e) => e.type === "change.approved" && (e.payload as { changeId: string }).changeId === cr.id)).toBe(false);
+
+      await expect(requestAccess(db, orgId, agentId, { tools: ["snmp_get"], secrets: ["router-pw"], reason: "again" }, known)).rejects.toThrow(/already have/);
+      // A rejected request grants nothing.
+      const other = await requestAccess(db, orgId, otherAgentId, { tools: ["ping"], reason: "x" }, known);
+      await rejectChange(db, orgId, other.id, ownerId, "Not needed");
+      expect(await agentToolGrants(db, otherAgentId)).not.toContain("ping");
     });
   });
 });

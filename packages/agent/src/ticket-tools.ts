@@ -2,6 +2,7 @@
 // change_execute runs exactly the approved plan, call by call, through the gate.
 import {
   addChangeComment,
+  BUILT_IN_TOOLS,
   addIncidentComment,
   assertCanExecute,
   changeRef,
@@ -14,6 +15,7 @@ import {
   listIncidents,
   markVerifying,
   recordExecution,
+  requestAccess,
   startChange,
   updateIncident,
 } from "@moss/core";
@@ -154,6 +156,26 @@ export const TICKET_TOOLS: PlatformTool[] = [
             ? "Approved. Run change_execute when ready."
             : "Waiting for a human approver. You will be given a new task when it is approved or rejected.",
       };
+    },
+  },
+  {
+    name: "access_request",
+    description:
+      "Ask for access you don't have: tools (by name) and secrets (by name). It raises a change request; nothing runs, and " +
+      "when a person approves it you get exactly that access and a new task to carry on. Say why you need it.",
+    permission: "changes.create",
+    args: z.object({
+      tools: z.array(z.string().min(1).max(64)).max(10).default([]),
+      secrets: z.array(z.string().min(1).max(100)).max(5).default([]).describe("Secret names, e.g. unifi-password"),
+      reason: z.string().min(1).max(2000).describe("What you need it for"),
+      incidentId: z.uuid().optional(),
+    }),
+    run: async ({ db, orgId, agentId }, args) => {
+      // Imported here: platform-tools.ts imports this file.
+      const { PLATFORM_TOOLS } = await import("./platform-tools.js");
+      const known = new Set([...BUILT_IN_TOOLS.keys(), ...PLATFORM_TOOLS.map((t) => t.name)]);
+      const cr = await requestAccess(db, orgId, agentId, args, known);
+      return { id: cr.id, ref: changeRef(cr.number), next: "Waiting for a person to approve it. You'll be given a new task when it's decided." };
     },
   },
   {

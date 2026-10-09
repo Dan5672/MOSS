@@ -568,8 +568,15 @@ export const changeRequests = pgTable("change_requests", {
   windowStart: timestamp("window_start", { withTimezone: true }),
   windowEnd: timestamp("window_end", { withTimezone: true }),
   postReviewRequired: boolean("post_review_required").notNull().default(false),
+  /** An agent asking for access: the tools and secrets it gets when this is approved. Nothing else runs. */
+  accessGrant: jsonb("access_grant").$type<AccessGrant>(),
   ...timestamps(),
 });
+
+export interface AccessGrant {
+  tools: string[];
+  secretIds: string[];
+}
 
 export const changeApprovals = pgTable("change_approvals", {
   id: id(),

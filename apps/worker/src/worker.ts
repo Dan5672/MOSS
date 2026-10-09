@@ -201,13 +201,18 @@ export async function handleEvent(db: Database, boss: PgBoss, event: StoredEvent
       return;
     }
     case "change.approved":
-    case "change.rejected": {
+    case "change.rejected":
+    case "change.access_granted": {
       if (!p.changeId) return;
       const [cr] = await db.select().from(changeRequests).where(eq(changeRequests.id, p.changeId));
       if (!cr?.requestedByAgentId) return;
       const ref = changeRef(cr.number);
-      const task =
-        event.type === "change.approved"
+      const task = cr.accessGrant
+        ? event.type === "change.rejected"
+          ? `Your access request ${ref} was turned down. Read why with change_get, and carry on without that access (or tell whoever asked).`
+          : `Your access request ${ref} was approved: you now have the access you asked for. Read it with change_get, then carry on ` +
+            "with the work you needed it for (check the linked incident, if any)."
+        : event.type === "change.approved"
           ? `Change ${ref} (id ${cr.id}) has been approved. Read it with change_get, run it with change_execute, carry out ` +
             "its verification plan, then call change_complete (or change_rollback if verification fails). Update the linked incident."
           : `Change ${ref} (id ${cr.id}) was rejected. Read the reason with change_get and update the linked incident; ` +

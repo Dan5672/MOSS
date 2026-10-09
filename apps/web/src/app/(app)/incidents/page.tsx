@@ -101,7 +101,11 @@ export default async function IncidentsPage({ searchParams }: PageProps<"/incide
           <TableBody>
             {rows.map((i) => (
               <TableRow key={i.id}>
-                <TableCell className="font-mono text-xs">{incidentRef(i.number)}</TableCell>
+                <TableCell className="font-mono text-xs">
+                  <Link href={`/incidents/${i.id}`} className="hover:underline">
+                    {incidentRef(i.number)}
+                  </Link>
+                </TableCell>
                 <TableCell>
                   <PriorityBadge priority={i.priority} />
                 </TableCell>

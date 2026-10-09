@@ -13,6 +13,7 @@ import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { nameLookup } from "@/server/people";
 import { plannableTools } from "@/server/tool-catalog";
+import { ChangesBoard } from "./board";
 import { RaiseChangeForm } from "./raise-change-form";
 import { workingAgents } from "@/server/people";
 
@@ -48,9 +49,10 @@ export default async function ChangesPage({ searchParams }: PageProps<"/changes"
   const sp = await searchParams;
   const v = sp.view;
   const view = typeof v === "string" && v in VIEWS ? v : "pending";
+  const board = sp.layout === "board";
   const canRaise = user.permissions.has("changes.create");
   const [unsorted, name, raise] = await Promise.all([
-    listChanges(db(), user.orgId, { status: VIEWS[view]!.status, limit: 200 }),
+    listChanges(db(), user.orgId, { status: board ? undefined : VIEWS[view]!.status, limit: 200 }),
     nameLookup(user.orgId),
     canRaise ? raiseOptions(user.orgId) : null,
   ]);
@@ -83,19 +85,39 @@ export default async function ChangesPage({ searchParams }: PageProps<"/changes"
           )
         }
       />
-      <nav className="mb-4 flex gap-1" aria-label="Change views">
-        {Object.entries(VIEWS).map(([key, { label }]) => (
-          <Link
-            key={key}
-            href={`/changes?view=${key}`}
-            aria-current={key === view ? "page" : undefined}
-            className={cn("rounded-md px-3 py-1.5 text-sm", key === view ? "bg-accent font-medium" : "text-muted-foreground hover:bg-accent/60")}
-          >
-            {label}
-          </Link>
-        ))}
-      </nav>
-      {rows.length === 0 ? (
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <nav className="flex gap-1" aria-label="Change views">
+          {!board &&
+            Object.entries(VIEWS).map(([key, { label }]) => (
+            <Link
+              key={key}
+              href={`/changes?view=${key}`}
+              aria-current={key === view ? "page" : undefined}
+              className={cn("rounded-md px-3 py-1.5 text-sm", key === view ? "bg-accent font-medium" : "text-muted-foreground hover:bg-accent/60")}
+            >
+              {label}
+            </Link>
+          ))}
+        </nav>
+        <nav className="flex border-2" aria-label="Layout">
+          {[
+            ["List", `/changes?view=${view}`, !board],
+            ["Board", "/changes?layout=board", board],
+          ].map(([label, href, current]) => (
+            <Link
+              key={String(label)}
+              href={String(href)}
+              aria-current={current ? "page" : undefined}
+              className={cn("px-3 py-1.5 text-sm", current ? "bg-accent font-medium" : "text-muted-foreground hover:bg-accent/60")}
+            >
+              {label}
+            </Link>
+          ))}
+        </nav>
+      </div>
+      {board ? (
+        <ChangesBoard rows={unsorted} name={name} />
+      ) : rows.length === 0 ? (
         <Empty>{view === "pending" ? "Nothing waiting for approval." : "No changes here."}</Empty>
       ) : (
         <Table>
@@ -112,7 +134,11 @@ export default async function ChangesPage({ searchParams }: PageProps<"/changes"
           <TableBody>
             {rows.map((c) => (
               <TableRow key={c.id}>
-                <TableCell className="font-mono text-xs">{changeRef(c.number)}</TableCell>
+                <TableCell className="font-mono text-xs">
+                  <Link href={`/changes/${c.id}`} className="hover:underline">
+                    {changeRef(c.number)}
+                  </Link>
+                </TableCell>
                 <TableCell>
                   <Link href={`/changes/${c.id}`} className="font-medium hover:underline">
                     {c.title}
