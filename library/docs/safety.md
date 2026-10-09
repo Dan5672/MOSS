@@ -30,6 +30,8 @@ A refused call is logged as tool.denied with a code and a reason; the agent sees
 - secret_scope: the secret isn't allowed for that tool or that host; widen its scope if that's intended.
 - secret_required: a credential must be passed as a secret:<name> handle, never typed in.
 - module_disabled: switch the module on (Settings > Modules).
+- setting_disabled: the action needs a setting switched on first, e.g. "Allow CVE lookups" (Settings) for
+  vuln_scan's cve profile, which sends service versions to vulners.com.
 - invalid_args: the arguments don't fit the tool. For example a password secret passed as an API key:
   pass it as password (with the username) instead.
 

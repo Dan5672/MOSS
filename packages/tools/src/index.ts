@@ -318,6 +318,45 @@ export const homeassistantDevices = tool(
   z.object({ ...haConnection, limit: z.number().int().min(1).max(1000).default(500) }),
 );
 
+// --- Vulnerability scanning (read-only probes; the gate scopes targets like any other tool) ------------
+const scanPorts = z.array(port).min(1).max(20);
+
+export const vulnScan = tool(
+  { name: "vuln_scan", class: "read", targetArgs: ["target"] },
+  "Scan one host for known weaknesses with nmap. Profile 'safe': nmap's safe and vuln scripts, with anything intrusive, " +
+    "denial-of-service, brute-force, exploit, fuzzing or third-party excluded (service versions, TLS ciphers, known " +
+    "misconfigurations). Profile 'cve': look up known CVEs for each service version (sends service names and versions to " +
+    "vulners.com, so the owner must allow it in Settings). Ports default to the 100 most common.",
+  z.object({
+    target: hostIp,
+    profile: z.enum(["safe", "cve"]).default("safe"),
+    ports: scanPorts.optional(),
+  }),
+);
+
+export const nucleiScan = tool(
+  { name: "nuclei_scan", class: "read", targetArgs: ["target"] },
+  "Check one host with Nuclei's community templates for known vulnerabilities, misconfigurations, exposed admin panels " +
+    "and default pages. Only non-intrusive templates run (no denial-of-service, fuzzing, brute force or default-login " +
+    "attempts), rate-limited, with no out-of-band callbacks. Ports default to 80 and 443.",
+  z.object({
+    target: hostIp,
+    ports: scanPorts.max(10).optional(),
+    severity: z.array(z.enum(["info", "low", "medium", "high", "critical"])).min(1).max(5).default(["medium", "high", "critical"]),
+  }),
+);
+
+export const tlsAudit = tool(
+  { name: "tls_audit", class: "read", targetArgs: ["target"] },
+  "Audit a TLS service in depth with testssl.sh: protocol versions, weak ciphers, certificate problems and known TLS " +
+    "vulnerabilities (Heartbleed, ROBOT and the like). Takes a minute or two.",
+  z.object({
+    target: hostIp,
+    port: port.default(443),
+    hostname: hostname.optional().describe("The name to present (SNI), if the service hosts several"),
+  }),
+);
+
 export const piholeSummary = tool(
   { name: "pihole_summary", class: "read", targetArgs: ["target"], secretArgs: ["password"] },
   "Read Pi-hole (v6) statistics: queries today, how many were blocked, active clients, and the busiest clients.",
@@ -577,6 +616,9 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     unifiDhcpReservation,
     unifiWlanEnable,
     unifiFirewall,
+    vulnScan,
+    nucleiScan,
+    tlsAudit,
     configBackup,
   ].map((t) => [t.manifest.name, t as unknown as ToolDefinition]),
 );

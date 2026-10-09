@@ -1,5 +1,5 @@
 // The gate's Home Assistant module calls and module gating, against Postgres with a fake toolbox.
-import { bootstrapOrg, encryptSecret, generateMasterKey, HA_TOKEN_SECRET, saveModule } from "@moss/core";
+import { bootstrapOrg, encryptSecret, generateMasterKey, HA_TOKEN_SECRET, saveModule, setSetting } from "@moss/core";
 import { agents, agentToolOverrides, auditLog, models, networks, providers, secretGrants, secrets, users, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { desc, eq } from "drizzle-orm";
@@ -148,6 +148,16 @@ describe.skipIf(!TEST_DATABASE_URL)("Home Assistant module (gate)", () => {
     calls.length = 0;
     await gate.handleToolCall({ agentId, tool: "unifi_firewall", args: { controller: "192.168.1.1", username: "other", password: "secret:Unifi-AP" } });
     expect(calls[0]!.args).toMatchObject({ username: "other" });
+  });
+
+  it("the CVE lookup only runs once the owner allows it", async () => {
+    await db.insert(agentToolOverrides).values({ agentId, tool: "vuln_scan", granted: true });
+    const args = { target: "192.168.1.30", profile: "cve" };
+    expect(await gate.handleToolCall({ agentId, tool: "vuln_scan", args })).toMatchObject({ allowed: false, code: "setting_disabled" });
+    reply = { ok: true, result: { ports: [] } };
+    expect(await gate.handleToolCall({ agentId, tool: "vuln_scan", args: { ...args, profile: "safe" } })).toMatchObject({ allowed: true });
+    await setSetting(db, orgId, "tools.allow_vulners", true);
+    expect(await gate.handleToolCall({ agentId, tool: "vuln_scan", args })).toMatchObject({ allowed: true });
   });
 
   it("system tools can never be called by an agent", async () => {

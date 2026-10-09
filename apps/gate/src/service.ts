@@ -1,6 +1,6 @@
 // The Policy Gate: the only path from an agent's tool call to the toolbox, and the
 // only component that can decrypt secrets. Every decision is written to the audit log.
-import { decryptSecret, isModuleEnabled, moduleForTool, redactSecrets, writeAudit } from "@moss/core";
+import { decryptSecret, getSetting, isModuleEnabled, moduleForTool, redactSecrets, writeAudit } from "@moss/core";
 import type { Database } from "@moss/db";
 import { checkSecrets, evaluate, extractSecretHandles, parseRange, type DenyCode, type IpRange } from "@moss/policy";
 import {
@@ -89,6 +89,10 @@ export function createGate(deps: GateDeps) {
     const parsed = parseToolArgs(def, req.args);
     if (!parsed.ok) return deny("invalid_args", parsed.error);
     const args = parsed.args;
+    // The CVE lookup sends service names and versions to vulners.com: only once the owner has allowed that.
+    if (req.tool === "vuln_scan" && args.profile === "cve" && !(await getSetting(deps.db, agent.orgId, "tools.allow_vulners"))) {
+      return deny("setting_disabled", "The CVE lookup sends service versions to vulners.com and isn't allowed in Settings. Use profile safe, or ask the owner to allow it.");
+    }
 
     // A custom tool's only credential is the one its definition declares. A handle passed as an argument
     // would be substituted into a request the owner never scoped it for.

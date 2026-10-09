@@ -8,6 +8,7 @@ import { customHttp, sendRequest, type RawRequest } from "./custom-http.js";
 import { homeassistantDevices, homeassistantHealth, homeassistantLogs, homeassistantNotify, homeassistantPublish } from "./home-assistant.js";
 import { adguardStats, HomelabError, homeassistantStates, piholeSummary, proxmoxStatus, synologyStatus, truenasStatus } from "./homelab.js";
 import { unifiAuthMode, unifiClientsByLogin, unifiFirewall } from "./unifi.js";
+import { nucleiScan, tlsAudit, vulnScan } from "./vuln.js";
 import { diskUsage, dockerPs, hostFacts, ServerError, serviceStatus, sshRun, type SshRun, type SshTarget } from "./servers.js";
 import { execFile } from "node:child_process";
 import { createSocket } from "node:dgram";
@@ -284,6 +285,15 @@ async function runToolInner(
       if (name === "homeassistant_devices") return homeassistantDevices(a, send);
       if (name === "homeassistant_notify") return homeassistantNotify(a, send);
       return homeassistantPublish(a, send);
+    }
+    case "vuln_scan":
+    case "nuclei_scan":
+    case "tls_audit": {
+      assertHost(args.target as string);
+      const a = args as never;
+      if (name === "vuln_scan") return vulnScan(a, exec);
+      if (name === "nuclei_scan") return nucleiScan(a, exec);
+      return tlsAudit(a, exec);
     }
     case "config_backup": {
       assertHost(args.target as string);

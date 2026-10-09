@@ -7,9 +7,30 @@ RUN pnpm install --frozen-lockfile \
  && pnpm --filter "@moss/toolbox..." run build \
  && pnpm --filter @moss/toolbox deploy --prod --legacy /out
 
+# Nuclei and its templates: pinned releases, checked against known SHA-256 sums. Downloaded in their own
+# stage so curl and unzip don't end up in the toolbox. Only network-facing templates are kept (no code,
+# javascript, headless, file, cloud or DAST templates).
+FROM debian:bookworm-slim AS scanners
+ARG NUCLEI_VERSION=3.11.1
+ARG NUCLEI_SHA256=ea63d4ae232808cd7c6bc00d0142428e231fab59dae01042246097d195835ab6
+ARG TEMPLATES_VERSION=10.5.0
+ARG TEMPLATES_SHA256=80fbabceca095fac40afecc7f023748df22b9576b9ff10a4422bd2fbf81f9a41
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates unzip \
+ && curl -fsSL -o /tmp/nuclei.zip "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_linux_amd64.zip" \
+ && echo "${NUCLEI_SHA256}  /tmp/nuclei.zip" | sha256sum -c - \
+ && unzip -q /tmp/nuclei.zip nuclei -d /usr/local/bin \
+ && curl -fsSL -o /tmp/templates.tar.gz "https://github.com/projectdiscovery/nuclei-templates/archive/refs/tags/v${TEMPLATES_VERSION}.tar.gz" \
+ && echo "${TEMPLATES_SHA256}  /tmp/templates.tar.gz" | sha256sum -c - \
+ && mkdir -p /opt/nuclei-templates \
+ && tar -xzf /tmp/templates.tar.gz -C /opt/nuclei-templates --strip-components=1 \
+ && cd /opt/nuclei-templates && rm -rf code javascript headless file cloud dast workflows .github helpers profiles \
+ && test -x /usr/local/bin/nuclei && test -d /opt/nuclei-templates/http
+
 FROM node:24-bookworm-slim
+COPY --from=scanners /usr/local/bin/nuclei /usr/local/bin/nuclei
+COPY --from=scanners /opt/nuclei-templates /opt/nuclei-templates
 RUN apt-get update \
- && apt-get install -y --no-install-recommends nmap arp-scan iputils-ping traceroute snmp libcap2-bin ca-certificates \
+ && apt-get install -y --no-install-recommends nmap arp-scan iputils-ping traceroute snmp libcap2-bin ca-certificates testssl.sh \
  # Grant raw-socket capabilities to the scanners only, so the service itself runs unprivileged.
  && setcap cap_net_raw,cap_net_admin+eip /usr/bin/nmap \
  && setcap cap_net_raw+eip /usr/sbin/arp-scan \
@@ -19,7 +40,8 @@ RUN apt-get update \
  && test -x /usr/bin/nmap && test -x /usr/sbin/arp-scan && test -x /bin/ping \
  && command -v traceroute && command -v snmpget && command -v snmpbulkwalk \
  && test -f /usr/share/nmap/scripts/nbstat.nse && test -f /usr/share/nmap/scripts/upnp-info.nse \
- && test -f /usr/share/nmap/scripts/dns-service-discovery.nse
+ && test -f /usr/share/nmap/scripts/dns-service-discovery.nse \
+ && test -f /usr/share/nmap/scripts/vulners.nse && command -v testssl && test -x /usr/local/bin/nuclei
 WORKDIR /app
 COPY --from=build /out /app
 USER node

@@ -33,6 +33,12 @@ const TOGGLES: { key: SettingKey; title: string; description: string; danger?: b
     permission: "settings.manage",
   },
   {
+    key: "tools.allow_vulners",
+    title: "Allow CVE lookups",
+    description: "Let agents look up known vulnerabilities for the software versions they find (vuln_scan's cve profile). It sends service names and versions to vulners.com.",
+    permission: "settings.manage",
+  },
+  {
     key: "tools.allow_dangerous",
     title: "Allow dangerous tools",
     description: "Permit tools marked dangerous (for example factory resets), still only through approved changes.",

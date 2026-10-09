@@ -19,7 +19,7 @@ export const TOOL_GROUPS = [
   },
   { key: "power", label: "Power", tools: ["wake_on_lan"] },
   { key: "backups", label: "Backups", tools: ["config_backup"] },
-  { key: "vuln", label: "Vulnerability scanning", tools: [] as string[] },
+  { key: "vuln", label: "Vulnerability scanning", tools: ["vuln_scan", "nuclei_scan", "tls_audit"] },
 ] as const;
 
 export type ToolGroupKey = (typeof TOOL_GROUPS)[number]["key"] | "moss" | "custom" | "other";
