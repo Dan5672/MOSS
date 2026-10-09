@@ -6,7 +6,7 @@ const TABS = [
   { href: "/agents/recurring", label: "Recurring tasks" },
   { href: "/agents/tools", label: "Tool access" },
   { href: "/agents/custom-tools", label: "Custom tools" },
-  { href: "/agents/knowledge", label: "Knowledge base" },
+  { href: "/wiki", label: "Wiki" },
 ] as const;
 
 /** Sub-navigation for the Agents section. */

@@ -1,4 +1,4 @@
-import { listMonitors } from "@moss/core";
+import { listMonitors, pagesForAsset } from "@moss/core";
 import { assets, assetServices, incidentAssets, incidents, networks } from "@moss/db";
 import { and, desc, eq } from "drizzle-orm";
 import Link from "next/link";
@@ -19,7 +19,8 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
   const [asset] = await db().select().from(assets).where(and(eq(assets.id, id), eq(assets.orgId, user.orgId)));
   if (!asset) notFound();
   const canMonitor = user.permissions.has("monitoring.read");
-  const [services, linked, [network], assetMonitors] = await Promise.all([
+  const canWiki = user.permissions.has("knowledge.read");
+  const [services, linked, [network], assetMonitors, wikiPages] = await Promise.all([
     db().select().from(assetServices).where(eq(assetServices.assetId, id)),
     db()
       .select({ incident: incidents })
@@ -29,6 +30,7 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
       .orderBy(desc(incidents.createdAt)),
     asset.networkId ? db().select().from(networks).where(eq(networks.id, asset.networkId)) : Promise.resolve([]),
     canMonitor ? listMonitors(db(), user.orgId, { assetId: id }) : Promise.resolve([]),
+    canWiki ? pagesForAsset(db(), user.orgId, id) : Promise.resolve([]),
   ]);
   const canAddMonitor = user.permissions.has("monitoring.manage") && !!asset.primaryIp;
   const monitorLink = (kind: string, port?: number, scheme?: string, name?: string) =>
@@ -132,6 +134,32 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
                       <Link href={`/monitoring/${m.id}`} className="flex items-center gap-3 p-3 hover:bg-accent">
                         <StatusBadge status={m.state} /> {m.name}
                         <span className="ml-auto truncate text-xs text-muted-foreground">{m.lastResult?.message}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Section>
+          )}
+          {canWiki && (
+            <Section
+              title="Wiki pages about this device"
+              actions={
+                user.permissions.has("knowledge.manage") && (
+                  <Link href={`/wiki/new?asset=${id}`} className="text-sm underline underline-offset-2">
+                    Write one
+                  </Link>
+                )
+              }
+            >
+              {wikiPages.length === 0 ? (
+                <Empty>Nothing written about it yet.</Empty>
+              ) : (
+                <ul className="grid gap-1 text-sm">
+                  {wikiPages.map((p) => (
+                    <li key={p.id}>
+                      <Link href={`/wiki/${p.slug}`} className="underline-offset-2 hover:underline">
+                        {p.title}
                       </Link>
                     </li>
                   ))}

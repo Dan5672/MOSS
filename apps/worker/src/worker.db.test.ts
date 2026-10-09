@@ -82,6 +82,7 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
       "moss-expert",
       "network-discovery",
       "network-insight",
+      "network-wiki",
       "security-baseline",
       "server-actions",
       "server-checks",

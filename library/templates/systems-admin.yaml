@@ -5,11 +5,13 @@ description: Looks after servers, NAS boxes and the services running on them.
 suggestedModel: claude-opus-5-5
 effort: medium
 maxStepsPerRun: 25
-skills: [service-health, monitoring-response, asset-inventory, incident-management, change-management, network-insight, server-checks, server-actions, homelab-integrations, config-backups, team-memory]
+skills: [service-health, monitoring-response, asset-inventory, incident-management, change-management, network-insight, server-checks, server-actions, homelab-integrations, config-backups, team-memory, network-wiki]
 reportsTo: it-manager
 systemPrompt: |
   You are the Systems Administrator. You look after servers, NAS devices, virtual machines and
   the services they run, and you notice early when something stops working.
+  Keep the network wiki current: check it before you dig in, and write down what you learn that will
+  still be true next week (devices, the layout, how you fixed something).
 schedules:
   - cron: "0 * * * *"
     task: Check that known servers and their main services are reachable, and report anything that changed.

@@ -220,29 +220,37 @@ test("agents: tool access shows who can use each tool, and the knowledge base ca
   await nmap.getByRole("button", { name: "Save access" }).click();
   await expect(nmap.getByRole("link", { name: /Nina/ })).toBeVisible();
 
-  await page.getByRole("link", { name: "Knowledge base" }).click();
-  await expect(page.getByText("No notes yet.")).toBeVisible();
-  const add = page.locator("form", { has: page.getByRole("button", { name: "Add note" }) });
-  await add.getByLabel("Title", { exact: true }).fill("ISP gateway");
-  await add.getByLabel("Subject", { exact: true }).fill("192.168.50.1");
-  await add.getByLabel("Note", { exact: true }).fill("The ISP's gateway. Its open ports are expected.");
-  await add.getByLabel("Tags", { exact: true }).fill("gateway, expected");
-  await add.getByRole("button", { name: "Add note" }).click();
-  await expect(page.getByText('Saved "ISP gateway".')).toBeVisible();
-  await expect(page.getByRole("heading", { name: "ISP gateway" })).toBeVisible();
+  // The wiki (it grew out of the knowledge base): pages in a tree, Markdown, links, history.
+  await page.getByRole("navigation", { name: "Agents" }).getByRole("link", { name: "Wiki" }).click();
+  await expect(page.getByText("No pages yet.")).toBeVisible();
+  await page.getByRole("link", { name: "New page" }).click();
+  await page.getByLabel("Title", { exact: true }).fill("Network");
+  await page.getByRole("textbox", { name: "Page", exact: true }).fill("# Layout\n- One LAN: 192.168.50.0/24\n- The router is the [[ISP gateway]]");
+  await page.getByRole("button", { name: "Create page" }).click();
+  await expect(page.getByRole("heading", { name: "Network", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Layout" })).toBeVisible();
+  // A link to a page that doesn't exist yet isn't a link.
+  await expect(page.getByRole("link", { name: "ISP gateway" })).toHaveCount(0);
 
-  await page.getByRole("searchbox", { name: "Search notes" }).or(page.getByLabel("Search notes")).fill("nothing-like-this");
-  await page.getByRole("button", { name: "Search" }).click();
-  await expect(page.getByText('Nothing matches "nothing-like-this".')).toBeVisible();
-  await page.getByLabel("Search notes").fill("gateway");
-  await page.getByRole("button", { name: "Search" }).click();
-  await expect(page.getByRole("heading", { name: "ISP gateway" })).toBeVisible();
-  // Searching loads a new page; wait until it's interactive before using a form on it.
-  await page.waitForLoadState("networkidle");
+  await page.getByRole("link", { name: "New page under this" }).click();
+  await page.getByLabel("Title", { exact: true }).fill("ISP gateway");
+  await page.getByRole("textbox", { name: "Page", exact: true }).fill("The ISP's gateway. Its open ports are **expected**.");
+  await page.getByRole("button", { name: "Create page" }).click();
+  await expect(page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link", { name: "Network" })).toBeVisible();
+  await expect(page.locator("strong", { hasText: "expected" })).toBeVisible();
 
-  page.once("dialog", (d) => d.accept());
-  await page.getByRole("button", { name: "Delete" }).click();
-  await expect(page.getByText("Note deleted.")).toBeVisible();
+  // Now the link works, and an edit is kept in the history.
+  await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link", { name: "Network" }).click();
+  await expect(page.getByRole("link", { name: "ISP gateway" }).first()).toBeVisible();
+  await page.getByRole("link", { name: "Edit" }).click();
+  await page.getByRole("textbox", { name: "Page", exact: true }).fill("# Layout\n- One LAN: 192.168.50.0/24\n- IoT VLAN: 192.168.60.0/24\n- The router is the [[ISP gateway]]");
+  await page.getByRole("button", { name: "Save page" }).click();
+  await page.getByRole("link", { name: "History" }).click();
+  await expect(page.getByText("2 versions.")).toBeVisible();
+  await expect(page.getByRole("region").or(page.locator("pre")).filter({ hasText: "+ - IoT VLAN: 192.168.60.0/24" }).first()).toBeVisible();
+
+  await page.goto("/wiki?q=gateway");
+  await expect(page.getByRole("list", { name: "Search results" })).toContainText("ISP gateway");
 });
 
 test("settings: secrets are scoped to hosts and tools, granted to agents, and never shown", async () => {

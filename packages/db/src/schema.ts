@@ -18,6 +18,7 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 const id = () => uuid("id").primaryKey().defaultRandom();
@@ -864,13 +865,35 @@ export const knowledgeNotes = pgTable(
     tags: jsonb("tags").$type<string[]>().notNull().default([]),
     /** What the note is about, when it is about one thing: an IP, hostname, asset or service. */
     subject: text("subject"),
+    /** The wiki page's address, /wiki/<slug>. Unique in the org. */
+    slug: text("slug"),
+    /** The page this one sits under in the wiki's tree. */
+    parentId: uuid("parent_id").references((): AnyPgColumn => knowledgeNotes.id, { onDelete: "set null" }),
+    /** The device a page is about, shown on the asset's page. */
+    assetId: uuid("asset_id").references(() => assets.id, { onDelete: "set null" }),
     createdByUserId: uuid("created_by_user_id").references(() => users.id),
     createdByAgentId: uuid("created_by_agent_id").references(() => agents.id),
     updatedByUserId: uuid("updated_by_user_id").references(() => users.id),
     updatedByAgentId: uuid("updated_by_agent_id").references(() => agents.id),
     ...timestamps(),
   },
-  (t) => [index("knowledge_notes_org_idx").on(t.orgId, t.updatedAt)],
+  (t) => [index("knowledge_notes_org_idx").on(t.orgId, t.updatedAt), uniqueIndex("knowledge_notes_org_slug_idx").on(t.orgId, t.slug), index("knowledge_notes_asset_idx").on(t.assetId)],
+);
+
+/** Earlier versions of a wiki page: one row per edit, holding what the page said before it. */
+export const knowledgeRevisions = pgTable(
+  "knowledge_revisions",
+  {
+    id: id(),
+    noteId: uuid("note_id").notNull().references(() => knowledgeNotes.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    editedByUserId: uuid("edited_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    editedByAgentId: uuid("edited_by_agent_id").references(() => agents.id, { onDelete: "set null" }),
+    /** When this version was written. */
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("knowledge_revisions_note_idx").on(t.noteId, t.createdAt)],
 );
 
 export const notifications = pgTable("notifications", {

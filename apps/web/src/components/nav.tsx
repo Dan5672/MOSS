@@ -11,6 +11,7 @@ const ITEMS = [
   { href: "/agents", label: "Agents" },
   { href: "/models", label: "Models" },
   { href: "/assets", label: "Assets" },
+  { href: "/wiki", label: "Wiki" },
   { href: "/networks", label: "Networks" },
   { href: "/monitoring", label: "Monitoring" },
   { href: "/incidents", label: "Incidents" },
