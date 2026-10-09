@@ -1,11 +1,14 @@
-import { agentRuns, agents, runSteps, tokenUsage } from "@moss/db";
+import { agentRuns, agents, conversationMessages, runSteps, tokenUsage } from "@moss/db";
 import { and, asc, eq, sum } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ActionForm } from "@/components/action-form";
 import { Pill, StatusBadge } from "@/components/badges";
+import { TextAreaField } from "@/components/field";
 import { formatUsd, PageHeader, timeAgo, NoPermission } from "@/components/page";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
+import { replyToRunAction } from "../../chat/actions";
 
 type StepContent = Record<string, unknown> & {
   text?: string;
@@ -28,14 +31,18 @@ export default async function RunPage({ params }: PageProps<"/runs/[id]">) {
     .innerJoin(agents, eq(agentRuns.agentId, agents.id))
     .where(and(eq(agentRuns.id, id), eq(agentRuns.orgId, user.orgId)));
   if (!row) notFound();
-  const [steps, [usage]] = await Promise.all([
+  const [steps, [usage], [asked]] = await Promise.all([
     db().select().from(runSteps).where(eq(runSteps.runId, id)).orderBy(asc(runSteps.seq)),
     db()
       .select({ usd: sum(tokenUsage.costUsd), input: sum(tokenUsage.inputTokens), output: sum(tokenUsage.outputTokens) })
       .from(tokenUsage)
       .where(eq(tokenUsage.runId, id)),
+    // A question it asked with ask_user.
+    db().select().from(conversationMessages).where(and(eq(conversationMessages.runId, id), eq(conversationMessages.authorAgentId, row.agent.id))).limit(1),
   ]);
   const { run, agent } = row;
+  const question = asked?.body ?? (run.status !== "running" && run.trigger !== "chat" && run.summary?.trim().endsWith("?") ? run.summary : null);
+  const canReply = !!question && agent.status === "active" && user.permissions.has("agents.chat");
 
   return (
     <>
@@ -49,7 +56,26 @@ export default async function RunPage({ params }: PageProps<"/runs/[id]">) {
         }
         actions={<Link href={`/agents/${agent.id}`} className="text-sm underline">{agent.name}</Link>}
       />
+      {run.task && run.trigger !== "chat" && (
+        <details className="mb-4 text-sm">
+          <summary className="cursor-pointer text-muted-foreground">The task</summary>
+          <p className="mt-2 px-frame p-3 whitespace-pre-wrap">{run.task}</p>
+        </details>
+      )}
       {run.summary && <p className="mb-6 px-frame p-4 text-sm whitespace-pre-wrap">{run.summary}</p>}
+      {question && (
+        <section aria-labelledby="run-question" className="mb-6 grid gap-3 border-2 border-amber p-4">
+          <h2 id="run-question" className="text-sm font-semibold">
+            {agent.name} asked
+          </h2>
+          <p className="text-sm whitespace-pre-wrap">{question}</p>
+          {canReply && (
+            <ActionForm action={replyToRunAction.bind(null, id)} submitLabel="Reply">
+              <TextAreaField label="Your answer" name="answer" rows={2} required />
+            </ActionForm>
+          )}
+        </section>
+      )}
       <ol className="space-y-2">
         {steps.map((s) => {
           const c = s.content as StepContent;

@@ -61,7 +61,7 @@ export async function runNowAction(agentId: string, _: ActionState, form: FormDa
     const agent = await ownAgent(user.orgId, agentId);
     const task = z.string().min(3, "Describe the task").max(4000).parse(form.get("task"));
     if (agent.status !== "active") throw new Error(`${agent.name} is ${agent.status}`);
-    const job = await queueRun({ agentId, task, trigger: "manual" });
+    const job = await queueRun({ agentId, task, trigger: "manual", requestedByUserId: user.id });
     await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "agent.run_requested", targetType: "agent", targetId: agentId, details: { task } });
     return job ? `${agent.name} will start shortly.` : `${agent.name} already has a run waiting; this one was not queued.`;
   });

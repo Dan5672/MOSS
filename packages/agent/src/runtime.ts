@@ -49,6 +49,8 @@ export interface RunInput {
   task: string;
   trigger: "schedule" | "event" | "ticket" | "chat" | "manual";
   triggerRef?: string;
+  /** The person who asked for this work, so the agent can ask them questions (ask_user). */
+  requestedByUserId?: string;
 }
 
 export interface RunDeps {
@@ -185,7 +187,15 @@ async function prepareRun(deps: RunDeps, input: RunInput): Promise<PreparedRun |
 
   const [run] = await db
     .insert(agentRuns)
-    .values({ orgId, siteId: agent.siteId, agentId: agent.id, trigger: input.trigger, triggerRef: input.triggerRef ?? null })
+    .values({
+      orgId,
+      siteId: agent.siteId,
+      agentId: agent.id,
+      trigger: input.trigger,
+      triggerRef: input.triggerRef ?? null,
+      task: input.task.slice(0, 20_000),
+      requestedByUserId: input.requestedByUserId ?? null,
+    })
     .returning({ id: agentRuns.id });
   const runId = run!.id;
   let seq = 0;

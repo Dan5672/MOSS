@@ -273,6 +273,10 @@ export const agentRuns = pgTable(
     agentId: uuid("agent_id").notNull().references(() => agents.id),
     trigger: text("trigger", { enum: ["schedule", "event", "ticket", "chat", "manual"] }).notNull(),
     triggerRef: text("trigger_ref"),
+    /** What the agent was asked to do. */
+    task: text("task"),
+    /** The person whose request started the run (a task, a chat message, a comment), when there was one. */
+    requestedByUserId: uuid("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
     status: text("status", { enum: ["running", "succeeded", "failed", "aborted"] }).notNull().default("running"),
     summary: text("summary"),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),

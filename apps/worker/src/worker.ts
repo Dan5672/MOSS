@@ -17,9 +17,9 @@ import {
   unansweredConversations,
 } from "@moss/agent";
 import { actorName, changeRef, dispatchEvents, ensureBuiltInRoles, incidentRef, type StoredEvent } from "@moss/core";
-import { agents, agentSchedules, changeNotes, changeRequests, incidentComments, incidents, orgs, type Database } from "@moss/db";
+import { agentRuns, agents, agentSchedules, changeNotes, changeRequests, incidentComments, incidents, orgs, type Database } from "@moss/db";
 import { createProvider } from "@moss/llm";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, notInArray } from "drizzle-orm";
 import { PgBoss } from "pg-boss";
 import { notifyIncident, runHomeAssistantTick, type HaCaller } from "./home-assistant.js";
 import { handleMonitorEvent, pruneAllMonitorResults, runDueChecks, type MonitorChecker } from "./monitor-runner.js";
@@ -87,6 +87,54 @@ async function activeAgents(db: Database, ids: (string | null)[]): Promise<strin
   return unique.filter((id) => rows.some((r) => r.id === id && r.status === "active"));
 }
 
+/** A run that answers a person's comment on an incident: for the assignee, or for an agent they @mentioned. */
+async function commentRun(
+  db: Database,
+  inc: typeof incidents.$inferSelect,
+  comment: typeof incidentComments.$inferSelect,
+  agentId: string,
+): Promise<RunInput> {
+  const who = await actorName(db, { type: "user", id: comment.authorUserId });
+  const said = `\n\n"${comment.body.slice(0, 2000)}"\n\n`;
+  const ref = `incident ${incidentRef(inc.number)} (id ${inc.id})`;
+  const reply = "Read the incident with incident_get, then reply with incident_comment";
+  return {
+    agentId,
+    trigger: "ticket",
+    triggerRef: inc.id,
+    requestedByUserId: comment.authorUserId ?? undefined,
+    task:
+      agentId === inc.assignedAgentId
+        ? `${who} commented on ${ref}, which is assigned to you:${said}${reply}: answer their question, or say what you'll do next. ` +
+          "If they asked for something, do it (anything that changes a system needs a change request)."
+        : `${who} mentioned you in a comment on ${ref}:${said}${reply} to answer them. It isn't assigned to you: help with ` +
+          "what they asked, and leave the rest to the assignee.",
+  };
+}
+
+/**
+ * Open incidents assigned to this agent whose newest comment is a person's, written after the agent last
+ * worked on the incident: a comment that arrived while a run was already waiting (one queued run per agent).
+ */
+export async function unansweredIncidentComments(db: Database, agentId: string) {
+  const open = await db
+    .select()
+    .from(incidents)
+    .where(and(eq(incidents.assignedAgentId, agentId), notInArray(incidents.status, ["resolved", "closed"])));
+  const out: { inc: typeof incidents.$inferSelect; comment: typeof incidentComments.$inferSelect }[] = [];
+  for (const inc of open) {
+    const [latest] = await db.select().from(incidentComments).where(eq(incidentComments.incidentId, inc.id)).orderBy(desc(incidentComments.createdAt)).limit(1);
+    if (!latest?.authorUserId) continue;
+    const [since] = await db
+      .select({ id: agentRuns.id })
+      .from(agentRuns)
+      .where(and(eq(agentRuns.agentId, agentId), eq(agentRuns.triggerRef, inc.id), gt(agentRuns.startedAt, latest.createdAt)))
+      .limit(1);
+    if (!since) out.push({ inc, comment: latest });
+  }
+  return out;
+}
+
 /** Turns domain events into agent runs. Tasks reference tickets by id; the agent reads them with its tools. */
 export async function handleEvent(db: Database, boss: PgBoss, event: StoredEvent, opts: { homeAssistant?: HaCaller; log?: (msg: string, extra?: Record<string, unknown>) => void } = {}): Promise<void> {
   const p = event.payload as Record<string, string | undefined>;
@@ -108,6 +156,7 @@ export async function handleEvent(db: Database, boss: PgBoss, event: StoredEvent
         agentId: p.agentId,
         trigger: "ticket",
         triggerRef: inc.id,
+        requestedByUserId: inc.raisedByUserId ?? undefined,
         task:
           `You have been assigned incident ${incidentRef(inc.number)} (${inc.priority}), id ${inc.id}. Read it with incident_get, ` +
           "investigate, keep it updated with comments, and resolve it once the fix is verified. If fixing it needs a change " +
@@ -120,22 +169,8 @@ export async function handleEvent(db: Database, boss: PgBoss, event: StoredEvent
       const [inc] = await db.select().from(incidents).where(eq(incidents.id, p.incidentId));
       const [comment] = await db.select().from(incidentComments).where(eq(incidentComments.id, p.commentId));
       if (!inc || !comment || inc.status === "closed") return;
-      const who = await actorName(db, { type: "user", id: comment.authorUserId });
-      const said = `\n\n"${comment.body.slice(0, 2000)}"\n\n`;
-      const ref = `incident ${incidentRef(inc.number)} (id ${inc.id})`;
-      const reply = "Read the incident with incident_get, then reply with incident_comment";
       for (const agentId of await activeAgents(db, [inc.assignedAgentId, ...agentMentions(comment.mentions)])) {
-        await enqueueRun(boss, {
-          agentId,
-          trigger: "ticket",
-          triggerRef: inc.id,
-          task:
-            agentId === inc.assignedAgentId
-              ? `${who} commented on ${ref}, which is assigned to you:${said}${reply}: answer their question, or say what you'll do next. ` +
-                "If they asked for something, do it (anything that changes a system needs a change request)."
-              : `${who} mentioned you in a comment on ${ref}:${said}${reply} to answer them. It isn't assigned to you: help with ` +
-                "what they asked, and leave the rest to the assignee.",
-        });
+        await enqueueRun(boss, await commentRun(db, inc, comment, agentId));
       }
       return;
     }
@@ -153,6 +188,7 @@ export async function handleEvent(db: Database, boss: PgBoss, event: StoredEvent
           agentId,
           trigger: "event",
           triggerRef: cr.id,
+          requestedByUserId: note.authorUserId ?? undefined,
           task:
             agentId === cr.requestedByAgentId && !finished
               ? `${who} commented on ${ref}, which you're carrying out:${said}Read the change with change_get, then reply with ` +
@@ -174,7 +210,7 @@ export async function handleEvent(db: Database, boss: PgBoss, event: StoredEvent
             "its verification plan, then call change_complete (or change_rollback if verification fails). Update the linked incident."
           : `Change ${ref} (id ${cr.id}) was rejected. Read the reason with change_get and update the linked incident; ` +
             "do not attempt the change another way.";
-      await enqueueRun(boss, { agentId: cr.requestedByAgentId, trigger: "event", triggerRef: cr.id, task });
+      await enqueueRun(boss, { agentId: cr.requestedByAgentId, trigger: "event", triggerRef: cr.id, task, requestedByUserId: cr.requestedByUserId ?? undefined });
       return;
     }
     case "monitor.down":
@@ -207,7 +243,7 @@ export async function startWorker(cfg: WorkerConfig) {
     // A chat run answers the conversation as it stands when the run starts.
     const chat = input.trigger === "chat" && input.triggerRef ? await chatSnapshot(db, input.triggerRef, input.agentId) : undefined;
     if (chat === null) return; // already answered
-    if (chat) input = { ...input, task: chat.task };
+    if (chat) input = { ...input, task: chat.task, requestedByUserId: chat.askerId ?? input.requestedByUserId };
     log("run started", { agentId: input.agentId, trigger: input.trigger });
     const outcome = await runAgent({ db, gate: cfg.gate, providerFor: cfg.providerFor, claudeCode: cfg.claudeCode }, input);
     log("run finished", { agentId: input.agentId, runId: outcome.runId, status: outcome.status });
@@ -215,6 +251,10 @@ export async function startWorker(cfg: WorkerConfig) {
     // Messages sent while the agent was busy (one run per agent at a time): answer them now.
     for (const conversationId of await unansweredConversations(db, input.agentId)) {
       await enqueueRun(boss, { agentId: input.agentId, trigger: "chat", triggerRef: conversationId, task: "Reply in chat" });
+    }
+    // Likewise incident comments that came in while a run was already queued.
+    for (const { inc, comment } of await unansweredIncidentComments(db, input.agentId)) {
+      await enqueueRun(boss, await commentRun(db, inc, comment, input.agentId));
     }
     return outcome;
   });

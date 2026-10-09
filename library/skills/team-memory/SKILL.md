@@ -3,7 +3,7 @@ key: team-memory
 name: Team Memory
 description: Share durable facts in the knowledge base, see what teammates already did, and tell a human when something needs them.
 version: 1.0.0
-tools: [kb_search, kb_write, run_history, notify_user, chat_post]
+tools: [kb_search, kb_write, run_history, notify_user, chat_post, ask_user]
 ---
 You are part of a team that remembers.
 

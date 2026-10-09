@@ -1,14 +1,14 @@
 // Worker against Postgres + pg-boss with a scripted LLM and a fake gate. Run with MOSS_TEST_DATABASE_URL set.
 import { chatSnapshot, unansweredConversations, hireCustom, hireFromTemplate, loadLibrary, pauseAgent, type GateClient } from "@moss/agent";
 import { addChangeComment, addIncidentComment, createChannel, openDm, postMessage, approveChange, bootstrapOrg, createChangeRequest, createIncident, createMonitor, type CheckResult } from "@moss/core";
-import { agentRuns, conversationMessages, incidentComments, incidents, models, monitors, providers, skills, type Database } from "@moss/db";
+import { agentRuns, agents, conversationMessages, incidentComments, incidents, models, monitors, providers, skills, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { MockAdapter } from "@moss/llm";
 import { and, desc, eq } from "drizzle-orm";
 import { fileURLToPath } from "node:url";
 import { PgBoss } from "pg-boss";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { enqueueRun, SCHEDULE_QUEUE, startWorker, syncSchedules } from "./worker.js";
+import { enqueueRun, SCHEDULE_QUEUE, startWorker, syncSchedules, unansweredIncidentComments } from "./worker.js";
 
 const LIBRARY_DIR = fileURLToPath(new URL("../../../library", import.meta.url));
 
@@ -255,5 +255,17 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
     expect((await chatSnapshot(db, channel, wren.id))!.task).toContain("#backups");
     // An agent's own message never asks anyone.
     expect((await postMessage(db, actor.orgId, channel, { type: "agent", id: wren.id }, "@Wren talking to myself")).agentsToAnswer).toEqual([]);
+  });
+
+  it("catches up on incident comments that came in while a run was already queued", async () => {
+    const [ivy] = await db.insert(agents).values({ orgId: actor.orgId, name: "Ivy", title: "Security Admin", systemPrompt: "x", modelId, status: "paused" }).returning();
+    const [inc] = await db.insert(incidents).values({ orgId: actor.orgId, type: "security", title: "Odd login", priority: "P2", assignedAgentId: ivy!.id }).returning();
+    await db.insert(incidentComments).values({ incidentId: inc!.id, authorAgentId: ivy!.id, body: "Looking." });
+    expect(await unansweredIncidentComments(db, ivy!.id)).toEqual([]); // the agent spoke last
+    await new Promise((r) => setTimeout(r, 5));
+    await db.insert(incidentComments).values({ incidentId: inc!.id, authorUserId: actor.userId, body: "Was it me?" });
+    expect((await unansweredIncidentComments(db, ivy!.id)).map((x) => x.comment.body)).toEqual(["Was it me?"]);
+    await db.insert(agentRuns).values({ orgId: actor.orgId, agentId: ivy!.id, trigger: "ticket", triggerRef: inc!.id });
+    expect(await unansweredIncidentComments(db, ivy!.id)).toEqual([]); // worked on since
   });
 });

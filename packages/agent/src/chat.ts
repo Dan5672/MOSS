@@ -15,6 +15,8 @@ export interface ChatSnapshot {
   /** Time of the newest message the task includes. The reply is stored just after it, so anything
    * sent while the agent works sorts after the reply and is answered by a follow-up run. */
   cutoff: Date;
+  /** The person whose message is being answered. */
+  askerId: string | null;
 }
 
 type Message = typeof conversationMessages.$inferSelect;
@@ -51,7 +53,7 @@ export async function chatSnapshot(db: Database, conversationId: string, agentId
     `${where} Use your tools if you need to look something up or act; anything that changes a system still needs an approved ` +
     "change request. Your final message is posted as your reply, so make it a direct answer in plain text.\n\n" +
     `Conversation so far (oldest first):\n\n${transcript}`;
-  return { task, cutoff: lastAsk.createdAt };
+  return { task, cutoff: lastAsk.createdAt, askerId: lastAsk.authorUserId };
 }
 
 /** Posts the run's outcome as the agent's reply, just after the message it answers. */

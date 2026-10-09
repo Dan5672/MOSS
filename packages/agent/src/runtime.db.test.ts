@@ -157,6 +157,7 @@ describe.skipIf(!TEST_DATABASE_URL)("agent runtime (postgres)", () => {
     const session = adapter.received[0]!.opts;
     expect(session.system).toContain("## Network Discovery");
     expect(session.tools.map((t) => t.name).sort()).toEqual([
+      "ask_user",
       "change_comment",
       "change_complete",
       "change_execute",

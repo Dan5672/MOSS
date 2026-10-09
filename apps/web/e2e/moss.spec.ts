@@ -1,6 +1,6 @@
 // One story through the UI, in order: a new owner sets MOSS up and runs their IT department.
 import { createChangeRequest, dispatchEvents, encryptSecret, handleMonitorDown, handleMonitorUp, parseMasterKey, totpCode } from "@moss/core";
-import { agents, configBackups, createDb, type Database } from "@moss/db";
+import { agentRuns, agents, configBackups, createDb, type Database } from "@moss/db";
 import { expect, test, type Page } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -432,6 +432,22 @@ test("agents: hire a custom agent with chosen skills", async () => {
   await expect(page.getByRole("list", { name: "Messages" }).locator("strong", { hasText: "@Wren" })).toBeVisible();
   // Mentioning Wren brought her into the channel.
   await expect(page.getByRole("complementary", { name: "Members" }).getByRole("link", { name: "Wren" })).toBeVisible();
+
+  // A run that ended with a question: answer it from the run page, and it lands in the DM.
+  const db = createDb(E2E_DATABASE_URL);
+  const [wren] = await db.select().from(agents).where(eq(agents.name, "Wren"));
+  const [run] = await db
+    .insert(agentRuns)
+    .values({ orgId: wren!.orgId, agentId: wren!.id, trigger: "manual", task: "Check the backups", status: "succeeded", summary: "Two backups failed. Should I retry them tonight?", endedAt: new Date() })
+    .returning();
+  await db.$client.end();
+  await page.goto(`/runs/${run!.id}`);
+  await expect(page.getByRole("heading", { name: "Wren asked" })).toBeVisible();
+  await page.getByLabel("Your answer").fill("Yes, after 22:00.");
+  await page.getByRole("button", { name: "Reply" }).click();
+  await expect(page.getByRole("heading", { name: "Wren", exact: true })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Messages" })).toContainText("Should I retry them tonight?");
+  await expect(page.getByRole("list", { name: "Messages" })).toContainText("Yes, after 22:00.");
 });
 
 test("incidents: raise, comment and update", async () => {
