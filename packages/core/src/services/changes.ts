@@ -400,12 +400,20 @@ export async function cancelChange(db: Database, orgId: string, changeId: string
 
 export async function addChangeComment(db: Database, orgId: string, changeId: string, body: string, actor: Actor) {
   await loadChange(db, orgId, changeId);
-  await db.insert(changeNotes).values({
-    changeId,
-    authorUserId: actor.type === "user" ? actor.id : null,
-    authorAgentId: actor.type === "agent" ? actor.id : null,
-    kind: "comment",
-    body,
+  return db.transaction(async (tx) => {
+    const [note] = await tx
+      .insert(changeNotes)
+      .values({
+        changeId,
+        authorUserId: actor.type === "user" ? actor.id : null,
+        authorAgentId: actor.type === "agent" ? actor.id : null,
+        kind: "comment",
+        body,
+      })
+      .returning();
+    // As with incidents: a person's comment reaches the agent carrying out the change.
+    if (actor.type === "user") await emitEvent(tx, orgId, { type: "change.commented", payload: { changeId, noteId: note!.id } });
+    return note!;
   });
 }
 

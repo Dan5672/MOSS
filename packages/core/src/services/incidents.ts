@@ -125,8 +125,12 @@ export async function listIncidents(
 export async function addIncidentComment(db: Database, orgId: string, incidentId: string, body: string, actor: Actor) {
   const [incident] = await db.select({ id: incidents.id }).from(incidents).where(and(eq(incidents.id, incidentId), eq(incidents.orgId, orgId)));
   if (!incident) throw new Error("Incident not found");
-  const [comment] = await db.insert(incidentComments).values({ incidentId, body, ...authorFields(actor) }).returning();
-  return comment!;
+  return db.transaction(async (tx) => {
+    const [comment] = await tx.insert(incidentComments).values({ incidentId, body, ...authorFields(actor) }).returning();
+    // A person's comment gets the assigned agent's attention; an agent's own comments never trigger anything.
+    if (actor.type === "user") await emitEvent(tx, orgId, { type: "incident.commented", payload: { incidentId, commentId: comment!.id } });
+    return comment!;
+  });
 }
 
 export interface IncidentUpdate {

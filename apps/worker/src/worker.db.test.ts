@@ -1,10 +1,10 @@
 // Worker against Postgres + pg-boss with a scripted LLM and a fake gate. Run with MOSS_TEST_DATABASE_URL set.
 import { chatSnapshot, hireCustom, hireFromTemplate, loadLibrary, pauseAgent, type GateClient } from "@moss/agent";
-import { approveChange, bootstrapOrg, createChangeRequest, createIncident, createMonitor, type CheckResult } from "@moss/core";
+import { addChangeComment, addIncidentComment, approveChange, bootstrapOrg, createChangeRequest, createIncident, createMonitor, type CheckResult } from "@moss/core";
 import { agentRuns, chatMessages, chatThreads, incidentComments, incidents, models, monitors, providers, skills, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { MockAdapter } from "@moss/llm";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { fileURLToPath } from "node:url";
 import { PgBoss } from "pg-boss";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -165,6 +165,19 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
       return r?.status === "succeeded" ? r : undefined;
     });
     expect(changeRun).toMatchObject({ agentId: nina.id, trigger: "event" });
+
+    // A person's comment gets an answer; the agent's own comment doesn't set off another run.
+    const runsFor = async (ref: string) => (await db.select().from(agentRuns).where(eq(agentRuns.triggerRef, ref))).length;
+    await addIncidentComment(db, actor.orgId, inc.id, "Is it the toner again?", { type: "user", id: actor.userId });
+    await waitFor(async () => ((await runsFor(inc.id)) === 2 ? true : undefined));
+    const [answerRun] = await db.select().from(agentRuns).where(eq(agentRuns.triggerRef, inc.id)).orderBy(desc(agentRuns.startedAt)).limit(1);
+    expect(answerRun).toMatchObject({ agentId: nina.id, trigger: "ticket" });
+    await addIncidentComment(db, actor.orgId, inc.id, "Checking the toner now.", { type: "agent", id: nina.id });
+    await new Promise((r) => setTimeout(r, 800));
+    expect(await runsFor(inc.id)).toBe(2);
+
+    await addChangeComment(db, actor.orgId, cr.id, "Can this wait until tonight?", { type: "user", id: actor.userId });
+    await waitFor(async () => ((await runsFor(cr.id)) === 2 ? true : undefined));
   });
 
   it("monitors: a failing check raises an incident for the responder agent, and recovery hands it back", async () => {

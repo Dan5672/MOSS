@@ -1,6 +1,7 @@
 // Agent tools for incidents and change management. Agents never call write tools directly:
 // change_execute runs exactly the approved plan, call by call, through the gate.
 import {
+  addChangeComment,
   addIncidentComment,
   assertCanExecute,
   changeRef,
@@ -153,6 +154,16 @@ export const TICKET_TOOLS: PlatformTool[] = [
             ? "Approved. Run change_execute when ready."
             : "Waiting for a human approver. You will be given a new task when it is approved or rejected.",
       };
+    },
+  },
+  {
+    name: "change_comment",
+    description: "Add a comment to a change request: answer a question about it, or report progress.",
+    permission: "changes.create",
+    args: z.object({ changeId: z.uuid(), body: z.string().min(1).max(5000) }),
+    run: async ({ db, orgId, agentId }, { changeId, body }) => {
+      await addChangeComment(db, orgId, changeId, body, { type: "agent", id: agentId });
+      return { ok: true };
     },
   },
   {

@@ -12,7 +12,10 @@ export type DomainEvent =
   | { type: "change.completed"; payload: { changeId: string; outcome: string } }
   | { type: "monitor.down"; payload: { monitorId: string } }
   | { type: "monitor.degraded"; payload: { monitorId: string } }
-  | { type: "monitor.up"; payload: { monitorId: string; downSince: string } };
+  | { type: "monitor.up"; payload: { monitorId: string; downSince: string } }
+  /** A person commented on an incident or a change (agents' own comments don't emit these). */
+  | { type: "incident.commented"; payload: { incidentId: string; commentId: string } }
+  | { type: "change.commented"; payload: { changeId: string; noteId: string } };
 
 /** Anything with insert(): the database or an open transaction. */
 type Writer = Pick<Database, "insert">;
