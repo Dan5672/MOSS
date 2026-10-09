@@ -1,7 +1,7 @@
 // Worker against Postgres + pg-boss with a scripted LLM and a fake gate. Run with MOSS_TEST_DATABASE_URL set.
-import { chatSnapshot, hireCustom, hireFromTemplate, loadLibrary, pauseAgent, type GateClient } from "@moss/agent";
-import { addChangeComment, addIncidentComment, approveChange, bootstrapOrg, createChangeRequest, createIncident, createMonitor, type CheckResult } from "@moss/core";
-import { agentRuns, chatMessages, chatThreads, incidentComments, incidents, models, monitors, providers, skills, type Database } from "@moss/db";
+import { chatSnapshot, unansweredConversations, hireCustom, hireFromTemplate, loadLibrary, pauseAgent, type GateClient } from "@moss/agent";
+import { addChangeComment, addIncidentComment, createChannel, openDm, postMessage, approveChange, bootstrapOrg, createChangeRequest, createIncident, createMonitor, type CheckResult } from "@moss/core";
+import { agentRuns, conversationMessages, incidentComments, incidents, models, monitors, providers, skills, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { MockAdapter } from "@moss/llm";
 import { and, desc, eq } from "drizzle-orm";
@@ -220,31 +220,40 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
     expect(runs.map((r) => r.trigger).sort()).toEqual(["event", "ticket"]);
   });
 
-  it("chat: answers a message with a run, skips answered threads, and catches up on messages sent while busy", async () => {
+  it("chat: answers DMs and mentions with a run, skips what's answered, and catches up on messages sent while busy", async () => {
     const wren = await hireCustom(db, actor, { name: "Wren", title: "Backup Admin", systemPrompt: "You look after backups and nothing else.", skills: ["service-health"], modelId });
-    const [thread] = await db.insert(chatThreads).values({ orgId: actor.orgId, agentId: wren.id, userId: actor.userId }).returning();
-    const say = async (content: string) => (await db.insert(chatMessages).values({ threadId: thread!.id, role: "user", content }).returning())[0]!;
-    const replies = () => db.select().from(chatMessages).where(and(eq(chatMessages.threadId, thread!.id), eq(chatMessages.role, "agent")));
+    const me = { type: "user" as const, id: actor.userId };
+    const dm = await openDm(db, actor.orgId, actor.userId, { type: "agent", id: wren.id });
+    const replies = (conversationId: string) =>
+      db.select().from(conversationMessages).where(and(eq(conversationMessages.conversationId, conversationId), eq(conversationMessages.authorAgentId, wren.id)));
 
-    const question = await say("Is the NAS backed up?");
-    const snapshot = await chatSnapshot(db, thread!.id);
+    const posted = await postMessage(db, actor.orgId, dm, me, "Is the NAS backed up?");
+    expect(posted.agentsToAnswer).toEqual([wren.id]);
+    const snapshot = await chatSnapshot(db, dm, wren.id);
     expect(snapshot!.task).toContain("O: Is the NAS backed up?");
 
-    await enqueueRun(boss, { agentId: wren.id, trigger: "chat", triggerRef: thread!.id, task: "Is the NAS backed up?" });
-    const [reply] = await waitFor(async () => ((await replies()).length === 1 ? replies() : undefined));
-    expect(reply).toMatchObject({ content: "All good.", status: "succeeded" });
-    expect(reply!.runId).toBeTruthy();
-    expect(reply!.createdAt.getTime()).toBeGreaterThan(question.createdAt.getTime());
+    await enqueueRun(boss, { agentId: wren.id, trigger: "chat", triggerRef: dm, task: "Reply in chat" });
+    const [reply] = await waitFor(async () => ((await replies(dm)).length === 1 ? replies(dm) : undefined));
+    expect(reply).toMatchObject({ body: "All good.", status: "succeeded" });
     const [run] = await db.select().from(agentRuns).where(eq(agentRuns.id, reply!.runId!));
-    expect(run).toMatchObject({ trigger: "chat", triggerRef: thread!.id });
+    expect(run).toMatchObject({ trigger: "chat", triggerRef: dm });
 
     // Already answered: a duplicate job does nothing.
-    expect(await chatSnapshot(db, thread!.id)).toBeNull();
+    expect(await chatSnapshot(db, dm, wren.id)).toBeNull();
 
     // A message that arrives while the agent is busy with other work is answered when that run ends.
-    await say("And the router config?");
+    await postMessage(db, actor.orgId, dm, me, "And the router config?");
     await enqueueRun(boss, { agentId: wren.id, trigger: "manual", task: "Check the backups." });
-    await waitFor(async () => ((await replies()).length === 2 ? true : undefined));
-    expect(await chatSnapshot(db, thread!.id)).toBeNull();
+    await waitFor(async () => ((await replies(dm)).length === 2 ? true : undefined));
+    expect(await chatSnapshot(db, dm, wren.id)).toBeNull();
+
+    // In a channel, only an @mention asks an agent; the mention brings it into the channel.
+    const channel = await createChannel(db, actor.orgId, actor.userId, { name: "backups" });
+    expect((await postMessage(db, actor.orgId, channel, me, "Morning all")).agentsToAnswer).toEqual([]);
+    expect((await postMessage(db, actor.orgId, channel, me, "@Wren did last night's job finish?")).agentsToAnswer).toEqual([wren.id]);
+    expect(await unansweredConversations(db, wren.id)).toEqual([channel]);
+    expect((await chatSnapshot(db, channel, wren.id))!.task).toContain("#backups");
+    // An agent's own message never asks anyone.
+    expect((await postMessage(db, actor.orgId, channel, { type: "agent", id: wren.id }, "@Wren talking to myself")).agentsToAnswer).toEqual([]);
   });
 });

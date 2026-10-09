@@ -1,4 +1,5 @@
 export * from "./chat.js";
+export * from "./chat-tools.js";
 export * from "./library.js";
 export * from "./lifecycle.js";
 export * from "./platform-tools.js";

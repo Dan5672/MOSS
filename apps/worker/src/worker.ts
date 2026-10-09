@@ -14,7 +14,7 @@ import {
   type GateClient,
   type ProviderFactory,
   type RunInput,
-  unansweredThreads,
+  unansweredConversations,
 } from "@moss/agent";
 import { actorName, changeRef, dispatchEvents, ensureBuiltInRoles, incidentRef, type StoredEvent } from "@moss/core";
 import { agents, agentSchedules, changeNotes, changeRequests, incidentComments, incidents, orgs, type Database } from "@moss/db";
@@ -205,16 +205,16 @@ export async function startWorker(cfg: WorkerConfig) {
     if (!job) return;
     let input = job.data;
     // A chat run answers the conversation as it stands when the run starts.
-    const chat = input.trigger === "chat" && input.triggerRef ? await chatSnapshot(db, input.triggerRef) : undefined;
+    const chat = input.trigger === "chat" && input.triggerRef ? await chatSnapshot(db, input.triggerRef, input.agentId) : undefined;
     if (chat === null) return; // already answered
     if (chat) input = { ...input, task: chat.task };
     log("run started", { agentId: input.agentId, trigger: input.trigger });
     const outcome = await runAgent({ db, gate: cfg.gate, providerFor: cfg.providerFor, claudeCode: cfg.claudeCode }, input);
     log("run finished", { agentId: input.agentId, runId: outcome.runId, status: outcome.status });
-    if (chat) await recordChatReply(db, input.triggerRef!, outcome, chat.cutoff);
-    // Messages sent while the agent was busy couldn't be queued (one run per agent); answer them now.
-    for (const threadId of await unansweredThreads(db, input.agentId)) {
-      await enqueueRun(boss, { agentId: input.agentId, trigger: "chat", triggerRef: threadId, task: "Reply in chat" });
+    if (chat) await recordChatReply(db, input.triggerRef!, input.agentId, outcome, chat.cutoff);
+    // Messages sent while the agent was busy (one run per agent at a time): answer them now.
+    for (const conversationId of await unansweredConversations(db, input.agentId)) {
+      await enqueueRun(boss, { agentId: input.agentId, trigger: "chat", triggerRef: conversationId, task: "Reply in chat" });
     }
     return outcome;
   });

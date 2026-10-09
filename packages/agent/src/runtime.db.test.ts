@@ -163,6 +163,7 @@ describe.skipIf(!TEST_DATABASE_URL)("agent runtime (postgres)", () => {
       "change_get",
       "change_request_create",
       "change_rollback",
+      "chat_post",
       "incident_comment",
       "incident_create",
       "incident_get",

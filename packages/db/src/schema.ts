@@ -311,6 +311,72 @@ export const chatMessages = pgTable(
   (t) => [index("chat_messages_thread_idx").on(t.threadId, t.createdAt)],
 );
 
+// ---------------------------------------------------------------------------
+// Chat: direct messages and channels between people and agents. (Replaces chat_threads/chat_messages,
+// whose conversations were copied in as DMs.)
+// ---------------------------------------------------------------------------
+export const conversations = pgTable(
+  "conversations",
+  {
+    id: id(),
+    ...tenancy(),
+    kind: text("kind", { enum: ["dm", "channel"] }).notNull(),
+    /** A channel's name (lowercase, no #); null for a DM. */
+    name: text("name"),
+    topic: text("topic"),
+    /** A DM's members, sorted and joined, so each pair has one DM. Null for channels. */
+    dmKey: text("dm_key"),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    archived: boolean("archived").notNull().default(false),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("conversations_org_dm_idx").on(t.orgId, t.dmKey), uniqueIndex("conversations_org_name_idx").on(t.orgId, t.name), index("conversations_org_updated_idx").on(t.orgId, t.updatedAt)],
+);
+
+export const conversationMembers = pgTable(
+  "conversation_members",
+  {
+    id: id(),
+    conversationId: uuid("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id").references(() => agents.id, { onDelete: "cascade" }),
+    joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("conversation_members_user_idx").on(t.conversationId, t.userId),
+    uniqueIndex("conversation_members_agent_idx").on(t.conversationId, t.agentId),
+    index("conversation_members_by_user_idx").on(t.userId),
+    index("conversation_members_by_agent_idx").on(t.agentId),
+  ],
+);
+
+export const conversationMessages = pgTable(
+  "conversation_messages",
+  {
+    id: id(),
+    conversationId: uuid("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+    authorUserId: uuid("author_user_id").references(() => users.id, { onDelete: "set null" }),
+    authorAgentId: uuid("author_agent_id").references(() => agents.id, { onDelete: "set null" }),
+    body: text("body").notNull(),
+    mentions: jsonb("mentions").$type<{ type: "agent" | "user"; id: string }[]>().notNull().default([]),
+    /** An agent's reply: the run that produced it, and how that run ended. */
+    runId: uuid("run_id").references(() => agentRuns.id, { onDelete: "set null" }),
+    status: text("status", { enum: ["succeeded", "failed", "aborted"] }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("conversation_messages_conv_idx").on(t.conversationId, t.createdAt)],
+);
+
+export const conversationReads = pgTable(
+  "conversation_reads",
+  {
+    conversationId: uuid("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    lastReadAt: timestamp("last_read_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.conversationId, t.userId] })],
+);
+
 export const runSteps = pgTable("run_steps", {
   id: id(),
   runId: uuid("run_id").notNull().references(() => agentRuns.id, { onDelete: "cascade" }),

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { agentPanelAction, type AgentPanel } from "@/app/(app)/basement/actions";
-import { sendChatAction } from "@/app/(app)/agents/[id]/chat/actions";
+import { messageAgentAction } from "@/app/(app)/chat/actions";
 import { ActionForm } from "@/components/action-form";
 import { TextAreaField } from "@/components/field";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -78,7 +78,7 @@ export function AgentPanelDialog({ agentId, onClose }: { agentId: string | null;
             </div>
             {current.canChat && (
               <div className="border-t-2 pt-4">
-                <ActionForm action={sendChatAction.bind(null, current.agent.id)} submitLabel={`Message ${current.agent.name}`} resetOnSuccess>
+                <ActionForm action={messageAgentAction.bind(null, current.agent.id)} submitLabel={`Message ${current.agent.name}`} resetOnSuccess>
                   <TextAreaField label={`Message ${current.agent.name}`} name="message" rows={2} required />
                 </ActionForm>
                 <p className="mt-2 text-xs text-muted-foreground">

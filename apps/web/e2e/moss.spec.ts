@@ -407,13 +407,31 @@ test("agents: hire a custom agent with chosen skills", async () => {
   await expect(granted.filter({ hasText: "Service Health Checks" })).toHaveCount(1);
   await expect(granted.filter({ hasText: "Incident Management" })).toHaveCount(1);
 
-  // Chat: the message is stored and a run is queued (no worker runs in this suite, so no reply).
-  await page.getByRole("link", { name: "Chat" }).click();
-  await expect(page.getByRole("heading", { name: "Chat with Wren" })).toBeVisible();
-  await page.getByLabel("Message").fill("Is the NAS backed up?");
+  // Chat: the agent page's Chat opens the DM with Wren (no worker runs in this suite, so no reply).
+  await page.getByRole("main").getByRole("link", { name: "Chat" }).click();
+  await expect(page.getByRole("heading", { name: "Wren", exact: true })).toBeVisible();
+  await page.getByLabel("Message", { exact: true }).fill("Is the NAS backed up?");
   await page.getByRole("button", { name: "Send" }).click();
-  await expect(page.getByRole("list", { name: "Conversation" })).toContainText("Is the NAS backed up?");
-  await expect(page.getByRole("status")).toContainText("Wren is working on a reply");
+  await expect(page.getByRole("list", { name: "Messages" })).toContainText("Is the NAS backed up?");
+  // The DM is in the sidebar's recent chats.
+  await expect(page.getByRole("navigation", { name: "Recent chats" }).getByRole("link", { name: "Wren" })).toBeVisible();
+
+  // A channel: agents answer when @mentioned there.
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Chat" }).click();
+  await page.getByRole("button", { name: "New channel" }).click();
+  const create = page.getByRole("dialog", { name: "New channel" });
+  await create.getByLabel("Name").fill("backups");
+  await create.getByLabel("Topic").fill("Backups and the NAS");
+  await create.getByRole("button", { name: "Create channel" }).click();
+  await expect(page.getByRole("heading", { name: "#backups" })).toBeVisible();
+  const box = page.getByLabel("Message", { exact: true });
+  await box.pressSequentially("@Wr");
+  await box.press("Enter");
+  await box.pressSequentially("did last night's backup finish?");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByRole("list", { name: "Messages" }).locator("strong", { hasText: "@Wren" })).toBeVisible();
+  // Mentioning Wren brought her into the channel.
+  await expect(page.getByRole("complementary", { name: "Members" }).getByRole("link", { name: "Wren" })).toBeVisible();
 });
 
 test("incidents: raise, comment and update", async () => {

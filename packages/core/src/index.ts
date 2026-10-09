@@ -20,6 +20,7 @@ export * from "./services/knowledge.js";
 export * from "./services/tool-grants.js";
 export * from "./services/modules.js";
 export * from "./services/mentions.js";
+export * from "./services/conversations.js";
 export * from "./services/home-assistant.js";
 export * from "./monitoring/state.js";
 export * from "./monitoring/webhooks.js";

@@ -1,10 +1,11 @@
-import { getSetting } from "@moss/core";
+import { getSetting, listConversations } from "@moss/core";
 import { changeRequests, incidents, monitors, notifications } from "@moss/db";
 import { and, count, eq, isNull, notInArray } from "drizzle-orm";
 import Link from "next/link";
 import { KillSwitchPanel } from "@/components/kill-switch-panel";
 import { Logo } from "@/components/logo";
 import { Nav } from "@/components/nav";
+import { ChatNav } from "@/components/chat-nav";
 import { Button } from "@/components/ui/button";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
@@ -18,7 +19,7 @@ function initials(name: string) {
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const user = await requireUser();
-  const [killSwitch, [pending], [unread], [down], [open]] = await Promise.all([
+  const [killSwitch, [pending], [unread], [down], [open], chats] = await Promise.all([
     getSetting(db(), user.orgId, "agents.kill_switch"),
     db()
       .select({ n: count() })
@@ -36,11 +37,14 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       .select({ n: count() })
       .from(incidents)
       .where(and(eq(incidents.orgId, user.orgId), notInArray(incidents.status, ["resolved", "closed"]))),
+    listConversations(db(), user.orgId, user.id),
   ]);
+  const recentChats = chats.slice(0, 6).map((c) => ({ id: c.id, title: c.title, unread: c.unread }));
   const badges = {
     "/changes": user.permissions.has("changes.approve") ? (pending?.n ?? 0) : 0,
     "/monitoring": user.permissions.has("monitoring.read") ? (down?.n ?? 0) : 0,
     "/incidents": user.permissions.has("incidents.read") ? (open?.n ?? 0) : 0,
+    "/chat": chats.reduce((n, c) => n + c.unread, 0),
   };
   const killSwitchPanel = user.permissions.has("killswitch.use") && (
     <KillSwitchPanel paused={killSwitch} toggle={toggleSettingAction.bind(null, "agents.kill_switch", !killSwitch)} />
@@ -60,6 +64,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
           <Logo variant="horizontal" />
         </Link>
         <Nav badges={badges} />
+        <ChatNav items={recentChats} />
         <div className="mt-auto grid gap-3">
           {killSwitchPanel}
           <div className="grid gap-2 border-t-2 pt-3 text-sm">

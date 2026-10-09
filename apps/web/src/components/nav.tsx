@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 const ITEMS = [
   { href: "/", label: "Dashboard" },
   { href: "/basement", label: "Basement" },
+  { href: "/chat", label: "Chat" },
   { href: "/agents", label: "Agents" },
   { href: "/models", label: "Models" },
   { href: "/assets", label: "Assets" },
@@ -22,6 +23,7 @@ const ITEMS = [
 
 /** Count chips: square, dark text on a coloured fill. Each keeps an aria-label saying what it counts. */
 const BADGES: Record<string, { className: string; label: (n: number) => string }> = {
+  "/chat": { className: "bg-phosphor", label: (n) => `${n} unread` },
   "/monitoring": { className: "bg-amber", label: (n) => `${n} down` },
   "/incidents": { className: "bg-alarm", label: (n) => `${n} open` },
   "/changes": { className: "bg-phosphor", label: (n) => `${n} pending` },
@@ -30,7 +32,7 @@ const BADGES: Record<string, { className: string; label: (n: number) => string }
 export function Nav({ badges }: { badges: Record<string, number> }) {
   const pathname = usePathname();
   return (
-    <nav className="grid gap-0.5">
+    <nav aria-label="Main" className="grid gap-0.5">
       {ITEMS.map(({ href, label }) => {
         const active = href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
         const count = badges[href];
