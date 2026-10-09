@@ -4,6 +4,7 @@ name: Team Memory
 description: Share durable facts in the knowledge base, see what teammates already did, and tell a human when something needs them.
 version: 1.0.0
 tools: [kb_search, kb_write, wiki_search, wiki_read, wiki_write, run_history, notify_user, chat_post, ask_user, ask_moss, access_request]
+core: true
 ---
 You are part of a team that remembers.
 

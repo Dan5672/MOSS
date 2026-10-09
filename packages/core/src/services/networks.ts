@@ -1,7 +1,7 @@
 // Networks and their scan permission. Only humans can mark a network allowed or off-limits;
 // agents and sensors can only report networks, which start as "unknown" (denied by default).
 import { networks, type Database } from "@moss/db";
-import { canonicalCidr } from "@moss/policy";
+import { canonicalCidr, parseRange } from "@moss/policy";
 import { and, asc, eq } from "drizzle-orm";
 import { writeAudit } from "../store/audit-store.js";
 import type { Actor } from "./assets.js";
@@ -56,4 +56,17 @@ export async function setNetworkStatus(
     .returning();
   await writeAudit(db, { orgId, actorType: "user", actorId: userId, action: "network.set_status", targetType: "network", targetId: row!.id, details: { cidr, status: input.status } });
   return row!;
+}
+
+/** The DNS server scans use for this network's device names (usually the router), or none. */
+export async function setNetworkDns(db: Database, orgId: string, networkId: string, dnsServer: string | null, userId: string) {
+  const ip = dnsServer?.trim() || null;
+  if (ip) {
+    const r = parseRange(ip);
+    if (!r || r.start !== r.end) throw new Error("The DNS server must be a single IP address, e.g. 192.168.1.1");
+  }
+  const [row] = await db.update(networks).set({ dnsServer: ip, updatedAt: new Date() }).where(and(eq(networks.id, networkId), eq(networks.orgId, orgId))).returning();
+  if (!row) throw new Error("Network not found");
+  await writeAudit(db, { orgId, actorType: "user", actorId: userId, action: "network.set_dns", targetType: "network", targetId: row.id, details: { cidr: row.cidr, dnsServer: ip } });
+  return row;
 }

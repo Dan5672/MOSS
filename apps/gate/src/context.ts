@@ -55,7 +55,7 @@ export async function loadContext(
     getSetting(db, orgId, "tools.allow_dangerous"),
     getBudgetStatus(db, orgId, agent.id, opts.now),
     loadToolGrants(db, agent.id),
-    db.select({ cidr: networks.cidr, status: networks.status }).from(networks).where(eq(networks.orgId, orgId)),
+    db.select({ cidr: networks.cidr, status: networks.status, dnsServer: networks.dnsServer }).from(networks).where(eq(networks.orgId, orgId)),
   ]);
 
   const secretRows = new Map<string, SecretRow>();

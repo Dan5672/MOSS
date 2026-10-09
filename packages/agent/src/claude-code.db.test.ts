@@ -166,7 +166,7 @@ describe.skipIf(!TEST_DATABASE_URL || !HAVE_CLAUDE)("claude subscription runs (p
     // The scan went through the gate and into the inventory; Bash ran nowhere.
     expect(gateCalls).toEqual([{ tool: "nmap_scan", args: { targets: ["192.168.1.0/24"], profile: "ping" } }]);
     const [nas] = await db.select().from(assets).where(eq(assets.primaryMac, "aa:bb:cc:00:00:10"));
-    expect(nas?.name).toBe("nas.lan");
+    expect(nas?.name).toBe("nas");
     const steps = await db.select().from(runSteps).where(eq(runSteps.runId, outcome.runId!)).orderBy(asc(runSteps.seq));
     expect(steps.filter((s) => s.kind === "tool_call").map((s) => (s.content as { name: string }).name)).toEqual(["nmap_scan"]);
     expect(steps.some((s) => s.kind === "message" && (s.content as { text: string }).text === "Scanning the LAN.")).toBe(true);

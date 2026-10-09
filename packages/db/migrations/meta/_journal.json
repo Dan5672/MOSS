@@ -141,6 +141,13 @@
       "when": 1791565015234,
       "tag": "0019_change_access_grant",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791578517790,
+      "tag": "0020_dns_and_core_skills",
+      "breakpoints": true
     }
   ]
 }

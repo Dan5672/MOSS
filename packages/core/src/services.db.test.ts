@@ -1,6 +1,6 @@
 import { assets, assetServices, networks, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { addAsset, AssetLockedError, ingestDiscoveredHosts, searchAssets, setAssetLocked, updateAsset } from "./services/assets.js";
 import { listNetworks, reportNetwork, setNetworkStatus } from "./services/networks.js";
@@ -42,7 +42,7 @@ describe.skipIf(!TEST_DATABASE_URL)("asset and network services (postgres)", () 
     );
     expect(res.created).toHaveLength(1);
     const [nas] = await db.select().from(assets).where(eq(assets.id, res.created[0]!));
-    expect(nas).toMatchObject({ name: "nas.lan", primaryMac: "aa:bb:cc:00:00:10", vendor: "Synology", primaryIp: "192.168.1.10" });
+    expect(nas).toMatchObject({ name: "nas", hostnames: ["nas.lan"], primaryMac: "aa:bb:cc:00:00:10", vendor: "Synology", primaryIp: "192.168.1.10" });
     const [lan] = await db.select().from(networks).where(eq(networks.cidr, "192.168.1.0/24"));
     expect(nas!.networkId).toBe(lan!.id);
     const services = await db.select().from(assetServices).where(eq(assetServices.assetId, nas!.id));
@@ -54,6 +54,20 @@ describe.skipIf(!TEST_DATABASE_URL)("asset and network services (postgres)", () 
     expect(res).toMatchObject({ created: [], updated: [expect.any(String)] });
     const [nas] = await db.select().from(assets).where(eq(assets.id, res.updated[0]!));
     expect(nas).toMatchObject({ primaryIp: "192.168.1.11", hostnames: ["nas.lan", "diskstation"] });
+  });
+
+  it("replaces a made-up name with the device's DNS name once one is known", async () => {
+    const { created } = await ingestDiscoveredHosts(db, orgId, [{ ip: "192.168.9.40" }, { ip: "192.168.9.41" }], "agent:x");
+    const [a, b] = await Promise.all(created.map((id) => db.select().from(assets).where(eq(assets.id, id)).then((r) => r[0]!)));
+    expect(a!.name).toBe("192.168.9.40");
+    await db.update(assets).set({ name: "camera-192.168.9.41" }).where(eq(assets.id, b!.id));
+    await ingestDiscoveredHosts(db, orgId, [{ ip: "192.168.9.40", hostnames: ["printer.home.lan"] }, { ip: "192.168.9.41", hostnames: ["frontdoor.home.lan"] }], "agent:x");
+    const names = await db.select({ name: assets.name }).from(assets).where(inArray(assets.id, created));
+    expect(names.map((n) => n.name).sort()).toEqual(["frontdoor", "printer"]);
+    // A real name stays.
+    await db.update(assets).set({ name: "Office printer" }).where(eq(assets.id, a!.id));
+    await ingestDiscoveredHosts(db, orgId, [{ ip: "192.168.9.40", hostnames: ["prn2.home.lan"] }], "agent:x");
+    expect((await db.select().from(assets).where(eq(assets.id, a!.id)))[0]!.name).toBe("Office printer");
   });
 
   it("treats a different MAC on a known IP as a new device", async () => {
@@ -80,7 +94,7 @@ describe.skipIf(!TEST_DATABASE_URL)("asset and network services (postgres)", () 
   });
 
   it("searches by text, IP range and kind", async () => {
-    expect((await searchAssets(db, orgId, { query: "synology" })).map((a) => a.name)).toEqual(["nas.lan"]);
+    expect((await searchAssets(db, orgId, { query: "synology" })).map((a) => a.name)).toEqual(["nas"]);
     expect(await searchAssets(db, orgId, { ip: "192.168.1.0/24" })).toHaveLength(2);
     expect(await searchAssets(db, orgId, { kind: "nas" })).toHaveLength(1);
     expect(await searchAssets(db, orgId, { query: "%" })).toHaveLength(0); // wildcards are escaped

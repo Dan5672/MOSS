@@ -61,11 +61,18 @@ test("first run: setup creates the owner and signs them in", async () => {
 
 test("networks: allow a subnet", async () => {
   await page.getByRole("link", { name: "Networks" }).first().click();
+  await page.getByRole("button", { name: "Add a network" }).click();
   await page.getByLabel("CIDR").fill("192.168.50.7/24");
   await page.getByLabel("Name").fill("Home LAN");
   await page.getByRole("button", { name: "Save network" }).click();
+  await expect(page.getByText("192.168.50.0/24 is now allowed.")).toBeVisible();
+  await page.keyboard.press("Escape");
   const row = page.getByRole("row", { name: /192\.168\.50\.0\/24/ });
   await expect(row).toContainText("allowed");
+  // Its DNS server, so scans can look device names up.
+  await row.getByLabel("DNS server for 192.168.50.0/24").fill("192.168.50.1");
+  await row.getByRole("button", { name: "Set" }).click();
+  await expect(page.getByText("Scans of 192.168.50.0/24 now look names up with 192.168.50.1.")).toBeVisible();
 });
 
 test("models: add a local provider and a model", async () => {
@@ -415,16 +422,18 @@ test("agents: hire a custom agent with chosen skills", async () => {
   await form.getByLabel("Job title").fill("Backup Admin");
   await form.getByLabel("Instructions").fill("You look after backups. Check the NAS is reachable each morning.");
   await form.getByLabel("Service Health Checks").check();
-  await form.getByLabel("Incident Management").check();
+  // How MOSS works (tickets, changes, the wiki...) is built in, not a choice.
+  await expect(form.getByLabel("Incident Management")).toHaveCount(0);
   await form.getByRole("button", { name: "Hire custom agent" }).click();
 
   await expect(page.getByRole("heading", { name: "Wren" })).toBeVisible();
   await expect(page.getByText("Backup Admin").first()).toBeVisible();
-  // Only the chosen skills are granted; the rest stay available to add.
+  // Only the chosen skills are granted; the rest stay available to add. The core ones are built in.
   const granted = page.getByRole("listitem").filter({ has: page.getByRole("button", { name: "Remove" }) });
-  await expect(granted).toHaveCount(2);
+  await expect(granted).toHaveCount(1);
   await expect(granted.filter({ hasText: "Service Health Checks" })).toHaveCount(1);
-  await expect(granted.filter({ hasText: "Incident Management" })).toHaveCount(1);
+  await page.getByText("Built in:").click();
+  await expect(page.getByRole("list", { name: "Built-in skills" })).toContainText("Incident Management");
 
   // Chat: the agent page's Chat opens the DM with Wren (no worker runs in this suite, so no reply).
   await page.getByRole("main").getByRole("link", { name: "Chat" }).click();
@@ -610,6 +619,8 @@ test("monitoring: add checks, and warn about targets outside allowed networks", 
   const [nina] = await db.select().from(agents).where(eq(agents.name, "Nina"));
 
   await page.getByRole("link", { name: "Monitoring" }).first().click();
+  // The form lives behind a button at the top right.
+  await page.getByRole("button", { name: "Add a monitor" }).click();
   await page.getByLabel("Name", { exact: true }).fill("NAS web");
   await page.getByRole("combobox", { name: /^Check type/ }).selectOption("http");
   await page.getByLabel("Target", { exact: true }).fill("192.168.50.10");
@@ -623,6 +634,7 @@ test("monitoring: add checks, and warn about targets outside allowed networks", 
   await expect(page.getByText("MOSS will not check this target")).toHaveCount(0);
 
   await page.goto("/monitoring");
+  await page.getByRole("button", { name: "Add a monitor" }).click();
   await page.getByLabel("Name", { exact: true }).fill("Cloud DNS");
   await page.getByRole("combobox", { name: /^Check type/ }).selectOption("tcp");
   await page.getByLabel("Target", { exact: true }).fill("8.8.8.8");
@@ -719,7 +731,7 @@ test("modules: Home Assistant is connected, tested, switched on, and fills in th
   await inventory.getByRole("button", { name: "Sync now" }).click();
   await expect(page.getByText("Matched 0 device(s) to the inventory, added 1, skipped 0 with no address on an allowed network.")).toBeVisible();
   await page.goto("/assets");
-  await expect(page.getByRole("link", { name: "Living room TV" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Living room TV", exact: true })).toBeVisible();
 
   await page.goto("/settings/modules");
   await expect(page.getByText("Using: alerts, inventory sync.")).toBeVisible();
@@ -878,6 +890,56 @@ test("basement: shows every agent at a desk or on a break, as a scene and as a l
   await expect(nina).toContainText(/WORKING|ON BREAK|RESPONDING/);
   await nina.getByRole("link", { name: "Nina", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Nina" })).toBeVisible();
+});
+
+test("assets: added from the top; each shows what agents can do with it, and a wizard sets up access", async () => {
+  await signOut();
+  await signIn(OWNER.email, OWNER.password, totpCode(ownerTotpSecret));
+  await page.goto("/assets");
+  for (const [name, ip] of [["Garage switch", "192.168.50.20"], ["Cloud box", "203.0.113.5"]] as const) {
+    await page.getByRole("button", { name: "Add an asset" }).click();
+    const d = page.getByRole("dialog", { name: "Add an asset" });
+    await d.getByLabel("Name").fill(name);
+    await d.getByLabel("IP address").fill(ip);
+    await d.getByRole("button", { name: "Add asset" }).click();
+    await expect(page.getByText(`Added ${name}.`)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("link", { name, exact: true })).toBeVisible();
+  }
+  await expect(page.getByRole("link", { name: "Agent access to Cloud box: No access. Set up access" })).toBeVisible();
+  await page.getByRole("link", { name: "Agent access to Garage switch: Look only. Set up access" }).click();
+
+  // The badge opens the wizard: network, sign-in, agents, check.
+  const w = page.getByRole("dialog", { name: "Agent access to Garage switch" });
+  await expect(w).toContainText("is on an allowed network");
+  await w.getByRole("button", { name: "Next" }).click();
+  await w.getByRole("radio", { name: /Give agents a new credential/ }).check();
+  await w.getByLabel("Kind").selectOption("password");
+  await expect(w.getByLabel("Secret name")).toHaveValue("garage-switch-password");
+  await w.getByLabel("Username", { exact: true }).fill("admin");
+  await w.getByLabel("Password", { exact: true }).fill("a-long-switch-password");
+  await w.getByRole("button", { name: "Next" }).click();
+  await expect(w.getByRole("checkbox", { name: /synology_status/ })).toBeChecked();
+  await w.getByRole("checkbox", { name: /^Nina/ }).check();
+  await w.getByRole("button", { name: "Next" }).click();
+  await expect(w).toContainText("Store secret:garage-switch-password, usable only against 192.168.50.20");
+  await w.getByRole("button", { name: "Set up access" }).click();
+  await expect(page.getByText(/Done: Stored secret:garage-switch-password \(22 characters\) for 192\.168\.50\.20; gave secret:garage-switch-password to Nina/)).toBeVisible();
+  await expect(page.getByText("Signs in", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("list", { name: "Credentials agents hold for it" })).toContainText("secret:garage-switch-password");
+
+  // Off the allowed networks: the wizard offers to allow it.
+  await page.goto("/assets");
+  await page.getByRole("link", { name: "Agent access to Cloud box: No access. Set up access" }).click();
+  const w2 = page.getByRole("dialog", { name: "Agent access to Cloud box" });
+  await expect(w2.getByRole("textbox", { name: /^Network/ })).toHaveValue("203.0.113.0/24");
+  await w2.getByRole("textbox", { name: /^Network/ }).fill("203.0.113.5/32");
+  await w2.getByRole("button", { name: "Next" }).click();
+  await w2.getByRole("radio", { name: /Look only/ }).check();
+  for (let i = 0; i < 2; i++) await w2.getByRole("button", { name: "Next" }).click();
+  await w2.getByRole("button", { name: "Set up access" }).click();
+  await expect(page.getByText("Done: Allowed 203.0.113.5/32.")).toBeVisible();
+  await expect(page.getByText("Look only", { exact: true }).first()).toBeVisible();
 });
 
 test("audit: the log is intact after all of that", async () => {

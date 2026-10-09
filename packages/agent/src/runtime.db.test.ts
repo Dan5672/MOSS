@@ -1,13 +1,14 @@
 // Agent runtime against Postgres with a scripted LLM and a fake gate. Run with MOSS_TEST_DATABASE_URL set.
 import { approveChange, bootstrapOrg, createChangeRequest, getChange, getIncident, setNetworkStatus, setSetting } from "@moss/core";
-import { agentRuns, agents, agentSkills, agentToolOverrides, assets, budgets, models, notifications, providers, runSteps, tokenUsage, type Database } from "@moss/db";
+import { agentRuns, agents, agentSkills, agentToolOverrides, assets, budgets, models, notifications, providers, runSteps, skills, tokenUsage, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { MockAdapter, type ScriptedTurn } from "@moss/llm";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { loadLibrary, syncBuiltInSkills, type Library } from "./library.js";
-import { fireAgent, hireFromTemplate, pauseAgent, type Actor } from "./lifecycle.js";
+import { fireAgent, hireFromTemplate, pauseAgent, removeSkill, type Actor } from "./lifecycle.js";
+import { ensureCoreSkills } from "./library.js";
 import { runAgent, type GateClient, type GateToolResponse } from "./runtime.js";
 
 const LIBRARY_DIR = fileURLToPath(new URL("../../../library", import.meta.url));
@@ -94,6 +95,13 @@ describe.skipIf(!TEST_DATABASE_URL)("agent runtime (postgres)", () => {
     expect(nina).toMatchObject({ name: "Nina", title: "Network Admin", templateKey: "network-admin", effort: "medium", maxStepsPerRun: 30 });
     expect(nina.reportsToAgentId).toBe(manager.id);
     expect(manager.reportsToUserId).toBe(actor.userId);
+    expect(await db.select().from(agentSkills).where(eq(agentSkills.agentId, nina.id))).toHaveLength(12); // 4 from the template, 8 core
+    // Core skills can't be taken away, and anything missing one gets it back.
+    await expect(removeSkill(db, actor, nina.id, "incident-management")).rejects.toThrow(/every agent has it/);
+    await removeSkill(db, actor, nina.id, "unifi-actions");
+    const [core] = await db.select().from(skills).where(eq(skills.key, "team-memory"));
+    await db.delete(agentSkills).where(and(eq(agentSkills.agentId, nina.id), eq(agentSkills.skillId, core!.id)));
+    expect(await ensureCoreSkills(db, actor.orgId)).toBe(1);
     expect(await db.select().from(agentSkills).where(eq(agentSkills.agentId, nina.id))).toHaveLength(11);
   });
 

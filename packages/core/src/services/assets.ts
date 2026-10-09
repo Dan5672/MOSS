@@ -30,8 +30,24 @@ export type Actor = { type: "user" | "agent" | "system"; id: string | null };
 
 const MAX_HOSTNAMES = 10;
 
+/** A device's DNS name, without the domain: "nas" for nas.home.lan. */
+export function shortHostname(name: string): string {
+  return /^[0-9.:]+$/.test(name) ? name : (name.split(".")[0] || name);
+}
+
 function defaultName(h: DiscoveredHost): string {
-  return h.hostnames?.[0] ?? (h.vendor && !h.vendor.startsWith("(") ? `${h.vendor} ${h.ip}` : h.ip);
+  const host = h.hostnames?.[0];
+  return host ? shortHostname(host) : h.vendor && !h.vendor.startsWith("(") ? `${h.vendor} ${h.ip}` : h.ip;
+}
+
+/**
+ * A name made up because nothing better was known: the bare IP, or something built around it
+ * ("camera-10.0.0.7", "Espressif 10.0.0.9"). Those are replaced once a device's real name turns up.
+ */
+export function isPlaceholderName(name: string, ip: string | null): boolean {
+  if (!ip) return false;
+  const n = name.trim();
+  return n === ip || n.endsWith(` ${ip}`) || n.endsWith(`-${ip}`) || n.endsWith(`_${ip}`) || n.endsWith(`(${ip})`);
 }
 
 async function networkFor(db: Database, orgId: string, ip: string): Promise<string | null> {
@@ -86,6 +102,7 @@ export async function ingestDiscoveredHosts(
         if (h.vendor && !existing.vendor) patch.vendor = h.vendor;
         const names = [...new Set([...existing.hostnames, ...(h.hostnames ?? [])])].slice(0, MAX_HOSTNAMES);
         if (names.length !== existing.hostnames.length) patch.hostnames = names;
+        if (names[0] && isPlaceholderName(existing.name, existing.primaryIp)) patch.name = shortHostname(names[0]);
         if (existing.primaryIp !== h.ip) patch.networkId = await networkFor(db, orgId, h.ip);
       }
       await db.update(assets).set(patch).where(eq(assets.id, assetId));

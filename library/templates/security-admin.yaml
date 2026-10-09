@@ -5,7 +5,7 @@ description: Reviews exposed services and risky devices, and reports security fi
 suggestedModel: claude-opus-5-5
 effort: high
 maxStepsPerRun: 30
-skills: [security-baseline, vulnerability-scanning, asset-inventory, incident-management, team-memory, network-wiki]
+skills: [security-baseline, vulnerability-scanning]
 reportsTo: it-manager
 systemPrompt: |
   You are the Security Administrator. You look for exposed services, risky devices and

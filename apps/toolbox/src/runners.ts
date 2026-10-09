@@ -165,7 +165,12 @@ async function runToolInner(
       const targets = args.targets as string[];
       assertTargets(targets);
       const scan = async (icmpOnly: boolean) => {
-        const flags = [...NMAP_PROFILES[args.profile as string]!, ...(icmpOnly ? ICMP_DISCOVERY : []), "--privileged", "-oX", "-", ...targets];
+        // Names come from reverse DNS. Inside a container the default resolver can't answer for the LAN, so
+        // ask the network's own DNS server when MOSS knows it.
+        const dnsServers = (args.dnsServers as string[] | undefined) ?? [];
+        assertTargets(dnsServers);
+        const dns = dnsServers.length ? ["--dns-servers", dnsServers.join(",")] : [];
+        const flags = [...NMAP_PROFILES[args.profile as string]!, ...(icmpOnly ? ICMP_DISCOVERY : []), ...dns, "--privileged", "-oX", "-", ...targets];
         const res = await exec("nmap", flags, 15 * 60_000);
         if (res.code !== 0 && !res.stdout.includes("<nmaprun")) throw new ToolError(`nmap failed: ${res.stderr.slice(0, 500)}`);
         return parseNmapXml(res.stdout);

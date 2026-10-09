@@ -27,6 +27,7 @@ export const nmapScan = tool(
   z.object({
     targets: z.array(ipOrCidr).min(1).max(16),
     profile: z.enum(["ping", "top100", "services"]),
+    dnsServers: z.array(z.string().max(45).regex(/^[0-9A-Fa-f:.]+$/)).max(2).optional().describe("Leave out: MOSS fills in the network's DNS server, for device names"),
   }),
 );
 

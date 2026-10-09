@@ -1,10 +1,11 @@
 import { listMonitors } from "@moss/core";
 import Link from "next/link";
 import { ActionForm } from "@/components/action-form";
+import { FormDialog } from "@/components/form-dialog";
 import { Pill, PriorityBadge, StatusBadge } from "@/components/badges";
 import { Empty, NoPermission, PageHeader, timeAgo } from "@/components/page";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { SortableHead } from "@/components/sortable-head";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { readSort, sortRows } from "@/lib/sort";
@@ -53,9 +54,24 @@ export default async function MonitoringPage({ searchParams }: PageProps<"/monit
         title="Monitoring"
         description="Keep watch on the services that matter. When one goes down, MOSS raises an incident and its responder agent starts working it."
         actions={
-          <Button asChild variant="outline">
-            <Link href="/monitoring/sources">Webhook sources</Link>
-          </Button>
+          <>
+            <Button asChild variant="outline">
+              <Link href="/monitoring/sources">Webhook sources</Link>
+            </Button>
+            {canManage && options && (
+              <FormDialog
+                label="Add a monitor"
+                title="Add a monitor"
+                description="Checks run from the MOSS toolbox through the policy gate, so the target must be inside an allowed network."
+                wide
+                defaultOpen={sp.new === "1"}
+              >
+                <ActionForm action={createMonitorAction} submitLabel="Add monitor">
+                  <MonitorFields defaults={defaults ?? undefined} assets={options.assets} responders={options.responders} />
+                </ActionForm>
+              </FormDialog>
+            )}
+          </>
         }
       />
 
@@ -79,7 +95,7 @@ export default async function MonitoringPage({ searchParams }: PageProps<"/monit
 
       {rows.length === 0 ? (
         <Empty>
-          No monitors yet. Add a check below, or connect Uptime Kuma, Beszel or Alertmanager under{" "}
+          No monitors yet. Add one with Add a monitor, or connect Uptime Kuma, Beszel or Alertmanager under{" "}
           <Link href="/monitoring/sources" className="underline">
             Webhook sources
           </Link>
@@ -135,21 +151,6 @@ export default async function MonitoringPage({ searchParams }: PageProps<"/monit
         </Table>
       )}
 
-      {canManage && options && (
-        <Card className="mt-8 max-w-3xl" id="new">
-          <CardHeader>
-            <CardTitle>Add a monitor</CardTitle>
-            <CardDescription>
-              Checks run from the MOSS toolbox through the policy gate, so the target must be inside an allowed network.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ActionForm action={createMonitorAction} submitLabel="Add monitor">
-              <MonitorFields defaults={defaults ?? undefined} assets={options.assets} responders={options.responders} />
-            </ActionForm>
-          </CardContent>
-        </Card>
-      )}
     </>
   );
 }

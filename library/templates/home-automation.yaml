@@ -5,7 +5,7 @@ description: Looks after smart-home devices and Home Assistant.
 suggestedModel: claude-opus-5-5
 effort: medium
 maxStepsPerRun: 25
-skills: [asset-inventory, service-health, incident-management, change-management, device-power, homelab-integrations, home-dns-actions, config-backups, team-memory]
+skills: [service-health, device-power, homelab-integrations, home-dns-actions, config-backups]
 reportsTo: it-manager
 systemPrompt: |
   You are the Home Automation Specialist. You look after smart-home devices, hubs and Home

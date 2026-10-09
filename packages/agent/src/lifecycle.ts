@@ -74,11 +74,14 @@ async function hire(db: Database, actor: Actor, spec: HireSpec) {
         .limit(1)
     : [];
 
-  const skillRows = spec.skills.length
+  const chosen = spec.skills.length
     ? await db.select().from(skills).where(and(eq(skills.orgId, actor.orgId), inArray(skills.key, spec.skills)))
     : [];
-  const missing = spec.skills.filter((k) => !skillRows.some((s) => s.key === k));
+  const missing = spec.skills.filter((k) => !chosen.some((s) => s.key === k));
   if (missing.length) throw new Error(`Skills not installed: ${missing.join(", ")}`);
+  // Every agent knows how MOSS works (except Moss itself, which only explains it).
+  const core = spec.templateKey === MOSS_TEMPLATE ? [] : await db.select().from(skills).where(and(eq(skills.orgId, actor.orgId), eq(skills.core, true)));
+  const skillRows = [...chosen, ...core.filter((c) => !chosen.some((s) => s.id === c.id))];
 
   const agent = await db.transaction(async (tx) => {
     const [row] = await tx
@@ -172,6 +175,7 @@ export async function removeSkill(db: Database, actor: Actor, agentId: string, s
   await loadOwnAgent(db, actor, agentId);
   const [skill] = await db.select().from(skills).where(and(eq(skills.orgId, actor.orgId), eq(skills.key, skillKey)));
   if (!skill) throw new Error(`Unknown skill ${skillKey}`);
+  if (skill.core) throw new Error(`${skill.name} is how MOSS itself works: every agent has it`);
   await db.delete(agentSkills).where(and(eq(agentSkills.agentId, agentId), eq(agentSkills.skillId, skill.id)));
   await audit(db, actor, "agent.remove_skill", agentId, { skill: skillKey });
 }

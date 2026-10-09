@@ -154,8 +154,11 @@ export default async function AgentsPage({ searchParams }: PageProps<"/agents">)
                       />
                       <fieldset className="grid gap-2">
                         <legend className="mb-2 text-sm font-medium">Skills</legend>
+                        <p className="text-xs text-muted-foreground">
+                          Every agent already knows how MOSS works: {skillRows.filter((s) => s.core).map((s) => s.name).join(", ")}. Add what this one needs on top.
+                        </p>
                         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                          {skillRows.map((s) => (
+                          {skillRows.filter((s) => !s.core).map((s) => (
                             <CheckboxField key={s.key} label={s.name} name="skills" value={s.key} hint={s.description} />
                           ))}
                         </div>

@@ -1,6 +1,7 @@
 // Loads the prewritten skill and agent-template library (library/skills, library/templates)
 // and syncs built-in skills into the database.
-import { skills, type Database } from "@moss/db";
+import { agents, agentSkills, skills, type Database } from "@moss/db";
+import { sql } from "drizzle-orm";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -14,6 +15,8 @@ const skillFrontmatter = z.object({
   description: z.string().min(1),
   version: z.string().default("1.0.0"),
   tools: z.array(z.string()).default([]),
+  /** How MOSS itself works: every agent has it (except Moss), and it can't be removed. */
+  core: z.boolean().default(false),
 });
 
 export interface SkillDefinition extends z.infer<typeof skillFrontmatter> {
@@ -94,6 +97,7 @@ export async function syncBuiltInSkills(db: Database, orgId: string, defs: Itera
       instructions: s.instructions,
       toolGrants: s.tools,
       builtIn: true,
+      core: s.core,
       updatedAt: new Date(),
     };
     await db
@@ -101,4 +105,19 @@ export async function syncBuiltInSkills(db: Database, orgId: string, defs: Itera
       .values({ orgId, key: s.key, ...values })
       .onConflictDoUpdate({ target: [skills.orgId, skills.key], set: values });
   }
+}
+
+/**
+ * Gives every working agent the core skills: how MOSS's own tickets, inventory, wiki and monitoring work.
+ * Moss (the MOSS expert) is left out: it isn't a day-to-day admin. Returns how many were added.
+ */
+export async function ensureCoreSkills(db: Database, orgId: string): Promise<number> {
+  const rows = await db.execute(sql`
+    insert into ${agentSkills} (agent_id, skill_id)
+    select a.id, s.id from ${agents} a cross join ${skills} s
+    where a.org_id = ${orgId} and s.org_id = ${orgId} and s.core and a.status <> 'fired'
+      and (a.template_key is null or a.template_key <> 'moss')
+    on conflict do nothing
+    returning agent_id`);
+  return rows.length;
 }

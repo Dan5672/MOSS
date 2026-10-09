@@ -12,6 +12,7 @@ import {
   runAgent,
   SCHEDULE_QUEUE,
   syncBuiltInSkills,
+  ensureCoreSkills,
   type ClaudeCodeConfig,
   type GateClient,
   type ProviderFactory,
@@ -238,7 +239,11 @@ export async function startWorker(cfg: WorkerConfig) {
 
   const lib = cfg.libraryDir ? await loadLibrary(cfg.libraryDir) : null;
   if (lib) {
-    for (const org of await db.select({ id: orgs.id }).from(orgs)) await syncBuiltInSkills(db, org.id, lib.skills.values());
+    for (const org of await db.select({ id: orgs.id }).from(orgs)) {
+      await syncBuiltInSkills(db, org.id, lib.skills.values());
+      const added = await ensureCoreSkills(db, org.id);
+      if (added) log("core skills given", { orgId: org.id, added });
+    }
     log("library synced", { skills: lib.skills.size, templates: lib.templates.size });
   }
   // Every install has a Moss, the expert on MOSS itself, once there is a model to run it on.
@@ -284,6 +289,8 @@ export async function startWorker(cfg: WorkerConfig) {
   const sync = async () => {
     try {
       await hireMoss();
+      // Agents hired since the last sync get the core skills too (hiring adds them; this is the backstop).
+      for (const org of await db.select({ id: orgs.id }).from(orgs)) await ensureCoreSkills(db, org.id);
       const res = await syncSchedules(db, boss);
       if (res.added || res.removed) log("schedules synced", res);
     } catch (err) {

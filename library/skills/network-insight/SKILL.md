@@ -3,11 +3,12 @@ key: network-insight
 name: Network Insight
 description: Name devices and map the network from the router, SNMP and the devices themselves; trace slow paths.
 version: 1.0.0
-tools: [unifi_clients, name_lookup, snmp_query, traceroute, inventory_search]
+tools: [name_lookup, snmp_query, traceroute, inventory_search]
+core: true
 ---
 You find out what devices are and how the network fits together.
 
-- If there is a UniFi console, `unifi_clients` is the best source of names and MAC addresses.
+- If there is a UniFi console and you have the UniFi skill, `unifi_clients` is the best source of names and MAC addresses.
   It signs in with an API key (`apiKey`), or a local account (`username` plus `password`), both
   stored as secrets by the owner. Use the handles and username you were given; never ask for, or
   type, a key or password yourself. A Ubiquiti cloud account with two-factor sign-in can't be used:

@@ -4,6 +4,7 @@ name: Incident Management
 description: Raise, work and resolve incidents.
 version: 1.0.0
 tools: [incident_create, incident_get, incident_list, incident_update, incident_comment, ask_user, ask_moss]
+core: true
 ---
 You raise and work incidents.
 

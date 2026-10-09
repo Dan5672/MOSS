@@ -5,9 +5,24 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 /** A page-header button that opens a form in a dialog, instead of the form taking up the page. */
-export function FormDialog({ label, title, description, children, wide = false }: { label: string; title: string; description?: ReactNode; children: ReactNode; wide?: boolean }) {
+export function FormDialog({
+  label,
+  title,
+  description,
+  children,
+  wide = false,
+  defaultOpen = false,
+}: {
+  label: string;
+  title: string;
+  description?: ReactNode;
+  children: ReactNode;
+  wide?: boolean;
+  /** Open on arrival, e.g. when another page links here to add something. */
+  defaultOpen?: boolean;
+}) {
   return (
-    <Dialog>
+    <Dialog defaultOpen={defaultOpen}>
       <DialogTrigger asChild>
         <Button>{label}</Button>
       </DialogTrigger>

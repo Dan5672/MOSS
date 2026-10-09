@@ -2,11 +2,17 @@
 // and add it to MASCOTS below. Everything else (the picker, validation, the sprite checks) picks it up.
 // Shared by the Mascot component and scripts/build-icons.ts, so keep it free of React and DOM code.
 import { beanie } from "./beanie";
+import { cyborg } from "./cyborg";
+import { goth } from "./goth";
 import { headset } from "./headset";
 import { monitor } from "./monitor";
 import { nightshift } from "./nightshift";
+import { oracle } from "./oracle";
+import { ponytail } from "./ponytail";
+import { specs } from "./specs";
+import { suit } from "./suit";
 
-export const MASCOTS = { monitor, beanie, headset, nightshift } as const;
+export const MASCOTS = { monitor, beanie, headset, nightshift, ponytail, suit, goth, oracle, cyborg, specs } as const;
 
 export type MascotVariant = keyof typeof MASCOTS;
 

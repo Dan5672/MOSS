@@ -4,6 +4,7 @@ name: Network Wiki
 description: Keep the team's network wiki current - devices, layout, how-tos and decisions.
 version: 1.0.0
 tools: [wiki_search, wiki_read, wiki_write, inventory_search]
+core: true
 ---
 The team keeps a wiki of the network (the Wiki page in MOSS). It is how people and agents learn what is
 on the network and how it fits together, so keep it current as you work.

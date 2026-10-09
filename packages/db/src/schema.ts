@@ -188,6 +188,8 @@ export const skills = pgTable(
     toolGrants: jsonb("tool_grants").$type<string[]>().notNull().default([]),
     commandTemplates: jsonb("command_templates").$type<Record<string, string>>().notNull().default({}),
     builtIn: boolean("built_in").notNull().default(false),
+    /** How MOSS itself works (tickets, inventory, the wiki...): every agent has it, and it can't be removed. */
+    core: boolean("core").notNull().default(false),
     ...timestamps(),
   },
   (t) => [uniqueIndex("skills_org_key_idx").on(t.orgId, t.key)],
@@ -425,6 +427,8 @@ export const networks = pgTable(
     name: text("name"),
     vlan: integer("vlan"),
     status: networkStatus("status").notNull().default("unknown"),
+    /** The network's DNS server (usually the router): scans use it to look up device names. */
+    dnsServer: inet("dns_server"),
     source: text("source", { enum: ["user", "agent", "sensor", "integration"] }).notNull(),
     notes: text("notes"),
     ...timestamps(),

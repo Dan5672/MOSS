@@ -2,7 +2,7 @@
 // only component that can decrypt secrets. Every decision is written to the audit log.
 import { decryptSecret, getSetting, isModuleEnabled, moduleForTool, redactSecrets, writeAudit } from "@moss/core";
 import type { Database } from "@moss/db";
-import { checkSecrets, evaluate, extractSecretHandles, parseRange, type DenyCode, type IpRange } from "@moss/policy";
+import { checkSecrets, contains, evaluate, extractSecretHandles, parseRange, type DenyCode, type IpRange } from "@moss/policy";
 import {
   BUILT_IN_TOOLS,
   customToolDefinition,
@@ -142,6 +142,12 @@ export function createGate(deps: GateDeps) {
         const passwordHandle = typeof args.password === "string" ? SECRET_HANDLE.exec(args.password)?.[1] : undefined;
         const storedUsername = passwordHandle ? ctx.secretRows.get(passwordHandle)?.username : null;
         if ("username" in shape && args.username === undefined && storedUsername) callArgs.username = storedUsername;
+        // Scans look names up with the DNS server set for the target's network; an agent can't choose its own.
+        if (req.tool === "nmap_scan") {
+          const servers = dnsServersFor(args.targets as string[], ctx.policy.networks as { cidr: string; dnsServer?: string | null }[]);
+          if (servers.length) callArgs.dnsServers = servers;
+          else delete callArgs.dnsServers;
+        }
         response = await deps.toolbox.call(req.tool, callArgs);
       }
     } catch (err) {
@@ -199,3 +205,20 @@ export function createGate(deps: GateDeps) {
 }
 
 export type Gate = ReturnType<typeof createGate>;
+
+/** The DNS servers of the most specific networks holding these targets (at most two). */
+export function dnsServersFor(targets: string[], nets: { cidr: string; dnsServer?: string | null }[]): string[] {
+  const out = new Set<string>();
+  for (const t of targets) {
+    const target = parseRange(t);
+    if (!target) continue;
+    let best: { dns: string; size: bigint } | null = null;
+    for (const n of nets) {
+      const r = parseRange(n.cidr);
+      if (!n.dnsServer || !r || !contains(r, target)) continue;
+      if (!best || r.end - r.start < best.size) best = { dns: n.dnsServer, size: r.end - r.start };
+    }
+    if (best) out.add(best.dns);
+  }
+  return [...out].slice(0, 2);
+}

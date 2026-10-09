@@ -37,7 +37,7 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
 
   const [agentSkillRows, allSkills, runs, budgetRows, schedules, modelRows, budgetStatus, lastScheduledRuns, myIncidents, downMonitors] = await Promise.all([
     db()
-      .select({ key: skills.key, name: skills.name, description: skills.description, tools: skills.toolGrants })
+      .select({ key: skills.key, name: skills.name, description: skills.description, tools: skills.toolGrants, core: skills.core })
       .from(agentSkills)
       .innerJoin(skills, eq(agentSkills.skillId, skills.id))
       .where(eq(agentSkills.agentId, id)),
@@ -77,7 +77,9 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const canManage = user.permissions.has("agents.manage") && agent.status !== "fired";
   const canBudget = user.permissions.has("agents.budget") && agent.status !== "fired";
-  const missingSkills = allSkills.filter((s) => !agentSkillRows.some((a) => a.key === s.key));
+  const missingSkills = allSkills.filter((s) => !s.core && !agentSkillRows.some((a) => a.key === s.key));
+  const coreSkills = agentSkillRows.filter((s) => s.core);
+  const ownSkills = agentSkillRows.filter((s) => !s.core);
 
   return (
     <>
@@ -160,11 +162,27 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
           </Section>
 
           <Section title="Skills">
-            {agentSkillRows.length === 0 ? (
-              <Empty>No skills. Without skills, {agent.name} has no tools.</Empty>
+            {coreSkills.length > 0 && (
+              <details className="px-frame p-3 text-sm">
+                <summary className="cursor-pointer">
+                  <span className="font-medium">Built in:</span> how MOSS works <span className="text-muted-foreground">({coreSkills.map((s) => s.name).join(", ")})</span>
+                </summary>
+                <p className="mt-2 text-xs text-muted-foreground">Every agent has these: tickets, changes, the inventory, the wiki and monitoring. They can&apos;t be removed.</p>
+                <ul className="mt-2 grid gap-2" aria-label="Built-in skills">
+                  {coreSkills.map((s) => (
+                    <li key={s.key}>
+                      <div className="font-medium">{s.name}</div>
+                      <div className="font-mono text-xs text-muted-foreground">{s.tools.join(", ")}</div>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+            {ownSkills.length === 0 ? (
+              <Empty>No extra skills yet. Add one for each product or job {agent.name} should handle, like UniFi or server checks.</Empty>
             ) : (
               <ul className="divide-y-2 px-frame">
-                {agentSkillRows.map((s) => (
+                {ownSkills.map((s) => (
                   <li key={s.key} className="flex items-start justify-between gap-4 p-3">
                     <div className="text-sm">
                       <div className="font-medium">{s.name}</div>
