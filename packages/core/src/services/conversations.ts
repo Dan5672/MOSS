@@ -66,9 +66,36 @@ export async function addToChannel(db: Database, orgId: string, conversationId: 
   await db.insert(conversationMembers).values(memberValues(conversationId, member)).onConflictDoNothing();
 }
 
+export const GENERAL_CHANNEL = "general";
+
+/**
+ * The company-wide channel, #general: created on first use, and everyone who can sign in is in it.
+ * People can't leave it. Agents join when they're @mentioned there, like any channel.
+ */
+export async function ensureGeneralChannel(db: Database, orgId: string): Promise<string> {
+  let [conv] = await db.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.orgId, orgId), eq(conversations.name, GENERAL_CHANNEL)));
+  if (!conv) {
+    [conv] = await db
+      .insert(conversations)
+      .values({ orgId, kind: "channel", name: GENERAL_CHANNEL, topic: "Everyone, company-wide. @mention an agent to ask it something." })
+      .onConflictDoNothing()
+      .returning({ id: conversations.id });
+    conv ??= (await db.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.orgId, orgId), eq(conversations.name, GENERAL_CHANNEL))))[0]!;
+  }
+  const people = await db.select({ id: users.id }).from(users).where(eq(users.orgId, orgId));
+  if (people.length) {
+    await db
+      .insert(conversationMembers)
+      .values(people.map((u) => memberValues(conv!.id, { type: "user", id: u.id })))
+      .onConflictDoNothing();
+  }
+  return conv.id;
+}
+
 export async function leaveChannel(db: Database, orgId: string, conversationId: string, userId: string) {
   const [conv] = await db.select().from(conversations).where(and(eq(conversations.id, conversationId), eq(conversations.orgId, orgId)));
   if (!conv || conv.kind !== "channel") throw new ChatError("You can only leave a channel");
+  if (conv.name === GENERAL_CHANNEL) throw new ChatError("Everyone stays in #general");
   await db.delete(conversationMembers).where(and(eq(conversationMembers.conversationId, conversationId), eq(conversationMembers.userId, userId)));
 }
 

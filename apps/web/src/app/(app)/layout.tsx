@@ -5,7 +5,6 @@ import Link from "next/link";
 import { KillSwitchPanel } from "@/components/kill-switch-panel";
 import { Logo } from "@/components/logo";
 import { Nav } from "@/components/nav";
-import { ChatNav } from "@/components/chat-nav";
 import { Button } from "@/components/ui/button";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
@@ -39,7 +38,6 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       .where(and(eq(incidents.orgId, user.orgId), notInArray(incidents.status, ["resolved", "closed"]))),
     listConversations(db(), user.orgId, user.id),
   ]);
-  const recentChats = chats.slice(0, 6).map((c) => ({ id: c.id, title: c.title, unread: c.unread }));
   const badges = {
     "/changes": user.permissions.has("changes.approve") ? (pending?.n ?? 0) : 0,
     "/monitoring": user.permissions.has("monitoring.read") ? (down?.n ?? 0) : 0,
@@ -64,7 +62,6 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
           <Logo variant="horizontal" />
         </Link>
         <Nav badges={badges} />
-        <ChatNav items={recentChats} />
         <div className="mt-auto grid gap-3">
           {killSwitchPanel}
           <div className="grid gap-2 border-t-2 pt-3 text-sm">

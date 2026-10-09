@@ -432,11 +432,17 @@ test("agents: hire a custom agent with chosen skills", async () => {
   await page.getByLabel("Message", { exact: true }).fill("Is the NAS backed up?");
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByRole("list", { name: "Messages" })).toContainText("Is the NAS backed up?");
-  // The DM is in the sidebar's recent chats.
-  await expect(page.getByRole("navigation", { name: "Recent chats" }).getByRole("link", { name: "Wren" })).toBeVisible();
+  // The DM is listed beside the conversation, Slack-style.
+  await expect(page.getByRole("navigation", { name: "Chats" }).getByRole("link", { name: "Wren" })).toBeVisible();
+
+  // Chat opens on the company-wide #general channel, which everyone is in.
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Chat" }).click();
+  await expect(page.getByRole("heading", { name: "#general" })).toBeVisible();
+  await page.getByText("Members (", { exact: false }).click();
+  await expect(page.getByRole("complementary", { name: "Members" })).toContainText("(you)");
+  await expect(page.getByRole("button", { name: "Leave channel" })).toHaveCount(0);
 
   // A channel: agents answer when @mentioned there.
-  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Chat" }).click();
   await page.getByRole("button", { name: "New channel" }).click();
   const create = page.getByRole("dialog", { name: "New channel" });
   await create.getByLabel("Name").fill("backups");
@@ -450,7 +456,10 @@ test("agents: hire a custom agent with chosen skills", async () => {
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByRole("list", { name: "Messages" }).locator("strong", { hasText: "@Wren" })).toBeVisible();
   // Mentioning Wren brought her into the channel.
+  await page.getByText("Members (", { exact: false }).click();
   await expect(page.getByRole("complementary", { name: "Members" }).getByRole("link", { name: "Wren" })).toBeVisible();
+  // The message box stays on screen, however long the history.
+  await expect(page.getByRole("button", { name: "Send" })).toBeInViewport();
 
   // A run that ended with a question: answer it from the run page, and it lands in the DM.
   const db = createDb(E2E_DATABASE_URL);
