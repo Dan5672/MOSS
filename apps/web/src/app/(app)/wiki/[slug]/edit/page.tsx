@@ -18,6 +18,7 @@ export default async function EditWikiPage({ params }: PageProps<"/wiki/[slug]/e
     <>
       <PageHeader
         title={`Edit: ${page.title}`}
+        trail={[{ href: "/wiki", label: "Wiki" }, { href: `/wiki/${page.slug}`, label: page.title }]}
         description="The page as it is now is kept in its history when you save."
         actions={
           <Link href={`/wiki/${page.slug}`} className="text-sm underline underline-offset-2">

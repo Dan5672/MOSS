@@ -29,21 +29,9 @@ export default async function WikiPageView({ params }: PageProps<"/wiki/[slug]">
 
   return (
     <>
-      <nav aria-label="Breadcrumb" className="mb-2 flex flex-wrap gap-1 text-sm text-muted-foreground">
-        <Link href="/wiki" className="underline-offset-2 hover:underline">
-          Wiki
-        </Link>
-        {trail.map((p) => (
-          <span key={p.id}>
-            {" / "}
-            <Link href={`/wiki/${p.slug}`} className="underline-offset-2 hover:underline">
-              {p.title}
-            </Link>
-          </span>
-        ))}
-      </nav>
       <PageHeader
         title={page.title}
+        trail={[{ href: "/wiki", label: "Wiki" }, ...trail.map((p) => ({ href: `/wiki/${p.slug}`, label: p.title }))]}
         description={
           <span>
             Last edited by {name(page.updatedByAgentId ?? page.updatedByUserId, "someone")} <span className="font-mono">{timeAgo(page.updatedAt)}</span>

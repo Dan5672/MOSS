@@ -1,13 +1,11 @@
+import { Breadcrumbs, type Crumb } from "./breadcrumbs";
 import type { ReactNode } from "react";
 
-export function PageHeader({ title, description, actions }: { title: string; description?: ReactNode; actions?: ReactNode }) {
+export function PageHeader({ title, description, actions, trail }: { title: string; description?: ReactNode; actions?: ReactNode; trail?: Crumb[] }) {
   return (
     <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
       <div className="min-w-0">
-        {/* Decorative location line; the heading below carries the page name. */}
-        <div aria-hidden className="mb-2 font-mono text-xs tracking-[1.5px] text-dim">
-          B1 / {title.toUpperCase()}
-        </div>
+        <Breadcrumbs title={title} trail={trail} />
         <h1 className="font-pixel text-[22px] leading-snug font-normal break-words text-ink dark:text-beige">{title}</h1>
         {description && <p className="mt-2 text-sm text-muted-foreground">{description}</p>}
       </div>

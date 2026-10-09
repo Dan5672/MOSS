@@ -28,6 +28,7 @@ export default async function WikiHistory({ params }: PageProps<"/wiki/[slug]/hi
     <>
       <PageHeader
         title={`History: ${page.title}`}
+        trail={[{ href: "/wiki", label: "Wiki" }, { href: `/wiki/${page.slug}`, label: page.title }]}
         description={`${versions.length} version${versions.length === 1 ? "" : "s"}.`}
         actions={
           <Link href={`/wiki/${page.slug}`} className="text-sm underline underline-offset-2">

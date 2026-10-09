@@ -9,6 +9,7 @@ import { SelectField } from "@/components/field";
 import { LiveRefresh } from "@/components/live-refresh";
 import { MascotSvg } from "@/components/mascot-svg";
 import { CommentText, MentionTextarea } from "@/components/mention-textarea";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 import { timeAgo } from "@/components/page";
 import { agentGlow, agentMascot } from "@/lib/agent-look";
 import { requireUser } from "@/server/auth";
@@ -65,6 +66,7 @@ export default async function ConversationPage({ params }: PageProps<"/chat/[id]
       <LiveRefresh everyMs={4000} />
       <header className="mb-3 flex shrink-0 flex-wrap items-start justify-between gap-3 border-b-2 pb-3">
         <div className="min-w-0">
+          <Breadcrumbs title={title} />
           <h1 className="font-pixel text-[20px] leading-snug font-normal break-words text-ink dark:text-beige">{title}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{description}</p>
         </div>

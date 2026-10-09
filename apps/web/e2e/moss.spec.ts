@@ -428,6 +428,13 @@ test("agents: hire a custom agent with chosen skills", async () => {
 
   await expect(page.getByRole("heading", { name: "Wren" })).toBeVisible();
   await expect(page.getByText("Backup Admin").first()).toBeVisible();
+  // Breadcrumbs: B1 / Agents / Wren, and Agents leads back.
+  const crumbs = page.getByRole("navigation", { name: "Breadcrumb" });
+  await expect(crumbs).toContainText("B1/AGENTS/WREN");
+  await crumbs.getByRole("link", { name: "AGENTS" }).click();
+  await expect(page).toHaveURL(/\/agents$/);
+  await page.getByRole("link", { name: "Wren", exact: true }).first().click();
+  await expect(page.getByRole("heading", { name: "Wren" })).toBeVisible();
   // Only the chosen skills are granted; the rest stay available to add. The core ones are built in.
   const granted = page.getByRole("listitem").filter({ has: page.getByRole("button", { name: "Remove" }) });
   await expect(granted).toHaveCount(1);
