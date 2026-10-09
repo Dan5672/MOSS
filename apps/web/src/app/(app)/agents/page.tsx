@@ -6,7 +6,9 @@ import { StatusBadge } from "@/components/badges";
 import { CheckboxField, SelectField, TextAreaField, TextField } from "@/components/field";
 import { Empty, formatUsd, PageHeader, Section, timeAgo } from "@/components/page";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { SortableHead } from "@/components/sortable-head";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
+import { readSort, sortRows } from "@/lib/sort";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { agentList } from "@/server/queries";
@@ -20,7 +22,7 @@ export const metadata = { title: "Agents" };
 
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 
-export default async function AgentsPage() {
+export default async function AgentsPage({ searchParams }: PageProps<"/agents">) {
   const user = await requireUser();
   const [list, lib, modelRows, skillRows] = await Promise.all([
     agentList(user.orgId),
@@ -30,7 +32,14 @@ export default async function AgentsPage() {
   ]);
   const enabledModels = modelRows.filter((m) => m.enabled);
   const canManage = user.permissions.has("agents.manage");
-  const team = list.filter((a) => a.status !== "fired");
+  const sp = await searchParams;
+  const sort = readSort(sp, ["name", "status", "model", "lastRun", "spend"] as const);
+  const team = sortRows(
+    list.filter((a) => a.status !== "fired"),
+    sort,
+    { name: (a) => a.name, status: (a) => a.status, model: (a) => a.modelName, lastRun: (a) => a.lastRun?.startedAt, spend: (a) => a.monthUsd },
+  );
+  const head = (label: string, key: string, className?: string) => <SortableHead label={label} sortKey={key} state={sort} path="/agents" sp={sp} className={className} />;
   const fired = list.filter((a) => a.status === "fired");
 
   return (
@@ -45,11 +54,11 @@ export default async function AgentsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Model</TableHead>
-                <TableHead>Last run</TableHead>
-                <TableHead className="text-right">Spend this month</TableHead>
+                {head("Name", "name")}
+                {head("Status", "status")}
+                {head("Model", "model")}
+                {head("Last run", "lastRun")}
+                {head("Spend this month", "spend", "text-right")}
               </TableRow>
             </TableHeader>
             <TableBody>

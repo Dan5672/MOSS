@@ -581,6 +581,18 @@ test("modules: Home Assistant is connected, tested, switched on, and fills in th
   await expect(page.getByText("Home Assistant module switched off")).toBeVisible();
 });
 
+test("tables: columns sort by clicking their header, and the order is in the URL", async () => {
+  await page.goto("/assets");
+  const ip = page.getByRole("columnheader", { name: /^IP/ });
+  await expect(ip).toHaveAttribute("aria-sort", "none");
+  await ip.getByRole("link").click();
+  await expect(page).toHaveURL(/sort=ip&dir=asc/);
+  await expect(page.getByRole("columnheader", { name: /^IP/ })).toHaveAttribute("aria-sort", "ascending");
+  await page.getByRole("columnheader", { name: /^IP/ }).getByRole("link").click();
+  await expect(page).toHaveURL(/sort=ip&dir=desc/);
+  await expect(page.getByRole("columnheader", { name: /^IP/ })).toHaveAttribute("aria-sort", "descending");
+});
+
 test("settings: the kill switch stops agents and shows everywhere", async () => {
   await page.goto("/settings");
   await page.getByRole("button", { name: "Turn on" }).first().click();

@@ -7,7 +7,9 @@ import { Empty, PageHeader, timeAgo, NoPermission } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { SortableHead } from "@/components/sortable-head";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
+import { ipKey, readSort, sortRows } from "@/lib/sort";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { addAssetAction } from "./actions";
@@ -20,7 +22,16 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
   const sp = await searchParams;
   const q = typeof sp.q === "string" ? sp.q.slice(0, 100) : "";
   const isIp = /^[0-9a-f:.]+(\/\d+)?$/i.test(q) && /[.:]/.test(q);
-  const rows = await searchAssets(db(), user.orgId, isIp ? { ip: q, limit: 200 } : { query: q || undefined, limit: 200 });
+  const sort = readSort(sp, ["name", "kind", "ip", "mac", "ports", "seen"] as const);
+  const rows = sortRows(await searchAssets(db(), user.orgId, isIp ? { ip: q, limit: 200 } : { query: q || undefined, limit: 200 }), sort, {
+    name: (a) => a.name,
+    kind: (a) => a.kind,
+    ip: (a) => ipKey(a.primaryIp),
+    mac: (a) => a.primaryMac ?? a.vendor,
+    ports: (a) => a.services.length,
+    seen: (a) => a.lastSeenAt,
+  });
+  const head = (label: string, key: string) => <SortableHead label={label} sortKey={key} state={sort} path="/assets" sp={sp} />;
 
   return (
     <>
@@ -37,12 +48,12 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Kind</TableHead>
-              <TableHead>IP</TableHead>
-              <TableHead>MAC / vendor</TableHead>
-              <TableHead>Open ports</TableHead>
-              <TableHead>Last seen</TableHead>
+              {head("Name", "name")}
+              {head("Kind", "kind")}
+              {head("IP", "ip")}
+              {head("MAC / vendor", "mac")}
+              {head("Open ports", "ports")}
+              {head("Last seen", "seen")}
             </TableRow>
           </TableHeader>
           <TableBody>

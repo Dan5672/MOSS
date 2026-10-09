@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { Pill } from "@/components/badges";
 import { Empty, NoPermission, PageHeader, Section, timeAgo } from "@/components/page";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { SortableHead } from "@/components/sortable-head";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
+import { readSort, sortRows } from "@/lib/sort";
 import { requireUser } from "@/server/auth";
 import { recentDenials, toolAccess } from "@/server/tool-catalog";
 import { ActionForm } from "@/components/action-form";
@@ -17,10 +19,21 @@ const SOURCES = [
   { key: "custom", title: "Custom tools", blurb: "Your own HTTP tools, granted to agents directly. They go through the policy gate like network tools." },
 ] as const;
 
-export default async function ToolAccessPage() {
+export default async function ToolAccessPage({ searchParams }: PageProps<"/agents/tools">) {
   const user = await requireUser();
   if (!user.permissions.has("agents.read")) return <NoPermission />;
-  const [{ tools, agents, sinceDays }, denials] = await Promise.all([toolAccess(user.orgId), recentDenials(user.orgId)]);
+  const sp = await searchParams;
+  const [{ tools: allTools, agents, sinceDays }, denials] = await Promise.all([toolAccess(user.orgId), recentDenials(user.orgId)]);
+  const sort = readSort(sp, ["tool", "type", "agents", "calls", "denied", "used"] as const);
+  const tools = sortRows(allTools, sort, {
+    tool: (t) => t.name,
+    type: (t) => t.kind,
+    agents: (t) => t.holders.length,
+    calls: (t) => t.calls,
+    denied: (t) => t.denied,
+    used: (t) => t.lastUsed,
+  });
+  const head = (label: string, key: string, className?: string) => <SortableHead label={label} sortKey={key} state={sort} path="/agents/tools" sp={sp} className={className} />;
   const unused = tools.filter((t) => t.holders.length === 0).length;
   const canManage = user.permissions.has("agents.manage");
 
@@ -55,12 +68,12 @@ export default async function ToolAccessPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Tool</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Agents with access</TableHead>
-                    <TableHead className="text-right">Calls</TableHead>
-                    <TableHead className="text-right">Denied</TableHead>
-                    <TableHead className="text-right">Last used</TableHead>
+                    {head("Tool", "tool")}
+                    {head("Type", "type")}
+                    {head("Agents with access", "agents")}
+                    {head("Calls", "calls", "text-right")}
+                    {head("Denied", "denied", "text-right")}
+                    {head("Last used", "used", "text-right")}
                   </TableRow>
                 </TableHeader>
                 <TableBody>

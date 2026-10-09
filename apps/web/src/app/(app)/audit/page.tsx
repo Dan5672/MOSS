@@ -6,7 +6,9 @@ import { Pill } from "@/components/badges";
 import { PageHeader, NoPermission } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SortableHead } from "@/components/sortable-head";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { readSort, sortRows } from "@/lib/sort";
 import { type ActionState } from "@/server/action";
 import { requirePermission, requireUser } from "@/server/auth";
 import { db } from "@/server/db";
@@ -26,9 +28,10 @@ async function verifyAction(_: ActionState): Promise<ActionState> {
 export default async function AuditPage({ searchParams }: PageProps<"/audit">) {
   const user = await requireUser();
   if (!user.permissions.has("audit.read")) return <NoPermission />;
-  const a = (await searchParams).action;
+  const sp = await searchParams;
+  const a = sp.action;
   const filter = typeof a === "string" ? a.replace(/[%_\\]/g, "").slice(0, 60) : "";
-  const [rows, name] = await Promise.all([
+  const [latest, name] = await Promise.all([
     db()
       .select()
       .from(auditLog)
@@ -37,6 +40,10 @@ export default async function AuditPage({ searchParams }: PageProps<"/audit">) {
       .limit(300),
     nameLookup(user.orgId),
   ]);
+  // Sorting reorders the latest 300 entries shown; the chain itself is always in # order.
+  const sort = readSort(sp, ["id", "when", "actor", "action"] as const);
+  const rows = sortRows(latest, sort, { id: (e) => e.id, when: (e) => e.createdAt, actor: (e) => `${e.actorType} ${name(e.actorId, "")}`, action: (e) => e.action });
+  const head = (label: string, key: string) => <SortableHead label={label} sortKey={key} state={sort} path="/audit" sp={sp} />;
 
   return (
     <>
@@ -54,10 +61,10 @@ export default async function AuditPage({ searchParams }: PageProps<"/audit">) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>#</TableHead>
-            <TableHead>When</TableHead>
-            <TableHead>Actor</TableHead>
-            <TableHead>Action</TableHead>
+            {head("#", "id")}
+            {head("When", "when")}
+            {head("Actor", "actor")}
+            {head("Action", "action")}
             <TableHead>Details</TableHead>
           </TableRow>
         </TableHeader>

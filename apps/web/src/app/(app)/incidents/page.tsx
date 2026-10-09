@@ -5,7 +5,9 @@ import { PriorityBadge, StatusBadge } from "@/components/badges";
 import { SelectField, TextAreaField, TextField } from "@/components/field";
 import { Empty, PageHeader, timeAgo, NoPermission } from "@/components/page";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { SortableHead } from "@/components/sortable-head";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
+import { readSort, sortRows } from "@/lib/sort";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { assigneeOptions, nameLookup } from "@/server/people";
@@ -16,12 +18,23 @@ export const metadata = { title: "Incidents" };
 export default async function IncidentsPage({ searchParams }: PageProps<"/incidents">) {
   const user = await requireUser();
   if (!user.permissions.has("incidents.read")) return <NoPermission />;
-  const showAll = (await searchParams).all === "1";
-  const [rows, options, name] = await Promise.all([
+  const sp = await searchParams;
+  const showAll = sp.all === "1";
+  const [unsorted, options, name] = await Promise.all([
     listIncidents(db(), user.orgId, { status: showAll ? undefined : ["new", "in_progress", "on_hold"], limit: 200 }),
     assigneeOptions(user.orgId),
     nameLookup(user.orgId),
   ]);
+  const sort = readSort(sp, ["ref", "priority", "title", "status", "assignee", "opened"] as const);
+  const rows = sortRows(unsorted, sort, {
+    ref: (i) => i.number,
+    priority: (i) => i.priority,
+    title: (i) => i.title,
+    status: (i) => i.status,
+    assignee: (i) => name(i.assignedAgentId ?? i.assignedUserId, ""),
+    opened: (i) => i.createdAt,
+  });
+  const head = (label: string, key: string) => <SortableHead label={label} sortKey={key} state={sort} path="/incidents" sp={sp} />;
 
   return (
     <>
@@ -40,12 +53,12 @@ export default async function IncidentsPage({ searchParams }: PageProps<"/incide
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Ref</TableHead>
-              <TableHead>Priority</TableHead>
-              <TableHead>Title</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Assignee</TableHead>
-              <TableHead>Opened</TableHead>
+              {head("Ref", "ref")}
+              {head("Priority", "priority")}
+              {head("Title", "title")}
+              {head("Status", "status")}
+              {head("Assignee", "assignee")}
+              {head("Opened", "opened")}
             </TableRow>
           </TableHeader>
           <TableBody>

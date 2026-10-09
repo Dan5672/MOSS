@@ -2,7 +2,9 @@ import { changeRef, listChanges, type ChangeStatus } from "@moss/core";
 import Link from "next/link";
 import { Pill, StatusBadge } from "@/components/badges";
 import { Empty, PageHeader, timeAgo, NoPermission } from "@/components/page";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { SortableHead } from "@/components/sortable-head";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
+import { readSort, sortRows } from "@/lib/sort";
 import { cn } from "@/lib/utils";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
@@ -21,9 +23,20 @@ const RISK_TONE = { low: "green", medium: "amber", high: "red" } as const;
 export default async function ChangesPage({ searchParams }: PageProps<"/changes">) {
   const user = await requireUser();
   if (!user.permissions.has("changes.read")) return <NoPermission />;
-  const v = (await searchParams).view;
+  const sp = await searchParams;
+  const v = sp.view;
   const view = typeof v === "string" && v in VIEWS ? v : "pending";
-  const [rows, name] = await Promise.all([listChanges(db(), user.orgId, { status: VIEWS[view]!.status, limit: 200 }), nameLookup(user.orgId)]);
+  const [unsorted, name] = await Promise.all([listChanges(db(), user.orgId, { status: VIEWS[view]!.status, limit: 200 }), nameLookup(user.orgId)]);
+  const sort = readSort(sp, ["ref", "title", "type", "risk", "status", "requested"] as const);
+  const rows = sortRows(unsorted, sort, {
+    ref: (c) => c.number,
+    title: (c) => c.title,
+    type: (c) => c.type,
+    risk: (c) => ({ low: 1, medium: 2, high: 3 })[c.risk],
+    status: (c) => c.status,
+    requested: (c) => c.createdAt,
+  });
+  const head = (label: string, key: string) => <SortableHead label={label} sortKey={key} state={sort} path="/changes" sp={sp} />;
 
   return (
     <>
@@ -46,12 +59,12 @@ export default async function ChangesPage({ searchParams }: PageProps<"/changes"
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Ref</TableHead>
-              <TableHead>Title</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Risk</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Requested</TableHead>
+              {head("Ref", "ref")}
+              {head("Title", "title")}
+              {head("Type", "type")}
+              {head("Risk", "risk")}
+              {head("Status", "status")}
+              {head("Requested", "requested")}
             </TableRow>
           </TableHeader>
           <TableBody>
