@@ -7,6 +7,7 @@ import { SortableHead } from "@/components/sortable-head";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { readSort, sortRows } from "@/lib/sort";
 import { requireUser } from "@/server/auth";
+import { ActivityTabs } from "./tabs";
 import { db } from "@/server/db";
 
 export const metadata = { title: "Agent activity" };
@@ -30,7 +31,8 @@ export default async function RunsPage({ searchParams }: PageProps<"/runs">) {
 
   return (
     <>
-      <PageHeader title="Agent activity" description="Every agent run, with each step it took." />
+      <PageHeader title="Activity" description="Every agent run, with each step it took, and the audit log of every action." />
+      <ActivityTabs current="/runs" />
       {rows.length === 0 ? (
         <Empty>No runs yet.</Empty>
       ) : (

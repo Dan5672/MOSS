@@ -4,6 +4,7 @@ import { and, desc, eq, like } from "drizzle-orm";
 import { ActionForm } from "@/components/action-form";
 import { Pill } from "@/components/badges";
 import { PageHeader, NoPermission } from "@/components/page";
+import { ActivityTabs } from "../runs/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SortableHead } from "@/components/sortable-head";
@@ -48,10 +49,11 @@ export default async function AuditPage({ searchParams }: PageProps<"/audit">) {
   return (
     <>
       <PageHeader
-        title="Audit log"
+        title="Activity"
         description="An append-only, hash-chained record of every action by people and agents. Tampering with any entry breaks the chain."
         actions={<ActionForm action={verifyAction} submitLabel="Verify integrity" submitVariant="outline" />}
       />
+      <ActivityTabs current="/audit" />
       <form className="mb-4 flex gap-2" role="search">
         <Input name="action" defaultValue={filter} placeholder="Filter by action, e.g. tool. or change." aria-label="Filter by action" className="max-w-sm" />
         <Button type="submit" variant="outline">

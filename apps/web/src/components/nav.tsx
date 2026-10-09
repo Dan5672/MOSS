@@ -4,7 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
-const ITEMS = [
+/** Sidebar items. `also` lists other sections an item covers (shown as its tabs), so it stays highlighted there. */
+const ITEMS: { href: string; label: string; also?: string[] }[] = [
   { href: "/", label: "Dashboard" },
   { href: "/basement", label: "Basement" },
   { href: "/chat", label: "Chat" },
@@ -12,14 +13,11 @@ const ITEMS = [
   { href: "/models", label: "Models" },
   { href: "/assets", label: "Assets" },
   { href: "/wiki", label: "Wiki" },
-  { href: "/networks", label: "Networks" },
   { href: "/monitoring", label: "Monitoring" },
   { href: "/incidents", label: "Incidents" },
   { href: "/changes", label: "Changes" },
-  { href: "/runs", label: "Agent activity" },
-  { href: "/audit", label: "Audit log" },
-  { href: "/users", label: "Users" },
-  { href: "/settings", label: "Settings" },
+  { href: "/runs", label: "Activity", also: ["/audit"] },
+  { href: "/settings", label: "Settings", also: ["/users", "/networks"] },
 ];
 
 /** Count chips: square, dark text on a coloured fill. Each keeps an aria-label saying what it counts. */
@@ -34,8 +32,9 @@ export function Nav({ badges }: { badges: Record<string, number> }) {
   const pathname = usePathname();
   return (
     <nav aria-label="Main" className="grid gap-0.5">
-      {ITEMS.map(({ href, label }) => {
-        const active = href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
+      {ITEMS.map(({ href, label, also = [] }) => {
+        const under = (h: string) => pathname === h || pathname.startsWith(`${h}/`);
+        const active = href === "/" ? pathname === "/" : under(href) || also.some(under);
         const count = badges[href];
         const badge = BADGES[href];
         return (

@@ -6,6 +6,7 @@ import { ActionForm } from "@/components/action-form";
 import { StatusBadge } from "@/components/badges";
 import { SelectField, TextField } from "@/components/field";
 import { Empty, PageHeader, timeAgo, NoPermission } from "@/components/page";
+import { SettingsTabs } from "../settings/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { act, formObject, type ActionState } from "@/server/action";
@@ -51,6 +52,7 @@ export default async function NetworksPage() {
         title="Networks"
         description="Decide which networks your agents may work on. Anything not allowed is off limits: the policy gate refuses it."
       />
+      <SettingsTabs current="/networks" />
       {rows.length === 0 ? (
         <Empty>No networks yet. Add the subnet your devices are on (for example 192.168.1.0/24) and mark it allowed.</Empty>
       ) : (

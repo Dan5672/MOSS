@@ -4,6 +4,7 @@ import { ActionForm } from "@/components/action-form";
 import { Pill, StatusBadge } from "@/components/badges";
 import { SelectField, TextField } from "@/components/field";
 import { PageHeader, timeAgo, NoPermission } from "@/components/page";
+import { SettingsTabs } from "../settings/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireUser } from "@/server/auth";
@@ -37,6 +38,7 @@ export default async function UsersPage() {
   return (
     <>
       <PageHeader title="Users" description="People who can sign in to MOSS. Agents are managed on the Agents page." />
+      <SettingsTabs current="/users" />
       <Table>
         <TableHeader>
           <TableRow>

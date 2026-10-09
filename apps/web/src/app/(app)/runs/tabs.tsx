@@ -2,18 +2,14 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 const TABS = [
-  { href: "/settings", label: "General" },
-  { href: "/settings/secrets", label: "Secrets" },
-  { href: "/settings/backups", label: "Backups" },
-  { href: "/settings/modules", label: "Modules" },
-  { href: "/networks", label: "Networks" },
-  { href: "/users", label: "Users" },
+  { href: "/runs", label: "Agent activity" },
+  { href: "/audit", label: "Audit log" },
 ] as const;
 
-/** Sub-navigation for the Settings section. */
-export function SettingsTabs({ current }: { current: (typeof TABS)[number]["href"] }) {
+/** Sub-navigation for Activity: what agents did, and the audit log of every action. */
+export function ActivityTabs({ current }: { current: (typeof TABS)[number]["href"] }) {
   return (
-    <nav aria-label="Settings" className="mb-6 flex flex-wrap gap-1 border-b-2">
+    <nav aria-label="Activity" className="mb-6 flex flex-wrap gap-1 border-b-2">
       {TABS.map((t) => (
         <Link
           key={t.href}
