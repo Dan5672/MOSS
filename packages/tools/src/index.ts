@@ -327,6 +327,12 @@ export const nutStatus = tool(
 // --- Cloud services ---------------------------------------------------------------------------
 // The toolbox calls each service's own fixed address; these tools only work while their integration is on.
 
+export const mossReleases = tool(
+  { name: "moss_releases", class: "read", targetArgs: [] },
+  "List MOSS's own release tags from its public repository on GitHub (to tell whether MOSS is up to date). Calls api.github.com.",
+  z.object({ timeoutMs }),
+);
+
 export const tailscaleDevices = tool(
   { name: "tailscale_devices", class: "read", targetArgs: [], secretArgs: ["apiKey"] },
   "List the devices on the Tailscale tailnet: name, OS, Tailscale and local addresses, whether online, key expiry and updates. " +
@@ -821,6 +827,7 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     proxmoxInventory,
     dockerApiContainers,
     tailscaleDevices,
+    mossReleases,
     cloudflareDns,
     cloudflareTunnels,
     nutStatus,

@@ -43,6 +43,8 @@ export default defineConfig({
       // Stand-in for the gate's secrets API, started by global-setup.
       GATE_URL: `http://127.0.0.1:${E2E_GATE_PORT}`,
       MOSS_LIBRARY_DIR: "../../library",
+      // A development build after v0.9.0, as deploy/upgrade.sh records it.
+      MOSS_RELEASE: "v0.9.0-12-gabc1234",
       // HTTPS with MOSS's own CA, as a default install has (the CA itself isn't reachable here).
       MOSS_TLS: "internal",
       MOSS_CA_URL: "http://127.0.0.1:9/moss-ca.crt",

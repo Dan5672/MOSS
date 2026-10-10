@@ -97,6 +97,14 @@ export function buildGateServer(gate: Gate, opts: GateServerOptions) {
       return gate.homeAssistant({ orgId, op, userId });
     });
 
+    // A person checking for MOSS updates (Settings → About): the newest release tags, fetched through the toolbox.
+    app.post<{ Body: { userId?: string } }>("/v1/web/releases", async (req, reply) => {
+      const userId = req.body?.userId;
+      if (!userId || !UUID.test(userId)) return reply.code(400).send({ error: "userId (uuid) is required" });
+      if (!(await userOrg(userId))) return reply.code(403).send({ error: "unknown or inactive user" });
+      return gate.releases();
+    });
+
     // A person's integration calls from its settings page: Test connection, and Sync now (sync:<feature>).
     app.post<{ Params: { key: string; op: string }; Body: { userId?: string } }>("/v1/web/integrations/:key/:op", async (req, reply) => {
       const { key, op } = req.params;

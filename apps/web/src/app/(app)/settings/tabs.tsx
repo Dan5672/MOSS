@@ -8,6 +8,7 @@ export const SETTINGS_TABS = [
   { href: "/settings/integrations", label: "Integrations" },
   { href: "/networks", label: "Networks" },
   { href: "/users", label: "Users" },
+  { href: "/settings/about", label: "About" },
 ] as const;
 
 /** Sub-navigation for Settings (rendered by the layouts of Settings, Networks and Users). */

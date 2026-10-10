@@ -17,6 +17,8 @@ export const SETTING_DEFAULTS = {
   "homeassistant.allow_resume": false,
   /** The newest changelog version Moss has announced in #general. */
   "moss.announced_version": "" as string,
+  /** The last "Check for updates" (Settings → About): when, the newest release and how this install compares. */
+  "moss.update_check": {} as Record<string, unknown>,
   /** The password policy (see auth/password-policy.ts); empty means the defaults. */
   "auth.password_policy": {} as Record<string, unknown>,
   /** The certificate uploaded in Settings → HTTPS (subject, expiry, fingerprint, reminders sent); empty when MOSS's own CA is in use. */
@@ -61,6 +63,7 @@ export const SETTING_DESCRIPTIONS = {
   "monitoring.quiet_until": "Maintenance mode: until this time, monitors keep checking but raise no incidents. Set from Home Assistant.",
   "homeassistant.allow_resume": "Whether the Home Assistant integration may resume paused agents (pausing is always allowed).",
   "moss.announced_version": "The newest version Moss has announced in #general (What's new, from library/docs/changelog.md).",
+  "moss.update_check": "The last check for MOSS updates (Settings → About): when it ran, the newest release on GitHub, and whether this install is up to date.",
   "auth.password_policy":
     "The password policy (Settings → Security): minimum length (12 by default), required kinds of character, how many old passwords can't be reused, maximum age, who must use two-factor sign-in, and an optional check against known-breached passwords.",
   "https.certificate":

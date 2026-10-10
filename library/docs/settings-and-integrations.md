@@ -206,6 +206,14 @@ password has expired is sent to Settings > Security. Requiring two-factor needs 
 policy first, so they can't lock themselves out, and it can't then be turned off by someone it applies to.
 People who sign in with SSO have no MOSS password and are left out.
 
+## About MOSS and updates
+Settings > About shows the version running (a release such as v0.2.0, or a development build such as
+v0.2.0-14-gabc1234: 14 changes after it), the database migrations applied, and what's new in the newest
+changelog section. Check for updates asks GitHub for MOSS's releases (nothing about the install is sent)
+and says whether a newer one is out, with its release notes and the command to update on the host:
+sh deploy/upgrade.sh <version> (it backs MOSS up first; sh deploy/upgrade.sh --rollback goes back). MOSS
+never updates itself. Agents can check too, with the moss_releases tool.
+
 ## HTTPS
 New installs serve MOSS over HTTPS to the whole network (deploy/.env: COMPOSE_PROFILES=https,
 MOSS_SECURE_COOKIES=true). MOSS_TLS=internal (default): MOSS's own certificate authority; each device

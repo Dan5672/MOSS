@@ -103,6 +103,8 @@ export default async function globalSetup() {
         if (!orgId) return reply(403, { error: "unknown or inactive user" });
         return reply(200, await runIntegrationOp({ db, masterKey, toolbox: fakePihole }, { orgId, key: integrationOp[1]!, op: decodeURIComponent(integrationOp[2]!), userId }));
       }
+      // MOSS's releases, as GitHub would list them through the toolbox.
+      if (req.method === "POST" && req.url === "/v1/web/releases") return reply(200, { ok: true, tags: ["v0.1.0", "v0.10.0", "v0.9.0", "v0.10.0-rc1"] });
       if (req.method !== "POST" || req.url !== "/v1/secrets") return reply(404, { error: "not found" });
       try {
         reply(200, await writeSecret(db, masterKey, secretWriteSchema.parse(JSON.parse(body))));

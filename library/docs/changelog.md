@@ -12,6 +12,8 @@ Newest first. After an upgrade, Moss posts the newest section in #general.
   (through an approved change, using an alias your own rule uses).
 - **UPS (Network UPS Tools)**: know the moment the power goes, and shut your home lab down in order
   before the battery runs out, with your approval each time or approved in advance.
+- **Settings → About**: the version running here, what's new, and a Check for updates button.
+- **Agent instructions on monitors**: tell the responding agent what a device is and what to check first.
 - **Cloudflare**: know the moment anything new is exposed to the internet through Cloudflare, tunnels
   watched, and a trusted Let's Encrypt certificate for MOSS with nothing opened to the internet.
 - **Tailscale**: your servers on the tailnet and their node keys watched, devices in the inventory, and

@@ -679,10 +679,15 @@ test("monitoring: add checks, and warn about targets outside allowed networks", 
   await page.getByLabel("Keyword (optional)").fill("Synology");
   await page.getByLabel("Responder").selectOption(`agent:${nina!.id}`);
   await page.getByLabel("Incident priority").selectOption("P2");
+  await page.getByLabel("Agent instructions (optional)").fill("This is the NAS. Check the UPS first.");
   await page.getByRole("button", { name: "Add monitor" }).click();
   await expect(page.getByRole("heading", { name: "NAS web" })).toBeVisible();
   await expect(page.getByText("http://192.168.50.10:5000/")).toBeVisible();
   await expect(page.getByText("MOSS will not check this target")).toHaveCount(0);
+  await expect(page.getByRole("definition").filter({ hasText: "This is the NAS. Check the UPS first." })).toBeVisible();
+  const [nas] = await db.select().from(monitors).where(eq(monitors.name, "NAS web"));
+  const [owner] = await db.select().from(users).where(eq(users.email, OWNER.email));
+  expect(nas).toMatchObject({ agentInstructions: "This is the NAS. Check the UPS first.", agentInstructionsBy: owner!.id });
 
   await page.goto("/monitoring");
   await page.getByRole("button", { name: "Add a monitor" }).click();
@@ -1347,6 +1352,22 @@ test("security: change your password; the policy refuses weak ones and can requi
   await policy.getByLabel("Two-factor sign-in").selectOption("none");
   await policy.getByRole("button", { name: "Save policy" }).click();
   await expect(page.getByText(/^Password policy saved/)).toBeVisible();
+});
+
+test("about: the running version, what's new, and checking for updates", async () => {
+  await page.goto("/settings");
+  await page.getByRole("link", { name: "About", exact: true }).click();
+  const card = page.locator("#version");
+  await expect(card).toContainText("Version v0.9.0-12-gabc1234");
+  await expect(card).toContainText("A development build: 12 changes after v0.9.0 (commit abc1234).");
+  await expect(card).toContainText(/\d+ migrations applied/);
+  await expect(card).toContainText("Last checkednever");
+  await expect(page.locator("#whats-new")).toContainText("What's new in");
+  await card.getByRole("button", { name: "Check for updates" }).click();
+  await expect(page.getByText("MOSS v0.10.0 is out (you have v0.9.0-12-gabc1234).")).toBeVisible();
+  await expect(card.getByText("Update available")).toBeVisible();
+  await expect(card.getByRole("link", { name: "v0.10.0" })).toHaveAttribute("href", "https://github.com/Dan5672/MOSS/releases/tag/v0.10.0");
+  await expect(card.getByText("sh deploy/upgrade.sh v0.10.0")).toBeVisible();
 });
 
 test("https: upload your own certificate (checked first), then go back to MOSS's own", async () => {

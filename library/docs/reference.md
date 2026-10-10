@@ -17,6 +17,7 @@ Stored per install; most are switched on the Settings page.
 | monitoring.quiet_until | "" | Maintenance mode: until this time, monitors keep checking but raise no incidents. Set from Home Assistant. |
 | monitoring.retention_days | 14 | How many days of individual monitor check results are kept. Graphs go further back from rollups: 5-minute ones for 90 days and hourly ones for 2 years. |
 | moss.announced_version | "" | The newest version Moss has announced in #general (What's new, from library/docs/changelog.md). |
+| moss.update_check | {} | The last check for MOSS updates (Settings → About): when it ran, the newest release on GitHub, and whether this install is up to date. |
 | tools.allow_dangerous | false | Permits tools marked dangerous, such as factory resets, still only through approved changes. Off by default. |
 | tools.allow_vulners | false | Allows vuln_scan's cve profile, which sends service names and versions to vulners.com. Off by default. |
 | tools.catalog_url | "" | An optional remote tools catalog (an https URL of its index). Empty means only the bundled catalog. |
@@ -118,6 +119,10 @@ Granted by: Server Actions.
 ## Tool http_probe
 A network tool (read), run by the toolbox through the policy gate. Make one HTTP(S) request to a host and report the status code, latency and whether an optional keyword appears in the first 256 KB of the body. Does not follow redirects. Use hostHeader for virtual hosts (also used as TLS SNI).
 Granted by: Monitoring Response, Service Health Checks.
+
+## Tool moss_releases
+A network tool (read), run by the toolbox through the policy gate. List MOSS's own release tags from its public repository on GitHub (to tell whether MOSS is up to date). Calls api.github.com.
+Granted by: no skill (grant it on Agents → Tool access).
 
 ## Tool name_lookup
 A network tool (read), run by the toolbox through the policy gate. Ask devices their own names with unicast NetBIOS, mDNS (Bonjour) and UPnP queries. Finds names for PCs, printers, TVs, speakers and IoT devices that DNS doesn't know. Names found are added to the inventory.

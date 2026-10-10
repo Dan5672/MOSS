@@ -206,7 +206,13 @@ export function createGate(deps: GateDeps) {
   const integration = (req: { orgId: string; key: string; op: string; args?: Record<string, unknown>; userId?: string }) =>
     runIntegrationOp({ db: deps.db, masterKey: deps.masterKey, toolbox: deps.toolbox }, req);
 
-  return { handleToolCall, listAgentTools, checkMonitor, homeAssistant, integration };
+  /** MOSS's release tags, for a person checking for updates in Settings → About. */
+  const releases = async (): Promise<{ ok: true; tags: string[] } | { ok: false; error: string }> => {
+    const res = await deps.toolbox.call("moss_releases", { timeoutMs: 15_000 });
+    return res.ok ? { ok: true, tags: (res.result as { tags: string[] }).tags } : { ok: false, error: res.error ?? "The toolbox couldn't reach GitHub" };
+  };
+
+  return { handleToolCall, listAgentTools, checkMonitor, homeAssistant, integration, releases };
 }
 
 export type Gate = ReturnType<typeof createGate>;

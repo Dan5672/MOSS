@@ -46,6 +46,20 @@ export async function tailscaleDevices(a: { apiKey: string; tailnet: string; tim
   };
 }
 
+// --- MOSS's own releases --------------------------------------------------------------------------
+
+/** The release tags of MOSS's public repository (only when someone checks for updates). */
+export async function mossReleases(a: { timeoutMs: number }, fetchImpl: Fetch = fetch as unknown as Fetch) {
+  const res = await fetchImpl("https://api.github.com/repos/Dan5672/MOSS/tags?per_page=100", {
+    headers: { Accept: "application/vnd.github+json", "User-Agent": "MOSS" },
+    signal: AbortSignal.timeout(a.timeoutMs),
+  });
+  if (res.status === 403 || res.status === 429) throw new CloudError("GitHub is limiting requests from this address; try again in an hour");
+  if (res.status !== 200) throw new CloudError(`GitHub answered HTTP ${res.status}`);
+  const body = await res.json();
+  return { tags: (Array.isArray(body) ? body : []).map((t) => clean(obj(t).name)).filter((n): n is string => !!n).slice(0, 100) };
+}
+
 // --- Cloudflare -----------------------------------------------------------------------------------
 
 async function cf(fetchImpl: Fetch, token: string, path: string, timeoutMs: number, init: { method?: string; body?: string } = {}) {
