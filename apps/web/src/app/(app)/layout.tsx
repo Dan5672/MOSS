@@ -102,9 +102,13 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
           </div>
         )}
         {(unread?.n ?? 0) > 0 && (
-          <div className="border-b-2 px-6 py-2 text-sm">
-            You have {unread!.n} unread notification{unread!.n === 1 ? "" : "s"}.{" "}
-            <Link href="/notifications" className="underline">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-signal px-6 py-2 font-mono text-sm text-on-brand">
+            <span>
+              <strong className="font-medium">
+                {unread!.n} unread notification{unread!.n === 1 ? "" : "s"}
+              </strong>
+            </span>
+            <Link href="/notifications" className="underline underline-offset-2">
               View
             </Link>
           </div>
