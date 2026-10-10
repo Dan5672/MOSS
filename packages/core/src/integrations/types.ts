@@ -61,12 +61,21 @@ export interface IntegrationDef {
     defaultPort: number;
     /** Offer http/https. */
     scheme?: { default: "http" | "https" };
+    /** It's plain HTTP or its own protocol: no certificate to check. */
+    tls?: false;
     /** A user name as well as the credential (AdGuard Home). */
     user?: { label: string };
+    /**
+     * Several hosts instead of one (Docker): each is called in turn, and features get
+     * { hosts: [{ host, port, ok, result | error }] }.
+     */
+    multipleHosts?: { label: string; hint: string };
     hint: string;
   };
-  /** The credential, stored as a secret only the gate can read. */
-  credential: {
+  /** The credential, stored as a secret only the gate can read. Absent: the product needs none. */
+  credential?: {
+    /** It works without one too (a UPS server with no password). */
+    optional?: boolean;
     secretName: string;
     type: "api_token" | "password";
     /** The tool argument it goes in. */
@@ -82,6 +91,8 @@ export interface IntegrationDef {
   features: IntegrationFeature[];
   /** Agent tools that come with it, offered on its page to grant to an agent. */
   agentTools: string[];
+  /** Every tool it uses (the credential's tool scope, and how a tool is traced to its integration). */
+  tools?: string[];
   /** Numbers people can tune (thresholds), shown with the features. */
   options?: IntegrationOption[];
 }
@@ -106,6 +117,8 @@ export function integrationOption(def: IntegrationDef, c: IntegrationConfig, key
 export interface IntegrationConfig {
   host?: string;
   port: number;
+  /** For integrations with several hosts. */
+  hosts: { host: string; port: number }[];
   scheme: "http" | "https";
   verifyTls: boolean;
   user?: string;

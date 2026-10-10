@@ -273,6 +273,18 @@ const proxmoxApi = {
   port: port.default(8006),
 };
 
+export const dockerApiContainers = tool(
+  { name: "docker_api_containers", class: "read", targetArgs: ["target"] },
+  "List a Docker host's containers through its read-only socket proxy: state, health, restarts, image and Compose project. " +
+    "With checkUpdates, also say which images have a newer version in their registry (asks the registry, e.g. Docker Hub).",
+  z.object({
+    target: hostIp,
+    port: port.default(2375),
+    timeoutMs,
+    checkUpdates: z.boolean().default(false),
+  }),
+);
+
 export const proxmoxInventory = tool(
   { name: "proxmox_inventory", class: "read", targetArgs: ["target"], secretArgs: ["token"] },
   "List a Proxmox VE cluster's nodes (with their addresses) and every VM and container with its MAC addresses, the addresses " +
@@ -688,6 +700,7 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     dockerPs,
     proxmoxStatus,
     proxmoxInventory,
+    dockerApiContainers,
     pbsStatus,
     truenasStatus,
     synologyStatus,

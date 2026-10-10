@@ -8,6 +8,7 @@ import {
   pauseIntegrationSource,
   saveModule,
   writeAudit,
+  integrationConfigured,
   type IntegrationConfig,
   type IntegrationDef,
 } from "@moss/core";
@@ -38,8 +39,15 @@ async function save(user: CurrentUser, def: IntegrationDef, config: IntegrationC
 }
 
 async function credentialRow(orgId: string, def: IntegrationDef) {
+  if (!def.credential) return null;
   const [s] = await db().select().from(secrets).where(and(eq(secrets.orgId, orgId), eq(secrets.name, def.credential.secretName)));
   return s ?? null;
+}
+
+/** Whether its connection is complete: an address (or hosts), and the credential unless it needs none. */
+async function connectionReady(orgId: string, def: IntegrationDef, config: IntegrationConfig) {
+  if (!integrationConfigured(def, config)) return false;
+  return !def.credential || def.credential.optional || !!(await credentialRow(orgId, def));
 }
 
 export async function setIntegrationEnabledAction(key: string, enabled: boolean): Promise<ActionState> {
@@ -47,7 +55,7 @@ export async function setIntegrationEnabledAction(key: string, enabled: boolean)
     const user = await requirePermission("integrations.manage");
     const def = definition(key);
     const { config, state } = await loadIntegration(db(), user.orgId, def);
-    if (enabled && (!config.host || !(await credentialRow(user.orgId, def)))) throw new Error("Set up the connection first.");
+    if (enabled && !(await connectionReady(user.orgId, def, config))) throw new Error("Set up the connection first.");
     await save(user, def, config, enabled);
     if (!enabled) await pauseIntegrationSource(db(), user.orgId, state);
     return enabled ? `${def.name} is on.` : `${def.name} is off. Its features have stopped.`;
@@ -63,12 +71,27 @@ export async function saveIntegrationConnectionAction(key: string, _: ActionStat
     if (!user.permissions.has("secrets.manage")) throw new Error("Changing the connection also needs permission to manage secrets.");
     const def = definition(key);
     const f = formObject(form);
+    const { config } = await loadIntegration(db(), user.orgId, def);
+    const port = z.coerce.number().int().min(1).max(65535).parse(f.port ?? def.connection.defaultPort);
+    // Several hosts: one per line, as an address or address:port.
+    if (def.connection.multipleHosts) {
+      const hosts = (f.hosts ?? "")
+        .split(/[\s,]+/)
+        .filter(Boolean)
+        .map((line) => {
+          const [h, p] = line.split(":");
+          if (!IPV4.test(h ?? "")) throw new Error(`"${line}" isn't an IPv4 address (with an optional :port).`);
+          return { host: h!, port: p ? z.coerce.number().int().min(1).max(65535).parse(p) : port };
+        });
+      if (!hosts.length) throw new Error("Add at least one host.");
+      if (hosts.length > 20) throw new Error("At most 20 hosts.");
+      await save(user, def, { ...config, hosts, port });
+      return `Saved ${hosts.length} host${hosts.length === 1 ? "" : "s"}.`;
+    }
     const host = (f.host ?? "").trim();
     if (!IPV4.test(host)) throw new Error(`${def.name}'s address must be an IPv4 address.`);
-    const port = z.coerce.number().int().min(1).max(65535).parse(f.port ?? def.connection.defaultPort);
-    const { config } = await loadIntegration(db(), user.orgId, def);
     const existing = await credentialRow(user.orgId, def);
-    if (f.credential) {
+    if (def.credential && f.credential) {
       await storeSecret({
         userId: user.id,
         name: def.credential.secretName,
@@ -79,9 +102,9 @@ export async function saveIntegrationConnectionAction(key: string, _: ActionStat
         allowedHosts: [host],
         allowedTools: def.credential.tools,
       });
-    } else if (!existing) {
+    } else if (def.credential && !existing && !def.credential.optional) {
       throw new Error(`Enter the ${def.credential.label.toLowerCase()}.`);
-    } else if (existing.allowedHosts.join() !== host) {
+    } else if (existing && existing.allowedHosts.join() !== host) {
       // The credential may only ever go to the address it's set up for.
       await db().update(secrets).set({ allowedHosts: [host], updatedAt: new Date() }).where(eq(secrets.id, existing.id));
       await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "secret.scope", targetType: "secret", targetId: existing.id, details: { allowedHosts: [host] } });

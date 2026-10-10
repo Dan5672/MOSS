@@ -6,6 +6,8 @@ Newest first. After an upgrade, Moss posts the newest section in #general.
   it, switch on what it should do, and see what it last found.
 - **Telegram and Discord**: your MOSS notifications on your phone, Approve and Reject buttons for
   changes, and your agents to talk to, through your own bot. Connect in Settings → General.
+- **Docker**: containers that should be running are watched on every host, kept in the inventory, and
+  you can see which images have updates. MOSS only reads Docker, through a read-only proxy.
 - **Proxmox VE and Proxmox Backup Server**: nodes, storage and the VMs that should be running are watched,
   every VM and container joins the inventory under its node, and you hear when a guest hasn't been
   backed up. Agents can snapshot a VM before changing it.

@@ -30,7 +30,7 @@ export async function integrationPage(orgId: string, def: IntegrationDef) {
     db()
       .select({ allowedHosts: secrets.allowedHosts, updatedAt: secrets.updatedAt })
       .from(secrets)
-      .where(and(eq(secrets.orgId, orgId), eq(secrets.name, def.credential.secretName))),
+      .where(and(eq(secrets.orgId, orgId), eq(secrets.name, def.credential?.secretName ?? "-"))),
     db()
       .select({ id: agents.id, name: agents.name, title: agents.title })
       .from(agents)

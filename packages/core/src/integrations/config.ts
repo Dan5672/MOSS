@@ -12,6 +12,11 @@ export function integrationConfigSchema(def: IntegrationDef) {
   return z.object({
     host: z.string().regex(IPV4, `${def.name}'s IPv4 address, e.g. 192.168.1.10`).optional().catch(undefined),
     port: z.number().int().min(1).max(65535).default(def.connection.defaultPort).catch(def.connection.defaultPort),
+    hosts: z
+      .array(z.object({ host: z.string().regex(IPV4), port: z.number().int().min(1).max(65535) }))
+      .max(20)
+      .default([])
+      .catch([]),
     scheme: z
       .enum(["http", "https"])
       .default(def.connection.scheme?.default ?? "https")
@@ -46,14 +51,25 @@ export async function loadIntegration(db: Pick<Database, "select">, orgId: strin
 }
 
 /** The connection arguments every one of its tools takes. The credential is a handle; only the gate resolves it. */
-export function integrationArgs(def: IntegrationDef, c: IntegrationConfig): Record<string, unknown> {
-  if (!c.host) throw new Error(`Set ${def.name}'s address first`);
+export function integrationArgs(def: IntegrationDef, c: IntegrationConfig, at?: { host: string; port: number }): Record<string, unknown> {
+  const host = at?.host ?? c.host;
+  if (!host) throw new Error(`Set ${def.name}'s address first`);
   return {
-    target: c.host,
-    port: c.port,
+    target: host,
+    port: at?.port ?? c.port,
     ...(def.connection.scheme ? { scheme: c.scheme } : {}),
-    verifyTls: c.verifyTls,
+    ...(def.connection.tls === false ? {} : { verifyTls: c.verifyTls }),
     ...(def.connection.user ? { user: c.user } : {}),
-    [def.credential.arg]: `secret:${def.credential.secretName}`,
+    ...(def.credential ? { [def.credential.arg]: `secret:${def.credential.secretName}` } : {}),
   };
+}
+
+/** Whether it has somewhere to connect to: its address, or at least one of its hosts. */
+export function integrationConfigured(def: IntegrationDef, c: IntegrationConfig): boolean {
+  return def.connection.multipleHosts ? c.hosts.length > 0 : !!c.host;
+}
+
+/** Every tool it uses. */
+export function integrationTools(def: IntegrationDef): string[] {
+  return def.tools ?? def.credential?.tools ?? def.agentTools;
 }

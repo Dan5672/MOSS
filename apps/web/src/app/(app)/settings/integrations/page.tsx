@@ -96,12 +96,12 @@ export default async function ModulesPage() {
                     ? `Using: ${on.join(", ")}.`
                     : it.enabled
                       ? "On, but no features are switched on yet."
-                      : it.config.host
-                        ? `Set up for ${it.config.host}, switched off.`
+                      : it.config.host || it.config.hosts.length
+                        ? `Set up for ${it.config.host ?? it.config.hosts.map((h) => h.host).join(", ")}, switched off.`
                         : "Not set up."}
                 </p>
                 <Link href={`/settings/integrations/${def.key}`} className="w-fit border-2 px-3 py-2 font-mono text-sm hover:bg-muted">
-                  {it.config.host ? "Configure" : "Set up"}
+                  {it.config.host || it.config.hosts.length ? "Configure" : "Set up"}
                 </Link>
               </CardContent>
             </Card>

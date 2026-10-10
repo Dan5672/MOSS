@@ -1,6 +1,6 @@
 // The integrations' background features (health checks, inventory syncs), each on its own schedule. The calls
 // themselves go through the gate, which reads the config and holds the credentials.
-import { applyFeatureRun, featureDue, INTEGRATIONS, loadIntegration, orgsWithModule, type IntegrationState, type OpResult } from "@moss/core";
+import { applyFeatureRun, featureDue, INTEGRATIONS, integrationConfigured, loadIntegration, orgsWithModule, type IntegrationState, type OpResult } from "@moss/core";
 import type { Database } from "@moss/db";
 
 export type IntegrationCaller = (orgId: string, key: string, op: string) => Promise<OpResult>;
@@ -30,12 +30,12 @@ export async function runIntegrationsTick(db: Database, call: IntegrationCaller,
   for (const def of INTEGRATIONS) {
     for (const orgId of await orgsWithModule(db, def.key)) {
       const { config, state } = await loadIntegration(db, orgId, def);
-      if (!config.host) continue;
+      if (!integrationConfigured(def, config)) continue;
       let current: IntegrationState = state;
       for (const f of def.features) {
         if (!config.features[f.key] || !featureDue(current, f, now)) continue;
         try {
-          const run = await applyFeatureRun(db, orgId, def, config, current, f, await call(orgId, def.key, f.op), now);
+          const run = await applyFeatureRun(db, orgId, def, config, current, f, await call(orgId, def.key, f.key), now);
           current = { ...current, runs: { ...current.runs, [f.key]: { at: now.toISOString(), ...run } } };
           if (!run.ok) opts.log?.(`${def.name} ${f.label.toLowerCase()} failed`, { orgId, error: run.summary });
         } catch (err) {

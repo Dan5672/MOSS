@@ -79,4 +79,17 @@ describe.skipIf(!TEST_DATABASE_URL)("integration calls (gate)", () => {
     await db.delete(secrets).where(eq(secrets.id, secretId));
     expect(await gate.integration({ orgId, key: "pihole", op: "summary" })).toEqual({ ok: false, error: "Add Pi-hole's credential first" });
   });
+
+  it("calls each Docker host in turn without a credential, keeping one host's failure to that host", async () => {
+    await saveModule(db, orgId, "docker", { enabled: true, config: { hosts: [{ host: "192.168.1.20", port: 2375 }, { host: "192.168.66.9", port: 2375 }], features: { health: false, inventory: true } } }, { type: "user", id: ownerId });
+    reply = { ok: true, result: { host: "docker1", containers: [] } };
+    // The worker names the feature: inventory runs although health (the same operation) is off.
+    const res = await gate.integration({ orgId, key: "docker", op: "inventory" });
+    expect(res).toMatchObject({
+      ok: true,
+      result: { hosts: [{ host: "192.168.1.20", ok: true, result: { host: "docker1" } }, { host: "192.168.66.9", ok: false, error: expect.stringMatching(/^Blocked by policy/) }] },
+    });
+    expect(calls).toEqual([{ tool: "docker_api_containers", args: { target: "192.168.1.20", port: 2375, timeoutMs: 10000, checkUpdates: false } }]);
+    expect(await gate.integration({ orgId, key: "docker", op: "health" })).toEqual({ ok: false, error: "Health checks is switched off" });
+  });
 });

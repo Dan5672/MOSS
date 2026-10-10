@@ -6,6 +6,7 @@ import * as actions from "./actions.js";
 import { configBackup, type BackupArgs } from "./backups.js";
 import { customHttp, sendRequest, type RawRequest } from "./custom-http.js";
 import { homeassistantDevices, homeassistantHealth, homeassistantLogs, homeassistantNotify, homeassistantPublish } from "./home-assistant.js";
+import { dockerApiContainers } from "./docker-api.js";
 import { adguardClients, adguardStats, HomelabError, homeassistantStates, pbsStatus, piholeClients, piholeSummary, proxmoxInventory, proxmoxStatus, synologyStatus, truenasStatus } from "./homelab.js";
 import { unifiAuthMode, unifiClientsByLogin, unifiFirewall } from "./unifi.js";
 import { nucleiScan, tlsAudit, vulnScan } from "./vuln.js";
@@ -263,6 +264,9 @@ async function runToolInner(
       if (name === "service_status") return serviceStatus(t, ssh);
       return dockerPs(t, ssh);
     }
+    case "docker_api_containers":
+      assertHost(args.target as string);
+      return dockerApiContainers(args as never, send);
     case "proxmox_status":
     case "proxmox_inventory":
     case "pbs_status":

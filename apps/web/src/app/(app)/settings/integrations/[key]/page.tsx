@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
 import { StatusBadge } from "@/components/badges";
-import { CheckboxField, SelectField, TextField } from "@/components/field";
+import { CheckboxField, SelectField, TextAreaField, TextField } from "@/components/field";
 import { NoPermission, PageHeader, timeAgo } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,7 +19,9 @@ export default async function IntegrationSettingsPage({ params }: PageProps<"/se
   if (!def) notFound();
   const p = await integrationPage(user.orgId, def);
   const c = p.config;
-  const connected = !!c.host && !!p.credential;
+  const cred = def.credential;
+  const multi = def.connection.multipleHosts;
+  const connected = (multi ? c.hosts.length > 0 : !!c.host) && (!cred || !!cred.optional || !!p.credential);
   const canSecrets = user.permissions.has("secrets.manage");
 
   return (
@@ -53,15 +55,20 @@ export default async function IntegrationSettingsPage({ params }: PageProps<"/se
               Connection <Badge variant={connected ? "default" : "outline"}>{connected ? "Set up" : "Not set up"}</Badge>
             </CardTitle>
             <CardDescription>
-              {def.connection.hint} It must be on an allowed network. The {def.credential.label.toLowerCase()} is stored encrypted as{" "}
-              <code>secret:{def.credential.secretName}</code>, usable only against this address.
+              {def.connection.hint} {multi ? "Each must be on an allowed network." : "It must be on an allowed network."}
+              {cred && (
+                <>
+                  {" "}
+                  The {cred.label.toLowerCase()} is stored encrypted as <code>secret:{cred.secretName}</code>, usable only against this address.
+                </>
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
             <ActionForm action={saveIntegrationConnectionAction.bind(null, def.key)} submitLabel="Save connection">
               <div className="grid gap-3 sm:grid-cols-2">
-                <TextField label="Address" name="host" defaultValue={c.host} placeholder="192.168.1.10" required />
-                <TextField label="Port" name="port" type="number" min={1} max={65535} defaultValue={c.port} />
+                {!multi && <TextField label="Address" name="host" defaultValue={c.host} placeholder="192.168.1.10" required />}
+                <TextField label={multi ? "Default port" : "Port"} name="port" type="number" min={1} max={65535} defaultValue={c.port} />
                 {def.connection.scheme && (
                   <SelectField
                     label="Scheme"
@@ -75,16 +82,29 @@ export default async function IntegrationSettingsPage({ params }: PageProps<"/se
                 )}
                 {def.connection.user && <TextField label={def.connection.user.label} name="user" defaultValue={c.user} required />}
               </div>
-              <TextField
-                label={def.credential.label}
-                name="credential"
-                type="password"
-                autoComplete="off"
-                placeholder={p.credential ? "Saved. Leave blank to keep it." : undefined}
-                hint={def.credential.hint}
-                disabled={!canSecrets}
-              />
-              <CheckboxField label="Check its certificate" name="verifyTls" defaultChecked={c.verifyTls} hint="Leave off for the self-signed certificate most home lab devices have." />
+              {multi && (
+                <TextAreaField
+                  label={multi.label}
+                  name="hosts"
+                  rows={4}
+                  defaultValue={c.hosts.map((h) => (h.port === c.port ? h.host : `${h.host}:${h.port}`)).join("\n")}
+                  placeholder={"192.168.1.20\n192.168.1.21:2376"}
+                  hint={multi.hint}
+                  required
+                />
+              )}
+              {cred && (
+                <TextField
+                  label={cred.optional ? `${cred.label} (if it has one)` : cred.label}
+                  name="credential"
+                  type="password"
+                  autoComplete="off"
+                  placeholder={p.credential ? "Saved. Leave blank to keep it." : undefined}
+                  hint={cred.hint}
+                  disabled={!canSecrets}
+                />
+              )}
+              {def.connection.tls !== false && <CheckboxField label="Check its certificate" name="verifyTls" defaultChecked={c.verifyTls} hint="Leave off for the self-signed certificate most home lab devices have." />}
               {!canSecrets && <p className="text-sm text-muted-foreground">Changing the connection also needs permission to manage secrets.</p>}
             </ActionForm>
             {connected && <ActionForm action={testIntegrationAction.bind(null, def.key)} submitLabel="Test connection" submitVariant="outline" />}
@@ -178,7 +198,7 @@ export default async function IntegrationSettingsPage({ params }: PageProps<"/se
             <CardHeader>
               <CardTitle>For agents</CardTitle>
               <CardDescription>
-                Agents can use these tools with <code>secret:{def.credential.secretName}</code> once you grant them the tools (
+                Agents can use these tools{cred ? <> with <code>secret:{cred.secretName}</code></> : null} once you grant them the tools (
                 <Link href="/agents/tools" className="underline underline-offset-2">
                   Agents → Tool access
                 </Link>

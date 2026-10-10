@@ -57,6 +57,10 @@ Granted by: Server Checks.
 A network tool (read), run by the toolbox through the policy gate. Resolve a hostname to IP addresses (A/AAAA), or an IP to hostnames (PTR), using the toolbox's resolver.
 Granted by: Monitoring Response, Network Discovery.
 
+## Tool docker_api_containers
+A network tool (read), run by the toolbox through the policy gate. List a Docker host's containers through its read-only socket proxy: state, health, restarts, image and Compose project. With checkUpdates, also say which images have a newer version in their registry (asks the registry, e.g. Docker Hub).
+Granted by: Home Lab Integrations.
+
 ## Tool docker_ps
 A network tool (read), run by the toolbox through the policy gate. List the Docker containers on a server over SSH: name, image, state and status. The account must be allowed to use Docker.
 Granted by: Server Actions, Server Checks.
@@ -367,7 +371,7 @@ Tools: homeassistant_health, homeassistant_logs, homeassistant_states, homeassis
 
 ## Skill Home Lab Integrations
 Added per agent. Key homelab-integrations. Read Proxmox (and its Backup Server), TrueNAS, Synology, Home Assistant, Pi-hole and AdGuard Home through their own APIs.
-Tools: proxmox_status, proxmox_inventory, pbs_status, truenas_status, synology_status, homeassistant_states, pihole_summary, pihole_clients, adguard_stats, adguard_clients, inventory_search.
+Tools: docker_api_containers, proxmox_status, proxmox_inventory, pbs_status, truenas_status, synology_status, homeassistant_states, pihole_summary, pihole_clients, adguard_stats, adguard_clients, inventory_search.
 
 ## Skill Incident Management
 Core: built into every agent (except Moss). Key incident-management. Raise, work and resolve incidents.

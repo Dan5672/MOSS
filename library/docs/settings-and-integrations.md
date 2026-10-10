@@ -108,6 +108,19 @@ as secret:pbs-token. Backup checks (every 30 minutes): a monitor per guest that'
 last backup is older than the limit (2 days by default), with the hours since as a reading; and one per
 datastore, degraded at 85% used and down at 95%. Agent tool: pbs_status.
 
+## The Docker integration
+Settings > Integrations > Docker. MOSS reads Docker through a read-only socket proxy on each host, never the
+Docker socket itself (full Docker access is root): for example tecnativa/docker-socket-proxy with
+CONTAINERS=1, IMAGES=1, INFO=1 and POST=0, published on port 2375 to the LAN only. Connection: the hosts,
+one per line (with :port if not 2375); each must be in an allowed network; no credential. Health checks
+(every 5 minutes): a "Docker on <host>" monitor per host, and one per container with a restart policy
+(always, unless-stopped, on-failure), down when it's stopped, restarting in a loop or unhealthy; other
+containers may be stopped on purpose and are left alone. Containers in the inventory (every 6 hours): each
+host and its containers, with image and Compose project; removed containers are marked missing. Image update
+check (daily, optional): asks each image's registry (Docker Hub, GHCR...) for the tag's digest with a HEAD
+request, sending only image names, and marks containers with a newer image. Restarting a container stays the
+change-gated container_restart over SSH. Agent tool: docker_api_containers.
+
 ## The Pi-hole integration
 Settings > Integrations > Pi-hole (v6 or newer). Connection: its address, port (80) and http/https, and an
 app password (Pi-hole: Settings > Web interface / API > Configure app password), stored as
