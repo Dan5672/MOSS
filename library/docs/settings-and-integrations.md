@@ -66,6 +66,23 @@ Home Assistant is refused unless "Let Home Assistant resume agents" is ticked. T
 or revoked token" means make a new token; entities unavailable means Home Assistant can't reach MOSS's
 address (it must be reachable from Home Assistant, e.g. http://<MOSS host IP>:3000).
 
+## The Pi-hole integration
+Settings > Integrations > Pi-hole (v6 or newer). Connection: its address, port (80) and http/https, and an
+app password (Pi-hole: Settings > Web interface / API > Configure app password), stored as
+secret:pihole-password. Health checks (every 5 minutes): a "Pi-hole" monitor (is it answering) and a
+"Pi-hole blocking" monitor, degraded when blocking is paused and down when it has failed, with queries,
+blocked, the block rate and active clients as readings. Device names (every 6 hours): the devices Pi-hole
+has seen (by MAC, with their reverse-DNS names) go into the inventory. Agent tools: pihole_summary,
+pihole_clients, and the change-gated pihole_domain_rule and pihole_local_dns.
+
+## The AdGuard Home integration
+Settings > Integrations > AdGuard Home. Connection: its address, port and http/https, the user name and
+password (secret:adguard-password). Health checks: an "AdGuard Home" monitor and an "AdGuard Home
+protection" monitor (degraded when protection is off), with queries, the block rate and the average
+response time as readings. Device names: its configured clients (with their addresses and MACs) and the
+ones it found. Agent tools: adguard_stats, adguard_clients, and the change-gated adguard_rule and
+adguard_rewrite.
+
 ## Passwords and two-factor (Settings > Security)
 Everyone can change their own password there. People with settings.manage set the password policy: minimum
 length (at least 12), required lowercase, capital, digit or symbol, how many old passwords can't be reused,

@@ -163,17 +163,32 @@ export async function homeassistantStates(a: Base & { token: string; domain?: st
 
 // --- Pi-hole v6 ---------------------------------------------------------------------------------
 
-export async function piholeSummary(a: Base & { password: string }, send: RawRequest = sendRequest) {
+/** Signs in to Pi-hole v6, runs fn with the session header, and always signs out (sessions are limited). */
+export async function piholeSession<T>(send: RawRequest, a: Base & { password: string }, fn: (h: Record<string, string>) => Promise<T>) {
   const auth = await call(send, "Pi-hole", a, "POST", "/api/auth", { "Content-Type": "application/json" }, JSON.stringify({ password: a.password }));
   const session = obj(obj(auth.json).session);
   const sid = clean(session.sid);
   if (session.valid !== true || !sid) throw new HomelabError("Pi-hole refused the password (Pi-hole v6 is required)");
   const h = { "X-FTL-SID": sid };
   try {
-    const [summary, top] = await Promise.all([call(send, "Pi-hole", a, "GET", "/api/stats/summary", h), call(send, "Pi-hole", a, "GET", "/api/stats/top_clients?count=10", h)]);
+    return await fn(h);
+  } finally {
+    await call(send, "Pi-hole", a, "DELETE", "/api/auth", h).catch(() => {});
+  }
+}
+
+export async function piholeSummary(a: Base & { password: string }, send: RawRequest = sendRequest) {
+  return piholeSession(send, a, async (h) => {
+    const [summary, top, blocking] = await Promise.all([
+      call(send, "Pi-hole", a, "GET", "/api/stats/summary", h),
+      call(send, "Pi-hole", a, "GET", "/api/stats/top_clients?count=10", h),
+      call(send, "Pi-hole", a, "GET", "/api/dns/blocking", h),
+    ]);
     const s = obj(summary.json);
     const queries = obj(s.queries);
     return {
+      /** enabled, disabled (someone paused it), failed or unknown. */
+      blocking: clean(obj(blocking.json).blocking) ?? "unknown",
       queries: num(queries.total),
       blocked: num(queries.blocked),
       blockedPercent: num(queries.percent_blocked) !== undefined ? Math.round(num(queries.percent_blocked)! * 10) / 10 : undefined,
@@ -181,9 +196,29 @@ export async function piholeSummary(a: Base & { password: string }, send: RawReq
       domainsOnBlocklists: num(obj(s.gravity).domains_being_blocked),
       topClients: arr(obj(top.json).clients).map((c) => ({ ip: clean(c.ip), name: clean(c.name) || undefined, queries: num(c.count) })),
     };
-  } finally {
-    await call(send, "Pi-hole", a, "DELETE", "/api/auth", h).catch(() => {});
-  }
+  });
+}
+
+const MAC = /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/;
+
+/** The devices Pi-hole has seen on the network: MAC, maker, and each address with the name it resolved to. */
+export async function piholeClients(a: Base & { password: string; limit: number }, send: RawRequest = sendRequest) {
+  return piholeSession(send, a, async (h) => {
+    const { json } = await call(send, "Pi-hole", a, "GET", `/api/network/devices?max_devices=${a.limit}&max_addresses=4`, h);
+    const devices = arr(obj(json).devices).map((d) => {
+      const hw = (clean(d.hwaddr) ?? "").toLowerCase();
+      const addrs = arr(d.ips).map((x) => ({ ip: clean(x.ip), name: clean(x.name) || undefined })).filter((x) => x.ip);
+      return {
+        mac: MAC.test(hw) ? hw : undefined,
+        vendor: clean(d.macVendor) || undefined,
+        name: addrs.find((x) => x.name)?.name,
+        ips: addrs.map((x) => x.ip!),
+        queries: num(d.numQueries),
+        lastQuery: num(d.lastQuery) ? new Date(num(d.lastQuery)! * 1000).toISOString() : undefined,
+      };
+    });
+    return { total: devices.length, devices: devices.slice(0, a.limit) };
+  });
 }
 
 // --- AdGuard Home -------------------------------------------------------------------------------
@@ -208,4 +243,23 @@ export async function adguardStats(a: Base & { user: string; password: string },
     topClients: top(s.top_clients),
     topBlockedDomains: top(s.top_blocked_domains),
   };
+}
+
+/** AdGuard Home's clients: the ones set up by hand (with their ids: addresses, MACs) and the ones it found. */
+export async function adguardClients(a: Base & { user: string; password: string; limit: number }, send: RawRequest = sendRequest) {
+  const h = { Authorization: `Basic ${Buffer.from(`${a.user}:${a.password}`).toString("base64")}` };
+  const { json } = await call(send, "AdGuard Home", a, "GET", "/control/clients", h);
+  const j = obj(json);
+  const configured = arr(j.clients).map((c) => {
+    const ids = (Array.isArray(c.ids) ? c.ids : []).map((x) => String(x).trim().toLowerCase());
+    return {
+      name: clean(c.name) || undefined,
+      macs: ids.filter((x) => MAC.test(x.replace(/-/g, ":"))).map((x) => x.replace(/-/g, ":")),
+      ips: ids.filter((x) => /^\d{1,3}(\.\d{1,3}){3}$/.test(x)),
+      configured: true,
+    };
+  });
+  const found = arr(j.auto_clients).map((c) => ({ name: clean(c.name) || undefined, macs: [] as string[], ips: [clean(c.ip)].filter((x): x is string => !!x), source: clean(c.source), configured: false }));
+  const clients = [...configured, ...found];
+  return { total: clients.length, clients: clients.slice(0, a.limit) };
 }

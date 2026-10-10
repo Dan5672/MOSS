@@ -1,7 +1,7 @@
 // Write tools: they change things, so the gate only sends them when they match a step of an approved change
 // request. Each does exactly one thing, then reads back the result so the agent can verify it.
 import { sendRequest, type RawRequest } from "./custom-http.js";
-import { arr, call, HomelabError, obj, type Base } from "./homelab.js";
+import { arr, call, HomelabError, obj, piholeSession, type Base } from "./homelab.js";
 import { clean } from "./parsers.js";
 import { dataOf, withUnifi, type UnifiAuth } from "./unifi.js";
 import { parseSystemctlShow, pinNote, run, ServerError, sshRun, type SshRun, type SshTarget } from "./servers.js";
@@ -93,19 +93,6 @@ export async function homeassistantPowerCycle(a: Base & { token: string; entity:
 }
 
 // --- Pi-hole v6 ----------------------------------------------------------------------------------
-
-async function piholeSession<T>(send: RawRequest, a: Base & { password: string }, fn: (h: Record<string, string>) => Promise<T>) {
-  const auth = await call(send, "Pi-hole", a, "POST", "/api/auth", { "Content-Type": "application/json" }, JSON.stringify({ password: a.password }));
-  const session = obj(obj(auth.json).session);
-  const sid = clean(session.sid);
-  if (session.valid !== true || !sid) throw new HomelabError("Pi-hole refused the password (Pi-hole v6 is required)");
-  const h = { "X-FTL-SID": sid };
-  try {
-    return await fn(h);
-  } finally {
-    await call(send, "Pi-hole", a, "DELETE", "/api/auth", h).catch(() => {});
-  }
-}
 
 export async function piholeDomainRule(a: Base & { password: string; domain: string; list: "deny" | "allow"; action: "add" | "remove" }, send: RawRequest = sendRequest) {
   return piholeSession(send, a, async (h) => {

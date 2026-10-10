@@ -837,8 +837,9 @@ test("integrations: Home Assistant is connected, tested, switched on, and fills 
   // Modules were renamed Integrations; the old address still works.
   await page.goto("/settings/modules");
   await expect(page).toHaveURL(/\/settings\/integrations$/);
-  await expect(page.getByText("Not set up.")).toBeVisible();
-  await page.getByRole("link", { name: "Set up" }).click();
+  // Home Assistant's card is the first.
+  await expect(page.getByText("Not set up.").first()).toBeVisible();
+  await page.getByRole("link", { name: "Set up" }).first().click();
   await expect(page.getByRole("heading", { name: "Home Assistant", exact: true })).toBeVisible();
 
   const connection = page.locator("#connection");
@@ -880,6 +881,53 @@ test("integrations: Home Assistant is connected, tested, switched on, and fills 
   page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "Switch integration off" }).click();
   await expect(page.getByText("Home Assistant integration switched off")).toBeVisible();
+});
+
+test("integrations: Pi-hole is set up, tested, switched on, and names a device", async () => {
+  await page.goto("/settings/integrations");
+  await page.getByRole("link", { name: "Pi-hole", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Pi-hole", exact: true })).toBeVisible();
+  // Switching on needs the connection first.
+  await page.getByRole("button", { name: "Switch integration on" }).click();
+  await expect(page.getByText("Set up the connection first.")).toBeVisible();
+
+  const connection = page.locator("#connection");
+  await connection.getByLabel("Address", { exact: true }).fill("192.168.50.53");
+  await connection.getByLabel("Scheme").selectOption("http");
+  await connection.getByLabel("Port").fill("80");
+  await connection.getByLabel("App password").fill("wrong-password");
+  await connection.getByRole("button", { name: "Save connection" }).click();
+  await expect(page.getByText("Saved the connection and the credential.")).toBeVisible();
+  await connection.getByRole("button", { name: "Test connection" }).click();
+  await expect(page.getByText("Pi-hole refused the password (Pi-hole v6 is required)")).toBeVisible();
+  await connection.getByLabel("App password").fill("pihole-app-password");
+  await connection.getByRole("button", { name: "Save connection" }).click();
+  await expect(page.getByText("Saved the connection and the credential.")).toBeVisible();
+  await expect(connection.getByLabel("App password")).toHaveAttribute("placeholder", /^Saved/);
+  await connection.getByRole("button", { name: "Test connection" }).click();
+  await expect(page.getByText("Connected to Pi-hole: 4200 queries today, 15% blocked, blocking enabled.")).toBeVisible();
+
+  const features = page.locator("#features");
+  await features.getByLabel("Health checks").check();
+  await features.getByLabel("Device names").check();
+  await features.getByRole("button", { name: "Save features" }).click();
+  await expect(page.getByText("Saved.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Switch integration on" }).click();
+  await expect(page.getByText("Pi-hole is on.")).toBeVisible();
+
+  // Sync now: a health check makes its monitors; the device sync names a device.
+  const runs = page.getByRole("list", { name: "Last runs" });
+  await runs.getByRole("listitem").filter({ hasText: "Health checks" }).getByRole("button", { name: "Sync now" }).click();
+  await expect(page.getByText("Health checks: Blocking on, 15% of 4200 queries blocked")).toBeVisible();
+  await runs.getByRole("listitem").filter({ hasText: "Device names" }).getByRole("button", { name: "Sync now" }).click();
+  await expect(page.getByText("Device names: 0 matched, 1 added")).toBeVisible();
+  await page.reload();
+  await expect(page.locator("#status").getByRole("link", { name: /Pi-hole blocking/ })).toBeVisible();
+  await page.goto("/assets");
+  await expect(page.getByRole("link", { name: "octopi", exact: true })).toBeVisible();
+
+  await page.goto("/settings/integrations");
+  await expect(page.getByText("Using: health checks, device names.")).toBeVisible();
 });
 
 test("MOSS in Home Assistant: a token for the integration, and the small, safe API it opens", async () => {

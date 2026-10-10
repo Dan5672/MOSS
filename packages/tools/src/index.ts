@@ -385,6 +385,18 @@ export const piholeSummary = tool(
   }),
 );
 
+export const piholeClients = tool(
+  { name: "pihole_clients", class: "read", targetArgs: ["target"], secretArgs: ["password"] },
+  "List the devices Pi-hole (v6) has seen on the network: MAC address, maker, addresses and the names they resolve to, and how many queries each made.",
+  z.object({
+    ...apiCommon,
+    password: secretHandle.describe("The Pi-hole web or app password stored as a secret"),
+    port: port.default(80),
+    scheme: z.enum(["http", "https"]).default("http"),
+    limit: z.number().int().min(1).max(500).default(300),
+  }),
+);
+
 export const adguardStats = tool(
   { name: "adguard_stats", class: "read", targetArgs: ["target"], secretArgs: ["password"] },
   "Read AdGuard Home statistics: queries, how many were blocked, average processing time, and the busiest clients.",
@@ -394,6 +406,19 @@ export const adguardStats = tool(
     password: secretHandle.describe("That user's password stored as a secret"),
     port: port.default(80),
     scheme: z.enum(["http", "https"]).default("http"),
+  }),
+);
+
+export const adguardClients = tool(
+  { name: "adguard_clients", class: "read", targetArgs: ["target"], secretArgs: ["password"] },
+  "List AdGuard Home's clients: the ones set up by hand (with their addresses and MACs) and the ones it found itself, with their names.",
+  z.object({
+    ...apiCommon,
+    user: z.string().min(1).max(64).describe("The AdGuard Home user name"),
+    password: secretHandle.describe("That user's password stored as a secret"),
+    port: port.default(80),
+    scheme: z.enum(["http", "https"]).default("http"),
+    limit: z.number().int().min(1).max(500).default(300),
   }),
 );
 
@@ -619,7 +644,9 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     homeassistantLogs,
     homeassistantDevices,
     piholeSummary,
+    piholeClients,
     adguardStats,
+    adguardClients,
     serviceRestart,
     containerRestart,
     hostReboot,

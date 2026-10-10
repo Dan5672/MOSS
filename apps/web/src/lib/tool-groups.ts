@@ -10,7 +10,7 @@ export const TOOL_GROUPS = [
   {
     key: "dns",
     label: "DNS filtering",
-    tools: ["pihole_summary", "pihole_domain_rule", "pihole_local_dns", "adguard_stats", "adguard_rule", "adguard_rewrite"],
+    tools: ["pihole_summary", "pihole_clients", "pihole_domain_rule", "pihole_local_dns", "adguard_stats", "adguard_clients", "adguard_rule", "adguard_rewrite"],
   },
   {
     key: "homeassistant",

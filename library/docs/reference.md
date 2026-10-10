@@ -21,6 +21,10 @@ Stored per install; most are switched on the Settings page.
 | tools.allow_vulners | false | Allows vuln_scan's cve profile, which sends service names and versions to vulners.com. Off by default. |
 | tools.catalog_url | "" | An optional remote tools catalog (an https URL of its index). Empty means only the bundled catalog. |
 
+## Tool adguard_clients
+A network tool (read), run by the toolbox through the policy gate. List AdGuard Home's clients: the ones set up by hand (with their addresses and MACs) and the ones it found itself, with their names.
+Granted by: no skill (grant it on Agents → Tool access).
+
 ## Tool adguard_rewrite
 A network tool (changes things: only through an approved change), run by the toolbox through the policy gate. Add or remove an AdGuard Home DNS rewrite (a local DNS record), e.g. nas.lan -> 10.0.0.12. Only runs as part of an approved change.
 Granted by: Home & DNS Actions.
@@ -104,6 +108,10 @@ Granted by: Network Discovery, Security Baseline Review, Service Health Checks.
 ## Tool nuclei_scan
 A network tool (read), run by the toolbox through the policy gate. Check one host with Nuclei's community templates for known vulnerabilities, misconfigurations, exposed admin panels and default pages. Only non-intrusive templates run (no denial-of-service, fuzzing, brute force or default-login attempts), rate-limited, with no out-of-band callbacks. Ports default to 80 and 443.
 Granted by: Vulnerability Scanning.
+
+## Tool pihole_clients
+A network tool (read), run by the toolbox through the policy gate. List the devices Pi-hole (v6) has seen on the network: MAC address, maker, addresses and the names they resolve to, and how many queries each made.
+Granted by: no skill (grant it on Agents → Tool access).
 
 ## Tool pihole_domain_rule
 A network tool (changes things: only through an approved change), run by the toolbox through the policy gate. Add or remove an exact domain on Pi-hole's (v6) deny or allow list. Only runs as part of an approved change.

@@ -1,6 +1,12 @@
 # What's new
 Newest first. After an upgrade, Moss posts the newest section in #general.
 
+## 0.5.0
+- **Integrations for your home lab**, each with its own page in Settings → Integrations: connect it, test
+  it, switch on what it should do, and see what it last found.
+- **Pi-hole and AdGuard Home**: MOSS watches that blocking stays on, graphs your queries and block rate,
+  and names devices in the inventory from what they know.
+
 ## 0.4.0
 - **Metric monitors**: interface traffic and any numeric value over SNMP, a server's load, memory and
   disk over SSH, and any Home Assistant sensor, with thresholds for degraded and down.

@@ -6,7 +6,7 @@ import * as actions from "./actions.js";
 import { configBackup, type BackupArgs } from "./backups.js";
 import { customHttp, sendRequest, type RawRequest } from "./custom-http.js";
 import { homeassistantDevices, homeassistantHealth, homeassistantLogs, homeassistantNotify, homeassistantPublish } from "./home-assistant.js";
-import { adguardStats, HomelabError, homeassistantStates, piholeSummary, proxmoxStatus, synologyStatus, truenasStatus } from "./homelab.js";
+import { adguardClients, adguardStats, HomelabError, homeassistantStates, piholeClients, piholeSummary, proxmoxStatus, synologyStatus, truenasStatus } from "./homelab.js";
 import { unifiAuthMode, unifiClientsByLogin, unifiFirewall } from "./unifi.js";
 import { nucleiScan, tlsAudit, vulnScan } from "./vuln.js";
 import { diskUsage, dockerPs, hostFacts, ServerError, serviceStatus, sshRun, type SshRun, type SshTarget } from "./servers.js";
@@ -268,6 +268,8 @@ async function runToolInner(
     case "synology_status":
     case "homeassistant_states":
     case "pihole_summary":
+    case "pihole_clients":
+    case "adguard_clients":
     case "adguard_stats": {
       assertHost(args.target as string);
       const a = args as never;
@@ -276,6 +278,8 @@ async function runToolInner(
       if (name === "synology_status") return synologyStatus(a, send);
       if (name === "homeassistant_states") return homeassistantStates(a, send);
       if (name === "pihole_summary") return piholeSummary(a, send);
+      if (name === "pihole_clients") return piholeClients(a, send);
+      if (name === "adguard_clients") return adguardClients(a, send);
       return adguardStats(a, send);
     }
     case "homeassistant_health":

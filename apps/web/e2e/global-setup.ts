@@ -31,6 +31,27 @@ const fakeHomeAssistant = {
   }),
 };
 
+interface GateIntegrationsApi {
+  runIntegrationOp(
+    deps: { db: ReturnType<typeof createDb>; masterKey: Buffer; toolbox: { call(tool: string, args: Record<string, unknown>): Promise<unknown> } },
+    req: { orgId: string; key: string; op: string; userId?: string },
+  ): Promise<unknown>;
+}
+
+/** A pretend Pi-hole behind the toolbox, for an integration page's Test connection and Sync now. */
+const fakePihole = {
+  call: async (tool: string, args: Record<string, unknown>) =>
+    args.password !== "pihole-app-password"
+      ? { ok: false, error: "Pi-hole refused the password (Pi-hole v6 is required)" }
+      : {
+          ok: true,
+          result:
+            tool === "pihole_clients"
+              ? { total: 1, devices: [{ mac: "aa:bb:cc:dd:ee:01", vendor: "Raspberry Pi", name: "octopi.lan", ips: ["192.168.50.61"] }] }
+              : { blocking: "enabled", queries: 4200, blocked: 630, blockedPercent: 15, activeClients: 9 },
+        },
+};
+
 interface GateSecretsApi {
   secretWriteSchema: { parse(input: unknown): unknown };
   writeSecret(db: ReturnType<typeof createDb>, masterKey: Buffer, input: unknown): Promise<{ id: string; created: boolean }>;
@@ -46,6 +67,8 @@ export default async function globalSetup() {
   const { secretWriteSchema, writeSecret } = (await import(gateSecretsApi)) as GateSecretsApi;
   const gateBackupsApi = "../../gate/dist/backups.js";
   const { readBackup } = (await import(gateBackupsApi)) as GateBackupsApi;
+  const gateIntegrationsApi = "../../gate/dist/integrations.js";
+  const { runIntegrationOp } = (await import(gateIntegrationsApi)) as GateIntegrationsApi;
   const gateHomeAssistantApi = "../../gate/dist/home-assistant.js";
   const { moduleManagerOrg, runHomeAssistantOp } = (await import(gateHomeAssistantApi)) as GateHomeAssistantApi;
   const db = createDb(E2E_DATABASE_URL);
@@ -71,6 +94,14 @@ export default async function globalSetup() {
         const orgId = await moduleManagerOrg(db, userId);
         if (!orgId) return reply(403, { error: "unknown or inactive user" });
         return reply(200, await runHomeAssistantOp({ db, masterKey, toolbox: fakeHomeAssistant }, { orgId, op: haOp[1]!, userId }));
+      }
+      // The gate's real integration call path, with a pretend Pi-hole.
+      const integrationOp = req.method === "POST" ? /^\/v1\/web\/integrations\/([a-z_]+)\/([a-z]+(?::|%3A)?[a-z]*)$/i.exec(req.url ?? "") : null;
+      if (integrationOp) {
+        const { userId } = JSON.parse(body) as { userId: string };
+        const orgId = await moduleManagerOrg(db, userId);
+        if (!orgId) return reply(403, { error: "unknown or inactive user" });
+        return reply(200, await runIntegrationOp({ db, masterKey, toolbox: fakePihole }, { orgId, key: integrationOp[1]!, op: decodeURIComponent(integrationOp[2]!), userId }));
       }
       if (req.method !== "POST" || req.url !== "/v1/secrets") return reply(404, { error: "not found" });
       try {
