@@ -1,9 +1,10 @@
 // Every integration MOSS has, besides Home Assistant (which has its own pages and features). Adding one here gives
 // it a settings page, background features, gate operations and a place in Moss's docs check.
 import { ADGUARD, PIHOLE } from "./dns-filters.js";
+import { PROXMOX, PROXMOX_BACKUP } from "./proxmox.js";
 import type { IntegrationDef } from "./types.js";
 
-export const INTEGRATIONS: IntegrationDef[] = [PIHOLE, ADGUARD];
+export const INTEGRATIONS: IntegrationDef[] = [PROXMOX, PROXMOX_BACKUP, PIHOLE, ADGUARD];
 
 export function getIntegration(key: string): IntegrationDef | null {
   return INTEGRATIONS.find((d) => d.key === key) ?? null;

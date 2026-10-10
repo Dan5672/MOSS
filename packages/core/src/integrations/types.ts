@@ -82,6 +82,24 @@ export interface IntegrationDef {
   features: IntegrationFeature[];
   /** Agent tools that come with it, offered on its page to grant to an agent. */
   agentTools: string[];
+  /** Numbers people can tune (thresholds), shown with the features. */
+  options?: IntegrationOption[];
+}
+
+export interface IntegrationOption {
+  key: string;
+  label: string;
+  hint?: string;
+  default: number;
+  min: number;
+  max: number;
+}
+
+/** An option's value, or its default. */
+export function integrationOption(def: IntegrationDef, c: IntegrationConfig, key: string): number {
+  const o = def.options?.find((x) => x.key === key);
+  const v = c.options[key];
+  return typeof v === "number" && o && v >= o.min && v <= o.max ? v : (o?.default ?? 0);
 }
 
 /** The stored config every integration shares. */

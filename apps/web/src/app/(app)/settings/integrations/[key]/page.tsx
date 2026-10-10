@@ -1,3 +1,4 @@
+import { integrationOption } from "@moss/core";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
@@ -100,6 +101,22 @@ export default async function IntegrationSettingsPage({ params }: PageProps<"/se
               {def.features.map((f) => (
                 <CheckboxField key={f.key} label={f.label} name={`feature:${f.key}`} defaultChecked={c.features[f.key]} hint={f.description} />
               ))}
+              {def.options?.length ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {def.options.map((o) => (
+                    <TextField
+                      key={o.key}
+                      label={o.label}
+                      name={`option:${o.key}`}
+                      type="number"
+                      min={o.min}
+                      max={o.max}
+                      defaultValue={integrationOption(def, c, o.key)}
+                      hint={o.hint}
+                    />
+                  ))}
+                </div>
+              ) : null}
               <div className="grid gap-3 sm:grid-cols-2">
                 <SelectField label="Incident priority" name="priority" defaultValue={c.priority} options={["P1", "P2", "P3", "P4"].map((v) => ({ value: v, label: v }))} />
                 <SelectField

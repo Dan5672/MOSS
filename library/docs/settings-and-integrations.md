@@ -66,6 +66,26 @@ Home Assistant is refused unless "Let Home Assistant resume agents" is ticked. T
 or revoked token" means make a new token; entities unavailable means Home Assistant can't reach MOSS's
 address (it must be reachable from Home Assistant, e.g. http://<MOSS host IP>:3000).
 
+## The Proxmox VE integration
+Settings > Integrations > Proxmox VE. Connection: any node's address, port 8006, and an API token
+(Datacenter > Permissions > API Tokens, pasted as USER@REALM!TOKENID=SECRET; the PVEAuditor role is enough
+to read), stored as secret:proxmox-token. Health checks (every 5 minutes): a monitor per node (with CPU,
+memory and disk as readings), per storage pool (degraded at 90% used and down at 98%, both adjustable),
+and per VM or container set to start at boot (down when it isn't running; guests that aren't set to
+start at boot are left alone). VMs and containers in the inventory (every 6 hours): nodes, VMs and
+containers as assets, each guest under its node, matched by MAC to devices MOSS already knows, with the
+addresses Proxmox knows (containers, and VMs with the QEMU guest agent); deleted guests are marked
+missing. Agent tools: proxmox_status, proxmox_inventory, and the change-gated proxmox_snapshot (take a
+snapshot first in any change to a guest) and proxmox_guest_power (shutdown, start, reboot; the token then
+needs VM.Snapshot and VM.PowerMgmt).
+
+## The Proxmox Backup Server integration
+Settings > Integrations > Proxmox Backup Server. Connection: its address, port 8007, and an API token
+(Configuration > Access Control > API Token, as USER@REALM!TOKENID:SECRET, with DatastoreAudit), stored
+as secret:pbs-token. Backup checks (every 30 minutes): a monitor per guest that's backed up, down when its
+last backup is older than the limit (2 days by default), with the hours since as a reading; and one per
+datastore, degraded at 85% used and down at 95%. Agent tool: pbs_status.
+
 ## The Pi-hole integration
 Settings > Integrations > Pi-hole (v6 or newer). Connection: its address, port (80) and http/https, and an
 app password (Pi-hole: Settings > Web interface / API > Configure app password), stored as

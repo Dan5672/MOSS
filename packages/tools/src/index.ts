@@ -263,6 +263,30 @@ export const proxmoxStatus = tool(
     ...apiCommon,
     token: secretHandle.describe("A Proxmox API token stored as a secret, in the form USER@REALM!TOKENID=SECRET"),
     port: port.default(8006),
+    bootFlags: z.boolean().default(false).describe("Also say whether each guest starts at boot (one more request per guest)"),
+  }),
+);
+
+const proxmoxApi = {
+  ...apiCommon,
+  token: secretHandle.describe("A Proxmox API token stored as a secret, in the form USER@REALM!TOKENID=SECRET"),
+  port: port.default(8006),
+};
+
+export const proxmoxInventory = tool(
+  { name: "proxmox_inventory", class: "read", targetArgs: ["target"], secretArgs: ["token"] },
+  "List a Proxmox VE cluster's nodes (with their addresses) and every VM and container with its MAC addresses, the addresses " +
+    "Proxmox knows (containers' interfaces, VMs with the QEMU guest agent), whether it starts at boot, and its OS type.",
+  z.object(proxmoxApi),
+);
+
+export const pbsStatus = tool(
+  { name: "pbs_status", class: "read", targetArgs: ["target"], secretArgs: ["token"] },
+  "Read a Proxmox Backup Server: each datastore's use, and when each guest (backup group) was last backed up.",
+  z.object({
+    ...apiCommon,
+    token: secretHandle.describe("A Proxmox Backup Server API token stored as a secret, in the form USER@REALM!TOKENID:SECRET"),
+    port: port.default(8007),
   }),
 );
 
@@ -515,6 +539,32 @@ export const homeassistantPowerCycle = tool(
   }),
 );
 
+const proxmoxGuest = {
+  ...proxmoxApi,
+  node: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9.-]{0,62}$/, "A Proxmox node name"),
+  kind: z.enum(["vm", "container"]),
+  vmid: z.number().int().min(100).max(999_999_999),
+};
+
+export const proxmoxSnapshot = tool(
+  { name: "proxmox_snapshot", class: "write", targetArgs: ["target"], secretArgs: ["token"] },
+  "Take a snapshot of a Proxmox VM or container, and wait for it to finish. Make it the first step of a change to that guest, " +
+    "so the change can be rolled back. Only runs as part of an approved change.",
+  z
+    .object({
+      ...proxmoxGuest,
+      name: z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{1,39}$/, "A snapshot name: a letter, then letters, digits, - or _"),
+      description: z.string().max(200).optional(),
+    })
+    .strict(),
+);
+
+export const proxmoxGuestPower = tool(
+  { name: "proxmox_guest_power", class: "write", targetArgs: ["target"], secretArgs: ["token"] },
+  "Shut down (cleanly), start or reboot a Proxmox VM or container, wait for it, and report its state. Only runs as part of an approved change.",
+  z.object({ ...proxmoxGuest, action: z.enum(["shutdown", "start", "reboot"]) }).strict(),
+);
+
 export const piholeDomainRule = tool(
   { name: "pihole_domain_rule", class: "write", targetArgs: ["target"], secretArgs: ["password"] },
   "Add or remove an exact domain on Pi-hole's (v6) deny or allow list. Only runs as part of an approved change.",
@@ -637,6 +687,8 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     serviceStatus,
     dockerPs,
     proxmoxStatus,
+    proxmoxInventory,
+    pbsStatus,
     truenasStatus,
     synologyStatus,
     homeassistantStates,
@@ -652,6 +704,8 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     hostReboot,
     homeassistantSwitch,
     homeassistantPowerCycle,
+    proxmoxSnapshot,
+    proxmoxGuestPower,
     piholeDomainRule,
     piholeLocalDns,
     adguardRule,

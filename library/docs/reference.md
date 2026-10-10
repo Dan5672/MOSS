@@ -23,7 +23,7 @@ Stored per install; most are switched on the Settings page.
 
 ## Tool adguard_clients
 A network tool (read), run by the toolbox through the policy gate. List AdGuard Home's clients: the ones set up by hand (with their addresses and MACs) and the ones it found itself, with their names.
-Granted by: no skill (grant it on Agents → Tool access).
+Granted by: Home Lab Integrations.
 
 ## Tool adguard_rewrite
 A network tool (changes things: only through an approved change), run by the toolbox through the policy gate. Add or remove an AdGuard Home DNS rewrite (a local DNS record), e.g. nas.lan -> 10.0.0.12. Only runs as part of an approved change.
@@ -109,9 +109,13 @@ Granted by: Network Discovery, Security Baseline Review, Service Health Checks.
 A network tool (read), run by the toolbox through the policy gate. Check one host with Nuclei's community templates for known vulnerabilities, misconfigurations, exposed admin panels and default pages. Only non-intrusive templates run (no denial-of-service, fuzzing, brute force or default-login attempts), rate-limited, with no out-of-band callbacks. Ports default to 80 and 443.
 Granted by: Vulnerability Scanning.
 
+## Tool pbs_status
+A network tool (read), run by the toolbox through the policy gate. Read a Proxmox Backup Server: each datastore's use, and when each guest (backup group) was last backed up.
+Granted by: Home Lab Integrations.
+
 ## Tool pihole_clients
 A network tool (read), run by the toolbox through the policy gate. List the devices Pi-hole (v6) has seen on the network: MAC address, maker, addresses and the names they resolve to, and how many queries each made.
-Granted by: no skill (grant it on Agents → Tool access).
+Granted by: Home Lab Integrations.
 
 ## Tool pihole_domain_rule
 A network tool (changes things: only through an approved change), run by the toolbox through the policy gate. Add or remove an exact domain on Pi-hole's (v6) deny or allow list. Only runs as part of an approved change.
@@ -129,9 +133,21 @@ Granted by: Home & DNS Actions, Home Lab Integrations.
 A network tool (read), run by the toolbox through the policy gate. Send ICMP echo requests to a single host and report packet loss and round-trip time.
 Granted by: Monitoring Response, Network Discovery, Service Health Checks.
 
+## Tool proxmox_guest_power
+A network tool (changes things: only through an approved change), run by the toolbox through the policy gate. Shut down (cleanly), start or reboot a Proxmox VM or container, wait for it, and report its state. Only runs as part of an approved change.
+Granted by: Server Actions.
+
+## Tool proxmox_inventory
+A network tool (read), run by the toolbox through the policy gate. List a Proxmox VE cluster's nodes (with their addresses) and every VM and container with its MAC addresses, the addresses Proxmox knows (containers' interfaces, VMs with the QEMU guest agent), whether it starts at boot, and its OS type.
+Granted by: Home Lab Integrations.
+
+## Tool proxmox_snapshot
+A network tool (changes things: only through an approved change), run by the toolbox through the policy gate. Take a snapshot of a Proxmox VM or container, and wait for it to finish. Make it the first step of a change to that guest, so the change can be rolled back. Only runs as part of an approved change.
+Granted by: Server Actions.
+
 ## Tool proxmox_status
 A network tool (read), run by the toolbox through the policy gate. Read a Proxmox VE cluster: each node's status, CPU, memory and disk, and every VM and container's state and usage.
-Granted by: Home Lab Integrations.
+Granted by: Home Lab Integrations, Server Actions.
 
 ## Tool service_restart
 A network tool (changes things: only through an approved change), run by the toolbox through the policy gate. Restart, start or stop a systemd service over SSH (sudo -n systemctl), then report its new state. Needs passwordless sudo for systemctl on that server. Only runs as part of an approved change.
@@ -350,8 +366,8 @@ Added per agent. Key home-assistant. Look after Home Assistant - its health, int
 Tools: homeassistant_health, homeassistant_logs, homeassistant_states, homeassistant_devices, incident_create, incident_list, incident_comment, kb_search, kb_write.
 
 ## Skill Home Lab Integrations
-Added per agent. Key homelab-integrations. Read Proxmox, TrueNAS, Synology, Home Assistant, Pi-hole and AdGuard Home through their own APIs.
-Tools: proxmox_status, truenas_status, synology_status, homeassistant_states, pihole_summary, adguard_stats, inventory_search.
+Added per agent. Key homelab-integrations. Read Proxmox (and its Backup Server), TrueNAS, Synology, Home Assistant, Pi-hole and AdGuard Home through their own APIs.
+Tools: proxmox_status, proxmox_inventory, pbs_status, truenas_status, synology_status, homeassistant_states, pihole_summary, pihole_clients, adguard_stats, adguard_clients, inventory_search.
 
 ## Skill Incident Management
 Core: built into every agent (except Moss). Key incident-management. Raise, work and resolve incidents.
@@ -382,8 +398,8 @@ Added per agent. Key security-baseline. Look for exposed services and risky conf
 Tools: nmap_scan, unifi_firewall, inventory_search, inventory_update.
 
 ## Skill Server Actions
-Added per agent. Key server-actions. Restart services and containers, or reboot a Linux server, as steps of an approved change request.
-Tools: service_restart, container_restart, host_reboot, service_status, docker_ps, host_facts.
+Added per agent. Key server-actions. Restart services and containers, reboot a Linux server, or snapshot and power Proxmox guests, as steps of an approved change request.
+Tools: service_restart, container_restart, host_reboot, proxmox_snapshot, proxmox_guest_power, service_status, docker_ps, host_facts, proxmox_status.
 
 ## Skill Server Checks
 Added per agent. Key server-checks. Check Linux servers over SSH - OS and load, disk space, systemd services and Docker containers - with fixed, read-only commands.

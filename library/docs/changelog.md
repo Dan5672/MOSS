@@ -4,6 +4,9 @@ Newest first. After an upgrade, Moss posts the newest section in #general.
 ## 0.5.0
 - **Integrations for your home lab**, each with its own page in Settings → Integrations: connect it, test
   it, switch on what it should do, and see what it last found.
+- **Proxmox VE and Proxmox Backup Server**: nodes, storage and the VMs that should be running are watched,
+  every VM and container joins the inventory under its node, and you hear when a guest hasn't been
+  backed up. Agents can snapshot a VM before changing it.
 - **Pi-hole and AdGuard Home**: MOSS watches that blocking stays on, graphs your queries and block rate,
   and names devices in the inventory from what they know.
 

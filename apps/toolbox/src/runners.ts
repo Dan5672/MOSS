@@ -6,7 +6,7 @@ import * as actions from "./actions.js";
 import { configBackup, type BackupArgs } from "./backups.js";
 import { customHttp, sendRequest, type RawRequest } from "./custom-http.js";
 import { homeassistantDevices, homeassistantHealth, homeassistantLogs, homeassistantNotify, homeassistantPublish } from "./home-assistant.js";
-import { adguardClients, adguardStats, HomelabError, homeassistantStates, piholeClients, piholeSummary, proxmoxStatus, synologyStatus, truenasStatus } from "./homelab.js";
+import { adguardClients, adguardStats, HomelabError, homeassistantStates, pbsStatus, piholeClients, piholeSummary, proxmoxInventory, proxmoxStatus, synologyStatus, truenasStatus } from "./homelab.js";
 import { unifiAuthMode, unifiClientsByLogin, unifiFirewall } from "./unifi.js";
 import { nucleiScan, tlsAudit, vulnScan } from "./vuln.js";
 import { diskUsage, dockerPs, hostFacts, ServerError, serviceStatus, sshRun, type SshRun, type SshTarget } from "./servers.js";
@@ -264,6 +264,8 @@ async function runToolInner(
       return dockerPs(t, ssh);
     }
     case "proxmox_status":
+    case "proxmox_inventory":
+    case "pbs_status":
     case "truenas_status":
     case "synology_status":
     case "homeassistant_states":
@@ -274,6 +276,8 @@ async function runToolInner(
       assertHost(args.target as string);
       const a = args as never;
       if (name === "proxmox_status") return proxmoxStatus(a, send);
+      if (name === "proxmox_inventory") return proxmoxInventory(a, send);
+      if (name === "pbs_status") return pbsStatus(a, send);
       if (name === "truenas_status") return truenasStatus(a, send);
       if (name === "synology_status") return synologyStatus(a, send);
       if (name === "homeassistant_states") return homeassistantStates(a, send);
@@ -323,9 +327,13 @@ async function runToolInner(
     case "pihole_domain_rule":
     case "pihole_local_dns":
     case "adguard_rule":
-    case "adguard_rewrite": {
+    case "adguard_rewrite":
+    case "proxmox_snapshot":
+    case "proxmox_guest_power": {
       assertHost(args.target as string);
       const a = args as never;
+      if (name === "proxmox_snapshot") return actions.proxmoxSnapshot(a, send);
+      if (name === "proxmox_guest_power") return actions.proxmoxGuestPower(a, send);
       if (name === "homeassistant_switch") return actions.homeassistantSwitch(a, send);
       if (name === "homeassistant_power_cycle") return actions.homeassistantPowerCycle(a, send);
       if (name === "pihole_domain_rule") return actions.piholeDomainRule(a, send);

@@ -122,6 +122,17 @@ export async function saveIntegrationFeaturesAction(key: string, _: ActionState,
     await save(user, def, {
       ...config,
       features: Object.fromEntries(def.features.map((ft) => [ft.key, on(form.get(`feature:${ft.key}`))])),
+      options: {
+        ...config.options,
+        ...Object.fromEntries(
+          (def.options ?? []).flatMap((o) => {
+            const v = Number(form.get(`option:${o.key}`));
+            if (!Number.isFinite(v)) return [];
+            if (v < o.min || v > o.max) throw new Error(`${o.label}: between ${o.min} and ${o.max}.`);
+            return [[o.key, v]];
+          }),
+        ),
+      },
       priority: z.enum(["P1", "P2", "P3", "P4"]).parse(f.priority ?? "P3"),
       responderAgentId: responder,
     });
