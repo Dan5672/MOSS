@@ -1,6 +1,6 @@
 "use server";
 
-import { hashPassword, MIN_PASSWORD_LENGTH, writeAudit } from "@moss/core";
+import { checkNewPassword, getPasswordPolicy, hashPassword, MIN_PASSWORD_LENGTH, writeAudit } from "@moss/core";
 import { roles, sessions, userRoles, users } from "@moss/db";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -43,6 +43,7 @@ export async function addUserAction(_: ActionState, form: FormData): Promise<Act
       })
       .parse(formObject(form));
     if (input.role === "owner" && !(await roleKeysOf(actor.id)).includes("owner")) throw new Error("Only an owner can create owners.");
+    await checkNewPassword(db(), await getPasswordPolicy(db(), actor.orgId), input.password);
     const rid = await roleId(actor.orgId, input.role);
     const [user] = await db()
       .insert(users)

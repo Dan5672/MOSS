@@ -1,7 +1,7 @@
 "use server";
 
-import { generateTotpSecret, setSetting, verifyPassword, verifyTotp, writeAudit, type SettingKey } from "@moss/core";
-import { users } from "@moss/db";
+import { generateTotpSecret, getPasswordPolicy, mustEnrolTotp, setSetting, verifyPassword, verifyTotp, writeAudit, type SettingKey } from "@moss/core";
+import { roles, userRoles, users } from "@moss/db";
 import { eq } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { z } from "zod";
@@ -49,14 +49,14 @@ const PENDING_TOTP = "moss_totp_pending";
 
 export async function startTotpAction(_: ActionState): Promise<ActionState> {
   return act(async () => {
-    await requireUser();
+    await requireUser({ unblocks: "enrol_totp" });
     (await cookies()).set(PENDING_TOTP, generateTotpSecret(), { httpOnly: true, sameSite: "strict", path: "/settings", maxAge: 600 });
   });
 }
 
 export async function confirmTotpAction(_: ActionState, form: FormData): Promise<ActionState> {
   return act(async () => {
-    const user = await requireUser();
+    const user = await requireUser({ unblocks: "enrol_totp" });
     const store = await cookies();
     const secret = store.get(PENDING_TOTP)?.value;
     if (!secret) throw new Error("Enrolment expired; start again.");
@@ -74,6 +74,10 @@ export async function disableTotpAction(_: ActionState, form: FormData): Promise
     const user = await requireUser();
     const [row] = await db().select().from(users).where(eq(users.id, user.id));
     if (!row?.passwordHash || !(await verifyPassword(String(form.get("password") ?? ""), row.passwordHash))) throw new Error("Incorrect password.");
+    const roleKeys = (await db().select({ key: roles.key }).from(userRoles).innerJoin(roles, eq(roles.id, userRoles.roleId)).where(eq(userRoles.userId, user.id))).map((r) => r.key);
+    if (mustEnrolTotp(await getPasswordPolicy(db(), user.orgId), { totpEnabled: false, hasPassword: true, roles: roleKeys })) {
+      throw new Error("The password policy requires two-factor for you, so it can't be turned off.");
+    }
     await db().update(users).set({ totpSecretRef: null, updatedAt: new Date() }).where(eq(users.id, user.id));
     await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "auth.totp_disabled", targetType: "user", targetId: user.id });
     return "Two-factor authentication is off.";

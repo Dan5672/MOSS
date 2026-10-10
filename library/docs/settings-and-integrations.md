@@ -48,6 +48,17 @@ Home Assistant is refused unless "Let Home Assistant resume agents" is ticked. T
 or revoked token" means make a new token; entities unavailable means Home Assistant can't reach MOSS's
 address (it must be reachable from Home Assistant, e.g. http://<MOSS host IP>:3000).
 
+## Passwords and two-factor (Settings > Security)
+Everyone can change their own password there. People with settings.manage set the password policy: minimum
+length (at least 12), required lowercase, capital, digit or symbol, how many old passwords can't be reused,
+how often passwords must change (0 = never), who must use two-factor sign-in (optional, owners and admins, or
+everyone), and an optional check against known-breached passwords (Have I Been Pwned's range API; only the
+first 5 characters of the password's SHA-1 are sent). It applies when a password is set: adding a person or
+changing a password. Someone who must set up two-factor is sent to Settings until they do; someone whose
+password has expired is sent to Settings > Security. Requiring two-factor needs it on for the person saving the
+policy first, so they can't lock themselves out, and it can't then be turned off by someone it applies to.
+People who sign in with SSO have no MOSS password and are left out.
+
 ## HTTPS
 New installs serve MOSS over HTTPS to the whole network (deploy/.env: COMPOSE_PROFILES=https,
 MOSS_SECURE_COOKIES=true). MOSS_TLS=internal (default): MOSS's own certificate authority; each device

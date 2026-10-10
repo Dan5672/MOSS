@@ -4,6 +4,7 @@ import QRCode from "qrcode";
 import { ActionForm } from "@/components/action-form";
 import { SelectField, TextField } from "@/components/field";
 import { PageHeader } from "@/components/page";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
@@ -48,7 +49,7 @@ const TOGGLES: { key: SettingKey; title: string; description: string; danger?: b
 ];
 
 export default async function SettingsPage() {
-  const user = await requireUser();
+  const user = await requireUser({ unblocks: "enrol_totp" });
   const values = Object.fromEntries(await Promise.all(TOGGLES.map(async (t) => [t.key, await getSetting(db(), user.orgId, t.key)] as const)));
   const pendingSecret = (await cookies()).get("moss_totp_pending")?.value;
   const qr = pendingSecret ? await QRCode.toDataURL(totpUri(pendingSecret, user.email), { margin: 1, width: 200 }) : null;
@@ -56,6 +57,12 @@ export default async function SettingsPage() {
   return (
     <>
       <PageHeader title="Settings" />
+      {user.blocker === "enrol_totp" && (
+        <Alert className="mb-6" role="alert">
+          <AlertTitle>Set up two-factor sign-in to carry on</AlertTitle>
+          <AlertDescription>The password policy requires it for your account. Use the Two-factor authentication card below; it takes a minute with an authenticator app.</AlertDescription>
+        </Alert>
+      )}
       <div className="grid gap-6 lg:grid-cols-2">
         <HttpsCard />
         <Card>

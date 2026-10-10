@@ -5,6 +5,7 @@ export * from "./auth/password.js";
 export * from "./auth/totp.js";
 export * from "./auth/tokens.js";
 export * from "./auth/rbac.js";
+export * from "./auth/password-policy.js";
 export * from "./store/audit-store.js";
 export * from "./store/settings-store.js";
 export * from "./store/budget-store.js";

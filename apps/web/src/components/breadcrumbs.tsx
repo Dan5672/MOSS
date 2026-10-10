@@ -29,6 +29,7 @@ const LABELS: Record<string, string> = {
   "/settings/backups": "Backups",
   "/settings/integrations": "Integrations",
   "/settings/secrets": "Secrets",
+  "/settings/security": "Security",
   "/wiki": "Wiki",
 };
 

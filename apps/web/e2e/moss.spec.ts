@@ -1082,6 +1082,62 @@ test("assets: added from the top; each shows what agents can do with it, and a w
   await expect(page.getByText("Look only", { exact: true }).first()).toBeVisible();
 });
 
+test("security: change your password; the policy refuses weak ones and can require two-factor", async () => {
+  // The owner is signed in (the assets test signed them in).
+  await page.goto("/settings/security");
+  const change = page.locator("#password");
+  await change.getByLabel("Current password").fill(OWNER.password);
+  await change.getByLabel("New password", { exact: true }).fill("a-brand-new-owner-password");
+  await change.getByLabel("New password again").fill("a-brand-new-owner-password");
+  await change.getByRole("button", { name: "Change password" }).click();
+  await expect(page.getByText("Password changed.")).toBeVisible();
+  await change.getByLabel("Current password").fill("a-brand-new-owner-password");
+  await change.getByLabel("New password", { exact: true }).fill(OWNER.password);
+  await change.getByLabel("New password again").fill(OWNER.password);
+  await change.getByRole("button", { name: "Change password" }).click();
+  await expect(page.getByText("Password changed.")).toBeVisible();
+
+  // A stricter policy: a weak password for a new person is refused.
+  const policy = page.locator("#policy");
+  await policy.getByLabel("Minimum length").fill("16");
+  await policy.getByLabel("A digit").check();
+  await policy.getByRole("button", { name: "Save policy" }).click();
+  await expect(page.getByText(/^Password policy saved/)).toBeVisible();
+  await page.goto("/users");
+  await page.getByRole("button", { name: "Add a person" }).click();
+  const add = page.getByRole("dialog", { name: "Add a person" });
+  await add.getByLabel("Name").fill("Pat Weak");
+  await add.getByLabel("Email").fill("pat@home.test");
+  await add.getByLabel("Initial password").fill("onlytwelvechar");
+  await add.getByRole("button", { name: "Add person" }).click();
+  await expect(add.getByRole("alert")).toContainText("use at least 16 characters; include a digit");
+  await page.keyboard.press("Escape");
+
+  // Two-factor for everyone: someone without it can only reach the page where they set it up.
+  await page.goto("/settings/security");
+  await policy.getByLabel("Two-factor sign-in").selectOption("everyone");
+  await policy.getByRole("button", { name: "Save policy" }).click();
+  await expect(page.getByText(/^Password policy saved/)).toBeVisible();
+  await signOut();
+  await page.goto("/login");
+  await page.getByLabel("Email").fill(VIEWER.email);
+  await page.getByLabel("Password").fill(VIEWER.password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Set up two-factor sign-in to carry on" })).toBeVisible();
+  await page.goto("/incidents");
+  await expect(page).toHaveURL(/\/settings\?required=enrol_totp$/);
+  await signOut();
+
+  // Back to the defaults for the rest of the tests.
+  await signIn(OWNER.email, OWNER.password, totpCode(ownerTotpSecret));
+  await page.goto("/settings/security");
+  await policy.getByLabel("Minimum length").fill("12");
+  await policy.getByLabel("A digit").uncheck();
+  await policy.getByLabel("Two-factor sign-in").selectOption("none");
+  await policy.getByRole("button", { name: "Save policy" }).click();
+  await expect(page.getByText(/^Password policy saved/)).toBeVisible();
+});
+
 test("audit: the log is intact after all of that", async () => {
   await signOut();
   await signIn(OWNER.email, OWNER.password, totpCode(ownerTotpSecret));

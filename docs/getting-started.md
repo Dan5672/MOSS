@@ -253,7 +253,9 @@ AI behaving well; they're enforced outside it.
 
 **Sign-in and limits**
 
-- **Accounts:** two-factor sign-in, and roles (owner, admin, operator, change approver, viewer).
+- **Accounts:** two-factor sign-in, roles (owner, admin, operator, change approver, viewer), and a
+  password policy (Settings → Security): minimum length, character rules, no reusing old passwords,
+  required two-factor, and a check against known-breached passwords.
 - **Spending limits:** daily and monthly budgets per agent or overall. Agents stop when they hit a
   hard limit.
 - **The kill switch** stops every agent at once.

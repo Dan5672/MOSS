@@ -17,7 +17,7 @@ function initials(name: string) {
 }
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
-  const user = await requireUser();
+  const user = await requireUser({ unblocks: "any" });
   const [killSwitch, [pending], [unread], [down], [open], chats] = await Promise.all([
     getSetting(db(), user.orgId, "agents.kill_switch"),
     db()

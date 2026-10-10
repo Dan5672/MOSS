@@ -2,6 +2,7 @@ import { SectionTabs } from "@/components/section-tabs";
 
 export const SETTINGS_TABS = [
   { href: "/settings", label: "General" },
+  { href: "/settings/security", label: "Security" },
   { href: "/settings/secrets", label: "Secrets" },
   { href: "/settings/backups", label: "Backups" },
   { href: "/settings/integrations", label: "Integrations" },

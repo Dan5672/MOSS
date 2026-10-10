@@ -7,6 +7,7 @@ Stored per install; most are switched on the Settings page.
 | Setting | Default | What it does |
 | --- | --- | --- |
 | agents.kill_switch | false | Stops every agent at once: no tool calls run until it's switched off (the kill switch at the bottom of the menu). |
+| auth.password_policy | {} | The password policy (Settings → Security): minimum length (12 by default), required kinds of character, how many old passwords can't be reused, maximum age, who must use two-factor sign-in, and an optional check against known-breached passwords. |
 | changes.allow_emergency | false | Lets agents raise emergency changes that run straight away and are reviewed afterwards. Off by default. |
 | changes.require_separate_approver | false | Requires a change to be approved by someone other than the person who asked for it. |
 | homeassistant.allow_resume | false | Whether the Home Assistant integration may resume paused agents (pausing is always allowed). |

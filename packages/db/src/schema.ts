@@ -75,9 +75,25 @@ export const users = pgTable(
     preferences: jsonb("preferences").$type<UserPreferences>().notNull().default({}),
     status: text("status", { enum: ["active", "invited", "disabled"] }).notNull().default("active"),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+    /** When the password was last set (for the password policy's maximum age). */
+    passwordChangedAt: timestamp("password_changed_at", { withTimezone: true }).notNull().defaultNow(),
     ...timestamps(),
   },
   (t) => [uniqueIndex("users_org_email_idx").on(t.orgId, t.email)],
+);
+
+/** Earlier password hashes, so the password policy can refuse reusing one. */
+export const passwordHistory = pgTable(
+  "password_history",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    passwordHash: text("password_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("password_history_user_idx").on(t.userId, t.createdAt)],
 );
 
 export const roles = pgTable("roles", {

@@ -2,6 +2,9 @@ import "server-only";
 import {
   decryptSecret,
   encryptSecret,
+  getPasswordPolicy,
+  mustEnrolTotp,
+  passwordExpired,
   generateToken,
   hashToken,
   userPermissions,
@@ -10,7 +13,7 @@ import {
   writeAudit,
   type Permission,
 } from "@moss/core";
-import { orgs, sessions, users, type UserPreferences } from "@moss/db";
+import { orgs, roles, sessions, userRoles, users, type UserPreferences } from "@moss/db";
 import { and, eq, gt } from "drizzle-orm";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -36,7 +39,15 @@ export interface CurrentUser {
   motion: "system" | "on" | "off";
   preferences: UserPreferences;
   permissions: Set<Permission>;
+  /**
+   * Something the password policy needs done before anything else: set up two-factor, or change an
+   * expired password. Every page but the one that does it redirects there.
+   */
+  blocker: "enrol_totp" | "change_password" | null;
 }
+
+/** The pages a blocked person may still use (the one that fixes it). */
+const BLOCKER_PAGE = { enrol_totp: "/settings", change_password: "/settings/security" } as const;
 
 /** The signed-in user for this request, or null. Cached per request. */
 export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
@@ -48,7 +59,18 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     .innerJoin(users, eq(sessions.userId, users.id))
     .where(and(eq(sessions.tokenHash, hashToken(token)), gt(sessions.expiresAt, new Date())));
   if (!row || row.user.status !== "active") return null;
+  const [policy, roleRows] = await Promise.all([
+    getPasswordPolicy(db(), row.user.orgId),
+    db().select({ key: roles.key }).from(userRoles).innerJoin(roles, eq(roles.id, userRoles.roleId)).where(eq(userRoles.userId, row.user.id)),
+  ]);
+  const hasPassword = !!row.user.passwordHash;
+  const blocker = mustEnrolTotp(policy, { totpEnabled: !!row.user.totpSecretRef, hasPassword, roles: roleRows.map((r) => r.key) })
+    ? "enrol_totp"
+    : hasPassword && passwordExpired(policy, row.user.passwordChangedAt)
+      ? "change_password"
+      : null;
   return {
+    blocker,
     id: row.user.id,
     orgId: row.user.orgId,
     email: row.user.email,
@@ -60,9 +82,17 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   };
 });
 
-export async function requireUser(): Promise<CurrentUser> {
+/**
+ * The signed-in user, or a redirect to sign in. Someone the password policy has blocked (two-factor to set
+ * up, a password to change) is sent to the page that fixes it, unless this page or action is that fix:
+ * those pass `unblocks` (and the app layout passes "any", since every page checks for itself).
+ */
+export async function requireUser(opts: { unblocks?: CurrentUser["blocker"] | "any" } = {}): Promise<CurrentUser> {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+  if (user.blocker && opts.unblocks !== "any" && opts.unblocks !== user.blocker) {
+    redirect(`${BLOCKER_PAGE[user.blocker]}?required=${user.blocker}`);
+  }
   return user;
 }
 
