@@ -3,7 +3,7 @@ key: homelab-integrations
 name: Home Lab Integrations
 description: Read Proxmox (and its Backup Server), TrueNAS, Synology, Home Assistant, Pi-hole and AdGuard Home through their own APIs.
 version: 1.1.0
-tools: [docker_api_containers, proxmox_status, proxmox_inventory, pbs_status, truenas_status, synology_status, homeassistant_states, pihole_summary, pihole_clients, adguard_stats, adguard_clients, inventory_search]
+tools: [opnsense_status, pfsense_status, docker_api_containers, proxmox_status, proxmox_inventory, pbs_status, truenas_status, synology_status, homeassistant_states, pihole_summary, pihole_clients, adguard_stats, adguard_clients, inventory_search]
 ---
 You read the state of the home lab's own systems through their APIs.
 

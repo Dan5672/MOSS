@@ -285,6 +285,32 @@ export const dockerApiContainers = tool(
   }),
 );
 
+const opnsenseApi = {
+  ...apiCommon,
+  user: z.string().min(1).max(200).describe("The OPNsense API key"),
+  password: secretHandle.describe("The API key's secret, stored as a secret"),
+  port: port.default(443),
+  scheme: z.enum(["http", "https"]).default("https"),
+};
+const pfsenseApi = {
+  ...apiCommon,
+  apiKey: secretHandle.describe("A pfSense REST API key stored as a secret"),
+  port: port.default(443),
+  scheme: z.enum(["http", "https"]).default("https"),
+};
+
+export const opnsenseStatus = tool(
+  { name: "opnsense_status", class: "read", targetArgs: ["target"], secretArgs: ["password"] },
+  "Read an OPNsense firewall: DHCP leases (address, MAC, host name), each gateway's status, packet loss and latency, and whether an update is available.",
+  z.object(opnsenseApi),
+);
+
+export const pfsenseStatus = tool(
+  { name: "pfsense_status", class: "read", targetArgs: ["target"], secretArgs: ["apiKey"] },
+  "Read a pfSense firewall through the pfSense REST API package: DHCP leases, each gateway's status, packet loss and latency, and the version.",
+  z.object(pfsenseApi),
+);
+
 export const proxmoxInventory = tool(
   { name: "proxmox_inventory", class: "read", targetArgs: ["target"], secretArgs: ["token"] },
   "List a Proxmox VE cluster's nodes (with their addresses) and every VM and container with its MAC addresses, the addresses " +
@@ -577,6 +603,30 @@ export const proxmoxGuestPower = tool(
   z.object({ ...proxmoxGuest, action: z.enum(["shutdown", "start", "reboot"]) }).strict(),
 );
 
+const blockArgs = {
+  alias: z
+    .string()
+    .regex(/^[A-Za-z0-9_]{1,31}$/)
+    .default("moss_blocked")
+    .describe("The firewall alias the owner's block rule uses"),
+  address: ipv4,
+  action: z.enum(["add", "remove"]),
+};
+
+export const opnsenseBlock = tool(
+  { name: "opnsense_block", class: "write", targetArgs: ["target"], secretArgs: ["password"] },
+  "Block or unblock a device on OPNsense by adding or removing its address in the moss_blocked alias (the owner's own block rule " +
+    "uses it; MOSS never edits rules). Only runs as part of an approved change.",
+  z.object({ ...opnsenseApi, ...blockArgs }).strict(),
+);
+
+export const pfsenseBlock = tool(
+  { name: "pfsense_block", class: "write", targetArgs: ["target"], secretArgs: ["apiKey"] },
+  "Block or unblock a device on pfSense by adding or removing its address in the moss_blocked alias, and apply. Only runs as part " +
+    "of an approved change.",
+  z.object({ ...pfsenseApi, ...blockArgs }).strict(),
+);
+
 export const piholeDomainRule = tool(
   { name: "pihole_domain_rule", class: "write", targetArgs: ["target"], secretArgs: ["password"] },
   "Add or remove an exact domain on Pi-hole's (v6) deny or allow list. Only runs as part of an approved change.",
@@ -701,6 +751,8 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     proxmoxStatus,
     proxmoxInventory,
     dockerApiContainers,
+    opnsenseStatus,
+    pfsenseStatus,
     pbsStatus,
     truenasStatus,
     synologyStatus,
@@ -718,6 +770,8 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     homeassistantSwitch,
     homeassistantPowerCycle,
     proxmoxSnapshot,
+    opnsenseBlock,
+    pfsenseBlock,
     proxmoxGuestPower,
     piholeDomainRule,
     piholeLocalDns,

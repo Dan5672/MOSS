@@ -121,6 +121,22 @@ check (daily, optional): asks each image's registry (Docker Hub, GHCR...) for th
 request, sending only image names, and marks containers with a newer image. Restarting a container stays the
 change-gated container_restart over SSH. Agent tool: docker_api_containers.
 
+## The OPNsense integration
+Settings > Integrations > OPNsense. Connection: its address, port and https, an API key (System > Access >
+Users, create a key for a dedicated user) and its secret (secret:opnsense-api-secret). Gateway checks
+(every 5 minutes): a monitor per gateway, degraded on packet loss (5% by default) and down when offline,
+with latency and loss as readings; the last run notes when an update is waiting. Device names from DHCP
+(every 6 hours): leases from Kea, dnsmasq or ISC name devices in the inventory. Blocking: the change-gated
+opnsense_block adds or removes an address in the moss_blocked alias; create a Host(s) alias with that name
+and a block rule that uses it. MOSS never edits rules. Agent tools: opnsense_status, opnsense_block (skill:
+Firewall Actions).
+
+## The pfSense integration
+Settings > Integrations > pfSense. pfSense has no API of its own: install the pfSense REST API package
+(pfrest), then create a key (System > REST API > Keys), stored as secret:pfsense-api-key. The same gateway
+checks and device names as OPNsense, and pfsense_block for the moss_blocked alias (it applies the change).
+Agent tools: pfsense_status, pfsense_block.
+
 ## The Pi-hole integration
 Settings > Integrations > Pi-hole (v6 or newer). Connection: its address, port (80) and http/https, and an
 app password (Pi-hole: Settings > Web interface / API > Configure app password), stored as

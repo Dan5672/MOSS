@@ -7,6 +7,7 @@ import { configBackup, type BackupArgs } from "./backups.js";
 import { customHttp, sendRequest, type RawRequest } from "./custom-http.js";
 import { homeassistantDevices, homeassistantHealth, homeassistantLogs, homeassistantNotify, homeassistantPublish } from "./home-assistant.js";
 import { dockerApiContainers } from "./docker-api.js";
+import { opnsenseBlock, opnsenseStatus, pfsenseBlock, pfsenseStatus } from "./firewalls.js";
 import { adguardClients, adguardStats, HomelabError, homeassistantStates, pbsStatus, piholeClients, piholeSummary, proxmoxInventory, proxmoxStatus, synologyStatus, truenasStatus } from "./homelab.js";
 import { unifiAuthMode, unifiClientsByLogin, unifiFirewall } from "./unifi.js";
 import { nucleiScan, tlsAudit, vulnScan } from "./vuln.js";
@@ -263,6 +264,17 @@ async function runToolInner(
       if (name === "disk_usage") return diskUsage(t, ssh);
       if (name === "service_status") return serviceStatus(t, ssh);
       return dockerPs(t, ssh);
+    }
+    case "opnsense_status":
+    case "pfsense_status":
+    case "opnsense_block":
+    case "pfsense_block": {
+      assertHost(args.target as string);
+      const a = args as never;
+      if (name === "opnsense_status") return opnsenseStatus(a, send);
+      if (name === "pfsense_status") return pfsenseStatus(a, send);
+      if (name === "opnsense_block") return opnsenseBlock(a, send);
+      return pfsenseBlock(a, send);
     }
     case "docker_api_containers":
       assertHost(args.target as string);

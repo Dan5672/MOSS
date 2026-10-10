@@ -5,6 +5,7 @@ export const TOOL_GROUPS = [
   { key: "discovery", label: "Discovery", tools: ["nmap_scan", "arp_scan", "snmp_query", "traceroute", "name_lookup"] },
   { key: "probes", label: "Probes and monitoring", tools: ["ping", "dns_lookup", "tcp_connect", "http_probe", "tls_inspect"] },
   { key: "unifi", label: "UniFi", tools: ["unifi_clients", "unifi_firewall", "unifi_client_block", "unifi_dhcp_reservation", "unifi_wlan_enable"] },
+  { key: "firewalls", label: "OPNsense and pfSense", tools: ["opnsense_status", "opnsense_block", "pfsense_status", "pfsense_block"] },
   { key: "servers", label: "Servers (SSH)", tools: ["host_facts", "disk_usage", "service_status", "docker_ps", "service_restart", "container_restart", "host_reboot"] },
   { key: "homelab", label: "Home lab apps", tools: ["docker_api_containers", "proxmox_status", "proxmox_inventory", "pbs_status", "proxmox_snapshot", "proxmox_guest_power", "truenas_status", "synology_status"] },
   {

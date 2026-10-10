@@ -113,9 +113,25 @@ Granted by: Network Discovery, Security Baseline Review, Service Health Checks.
 A network tool (read), run by the toolbox through the policy gate. Check one host with Nuclei's community templates for known vulnerabilities, misconfigurations, exposed admin panels and default pages. Only non-intrusive templates run (no denial-of-service, fuzzing, brute force or default-login attempts), rate-limited, with no out-of-band callbacks. Ports default to 80 and 443.
 Granted by: Vulnerability Scanning.
 
+## Tool opnsense_block
+A network tool (changes things: only through an approved change), run by the toolbox through the policy gate. Block or unblock a device on OPNsense by adding or removing its address in the moss_blocked alias (the owner's own block rule uses it; MOSS never edits rules). Only runs as part of an approved change.
+Granted by: Firewall Actions.
+
+## Tool opnsense_status
+A network tool (read), run by the toolbox through the policy gate. Read an OPNsense firewall: DHCP leases (address, MAC, host name), each gateway's status, packet loss and latency, and whether an update is available.
+Granted by: Firewall Actions, Home Lab Integrations.
+
 ## Tool pbs_status
 A network tool (read), run by the toolbox through the policy gate. Read a Proxmox Backup Server: each datastore's use, and when each guest (backup group) was last backed up.
 Granted by: Home Lab Integrations.
+
+## Tool pfsense_block
+A network tool (changes things: only through an approved change), run by the toolbox through the policy gate. Block or unblock a device on pfSense by adding or removing its address in the moss_blocked alias, and apply. Only runs as part of an approved change.
+Granted by: Firewall Actions.
+
+## Tool pfsense_status
+A network tool (read), run by the toolbox through the policy gate. Read a pfSense firewall through the pfSense REST API package: DHCP leases, each gateway's status, packet loss and latency, and the version.
+Granted by: Firewall Actions, Home Lab Integrations.
 
 ## Tool pihole_clients
 A network tool (read), run by the toolbox through the policy gate. List the devices Pi-hole (v6) has seen on the network: MAC address, maker, addresses and the names they resolve to, and how many queries each made.
@@ -283,7 +299,7 @@ Granted by: Asset Inventory.
 
 ## Tool inventory_search
 A MOSS tool (works on MOSS itself; needs the assets.read permission). Search the asset inventory by free text (name, hostname, vendor, MAC, IP, notes), IP/CIDR, or kind.
-Granted by: Asset Inventory, Home Lab Integrations, Network Insight, Network Wiki, Security Baseline Review, Server Checks, Service Desk, Service Health Checks, Vulnerability Scanning.
+Granted by: Asset Inventory, Firewall Actions, Home Lab Integrations, Network Insight, Network Wiki, Security Baseline Review, Server Checks, Service Desk, Service Health Checks, Vulnerability Scanning.
 
 ## Tool inventory_update
 A MOSS tool (works on MOSS itself; needs the assets.manage permission). Update an asset's classification and notes. Locked assets cannot be changed.
@@ -361,6 +377,10 @@ Tools: config_backup.
 Added per agent. Key device-power. Wake devices with Wake-on-LAN (through change management).
 Tools: wake_on_lan.
 
+## Skill Firewall Actions
+Added per agent. Key firewall-actions. Read OPNsense and pfSense, and block or unblock a device on them through an approved change.
+Tools: opnsense_status, pfsense_status, opnsense_block, pfsense_block, inventory_search.
+
 ## Skill Home & DNS Actions
 Added per agent. Key home-dns-actions. Switch smart plugs and lights, power-cycle a hung device, and change Pi-hole or AdGuard Home blocking and local DNS, through approved changes.
 Tools: homeassistant_switch, homeassistant_power_cycle, homeassistant_states, pihole_domain_rule, pihole_local_dns, pihole_summary, adguard_rule, adguard_rewrite, adguard_stats.
@@ -371,7 +391,7 @@ Tools: homeassistant_health, homeassistant_logs, homeassistant_states, homeassis
 
 ## Skill Home Lab Integrations
 Added per agent. Key homelab-integrations. Read Proxmox (and its Backup Server), TrueNAS, Synology, Home Assistant, Pi-hole and AdGuard Home through their own APIs.
-Tools: docker_api_containers, proxmox_status, proxmox_inventory, pbs_status, truenas_status, synology_status, homeassistant_states, pihole_summary, pihole_clients, adguard_stats, adguard_clients, inventory_search.
+Tools: opnsense_status, pfsense_status, docker_api_containers, proxmox_status, proxmox_inventory, pbs_status, truenas_status, synology_status, homeassistant_states, pihole_summary, pihole_clients, adguard_stats, adguard_clients, inventory_search.
 
 ## Skill Incident Management
 Core: built into every agent (except Moss). Key incident-management. Raise, work and resolve incidents.
