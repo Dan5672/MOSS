@@ -53,6 +53,8 @@ export const sites = pgTable("sites", {
 export interface UserPreferences {
   /** Moss has sent this person its welcome message. */
   mossWelcomed?: boolean;
+  /** Their dashboard: which cards, in what order and size. */
+  dashboard?: { id: string; size: "s" | "m" | "l" }[];
   /** The dashboard's Getting started checklist was dismissed. */
   hideSetupChecklist?: boolean;
 }

@@ -866,6 +866,32 @@ test("dashboard: Getting started can be dismissed, and brought back from Setting
   await expect(page.getByRole("region", { name: "Getting started" })).toBeVisible();
 });
 
+test("dashboard: cards can be removed, added back, moved and resized, and it's remembered", async () => {
+  await page.goto("/");
+  const grid = page.getByRole("region", { name: "Dashboard cards" });
+  await expect(grid.getByRole("heading", { name: "Token spend" })).toBeVisible();
+  await expect(grid.getByRole("list", { name: "Spend by agent" }).or(grid.getByText("Nothing yet.").first())).toBeVisible();
+
+  await page.getByRole("button", { name: "Customise" }).click();
+  await page.getByRole("button", { name: "Remove Audit tail" }).click();
+  await page.getByRole("button", { name: "Move Token spend earlier" }).click();
+  await page.getByRole("button", { name: /^Token spend size: Medium/ }).click();
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect(page.getByText("Dashboard saved.")).toBeVisible();
+
+  await page.reload();
+  await expect(grid.getByRole("heading", { name: "Audit tail" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Customise" }).click();
+  await expect(page.getByRole("button", { name: /^Token spend size: Wide/ })).toBeVisible();
+  await page.getByLabel("Card to add").selectOption({ label: "Audit tail: The latest actions, as they happen." });
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await page.getByRole("button", { name: "Reset to default" }).click();
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect(page.getByRole("button", { name: "Customise" })).toBeVisible(); // saved and back to normal
+  await page.reload();
+  await expect(grid.getByRole("heading", { name: "Audit tail" })).toBeVisible();
+});
+
 test("settings: the kill switch stops agents and shows everywhere", async () => {
   await page.goto("/settings");
   await page.getByRole("button", { name: "Turn on" }).first().click();

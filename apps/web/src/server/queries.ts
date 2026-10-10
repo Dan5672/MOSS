@@ -270,3 +270,58 @@ export async function agentList(orgId: string) {
     };
   });
 }
+
+/** Token use and cost: today, this month, the last 30 days by day, and this month by agent and by model. */
+export async function tokenSpend(orgId: string) {
+  const d = db();
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const since = new Date(Date.now() - 29 * 86_400_000);
+  since.setHours(0, 0, 0, 0);
+  const totals = (from: Date) =>
+    d
+      .select({
+        input: sql<string>`coalesce(sum(${tokenUsage.inputTokens} + ${tokenUsage.cacheReadTokens} + ${tokenUsage.cacheWriteTokens}), 0)`,
+        output: sql<string>`coalesce(sum(${tokenUsage.outputTokens}), 0)`,
+        usd: sql<string>`coalesce(sum(${tokenUsage.costUsd}), 0)`,
+      })
+      .from(tokenUsage)
+      .where(and(eq(tokenUsage.orgId, orgId), gte(tokenUsage.createdAt, from)));
+  const [[today], [month], daily, byAgent, byModel] = await Promise.all([
+    totals(periodStart("day")),
+    totals(periodStart("month")),
+    d
+      .select({
+        // Days in MOSS's own time zone (TZ), like everything else on screen, not the database's.
+        day: sql<string>`to_char(${tokenUsage.createdAt} at time zone ${tz}, 'YYYY-MM-DD')`,
+        tokens: sql<string>`sum(${tokenUsage.inputTokens} + ${tokenUsage.outputTokens} + ${tokenUsage.cacheReadTokens} + ${tokenUsage.cacheWriteTokens})`,
+        usd: sql<string>`sum(${tokenUsage.costUsd})`,
+      })
+      .from(tokenUsage)
+      .where(and(eq(tokenUsage.orgId, orgId), gte(tokenUsage.createdAt, since)))
+      .groupBy(sql`1`),
+    d
+      .select({ name: agents.name, tokens: sql<string>`sum(${tokenUsage.inputTokens} + ${tokenUsage.outputTokens} + ${tokenUsage.cacheReadTokens} + ${tokenUsage.cacheWriteTokens})`, usd: sql<string>`sum(${tokenUsage.costUsd})` })
+      .from(tokenUsage)
+      .innerJoin(agents, eq(agents.id, tokenUsage.agentId))
+      .where(and(eq(tokenUsage.orgId, orgId), gte(tokenUsage.createdAt, periodStart("month"))))
+      .groupBy(agents.name)
+      .orderBy(desc(sql`sum(${tokenUsage.costUsd})`)),
+    d
+      .select({ name: models.displayName, tokens: sql<string>`sum(${tokenUsage.inputTokens} + ${tokenUsage.outputTokens} + ${tokenUsage.cacheReadTokens} + ${tokenUsage.cacheWriteTokens})`, usd: sql<string>`sum(${tokenUsage.costUsd})` })
+      .from(tokenUsage)
+      .innerJoin(models, eq(models.id, tokenUsage.modelId))
+      .where(and(eq(tokenUsage.orgId, orgId), gte(tokenUsage.createdAt, periodStart("month"))))
+      .groupBy(models.displayName)
+      .orderBy(desc(sql`sum(${tokenUsage.costUsd})`)),
+  ]);
+  // Every one of the last 30 days, including the quiet ones.
+  const days = Array.from({ length: 30 }, (_, i) => {
+    const date = new Date(since.getTime() + i * 86_400_000);
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    const row = daily.find((r) => r.day === key);
+    return { day: key, tokens: Number(row?.tokens ?? 0), usd: Number(row?.usd ?? 0) };
+  });
+  const num = (r?: { input: string; output: string; usd: string }) => ({ input: Number(r?.input ?? 0), output: Number(r?.output ?? 0), usd: Number(r?.usd ?? 0) });
+  const rows = (list: { name: string; tokens: string; usd: string }[]) => list.map((r) => ({ name: r.name, tokens: Number(r.tokens), usd: Number(r.usd) }));
+  return { today: num(today), month: num(month), days, byAgent: rows(byAgent), byModel: rows(byModel) };
+}
