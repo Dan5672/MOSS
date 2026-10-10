@@ -795,6 +795,38 @@ export const monitorResults = pgTable(
   (t) => [index("monitor_results_monitor_at_idx").on(t.monitorId, t.at)],
 );
 
+/** min, average and max of one metric over a rollup bucket. */
+export interface RollupStat {
+  min: number;
+  avg: number;
+  max: number;
+}
+
+/**
+ * Monitor history beyond the raw results: one row per monitor per 5-minute or 1-hour bucket, built by the
+ * worker. Raw results are kept for days, 5-minute rollups for months and hourly ones for years, so graphs
+ * can go back a long way.
+ */
+export const monitorRollups = pgTable(
+  "monitor_rollups",
+  {
+    monitorId: uuid("monitor_id")
+      .notNull()
+      .references(() => monitors.id, { onDelete: "cascade" }),
+    resolution: text("resolution").$type<"5m" | "1h">().notNull(),
+    bucket: timestamp("bucket", { withTimezone: true }).notNull(),
+    checks: integer("checks").notNull(),
+    ok: integer("ok").notNull(),
+    degraded: integer("degraded").notNull(),
+    latencyMin: doublePrecision("latency_min"),
+    latencyAvg: doublePrecision("latency_avg"),
+    latencyMax: doublePrecision("latency_max"),
+    /** Every metric value (and "value", the main one) by name. */
+    metrics: jsonb("metrics").$type<Record<string, RollupStat>>().notNull().default({}),
+  },
+  (t) => [primaryKey({ columns: [t.monitorId, t.resolution, t.bucket] }), index("monitor_rollups_bucket_idx").on(t.resolution, t.bucket)],
+);
+
 export const monitorStateChanges = pgTable(
   "monitor_state_changes",
   {

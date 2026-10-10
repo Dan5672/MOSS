@@ -21,6 +21,12 @@ a monitor needs the secrets.manage permission (an SNMP community is sent to the 
 and the secret's own host and tool limits apply. SNMP and host monitors need an allowed network even
 for a public address.
 
+## History
+Every check is kept for monitoring.retention_days (14 by default). The worker also rolls checks up
+every 5 minutes into 5-minute and hourly buckets (availability, latency and every value as min, average
+and max), kept for 90 days and 2 years. Graphs use raw checks for up to a day and a half, 5-minute
+buckets up to a month, and hourly ones beyond.
+
 ## Webhook sources
 Monitoring > Webhook sources connects tools you already run: Uptime Kuma, Beszel, Prometheus
 Alertmanager, or any script that posts JSON. Each source has its own URL and token (shown once), and

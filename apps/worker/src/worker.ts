@@ -33,6 +33,7 @@ import {
   getSetting,
   incidentRef,
   parseBackupSchedule,
+  rollUpMonitorResults,
   setSetting,
   type StoredEvent,
 } from "@moss/core";
@@ -380,6 +381,14 @@ export async function startWorker(cfg: WorkerConfig) {
       (err) => log("monitor prune failed", { error: (err as Error).message }),
     );
   const pruneTimer = setInterval(prune, 60 * 60_000);
+  // History for graphs: 5-minute and hourly rollups of the checks.
+  const rollUp = () =>
+    rollUpMonitorResults(db).then(
+      (n) => (n.fiveMinute || n.hourly) && log("monitor history rolled up", n),
+      (err) => log("monitor rollup failed", { error: (err as Error).message }),
+    );
+  const rollupTimer = setInterval(rollUp, 5 * 60_000);
+  void rollUp();
 
   let haRunning = false;
   const homeAssistantTick = async () => {
@@ -400,6 +409,7 @@ export async function startWorker(cfg: WorkerConfig) {
       clearInterval(eventTimer);
       clearInterval(monitorTimer);
       clearInterval(pruneTimer);
+      clearInterval(rollupTimer);
       clearInterval(haTimer);
       await boss.stop({ graceful: true });
     },

@@ -8,6 +8,7 @@ import {
   handleMonitorUp,
   incidentRef,
   pruneMonitorResults,
+  pruneMonitorRollups,
   recordMonitorResult,
   type CheckResult,
   type MonitorIncidentOutcome,
@@ -61,7 +62,8 @@ export async function runDueChecks(
 }
 
 export async function pruneAllMonitorResults(db: Database): Promise<number> {
-  let total = 0;
+  // Rollups go by age for everyone; raw results by each org's setting.
+  let total = await pruneMonitorRollups(db);
   for (const org of await db.select({ id: orgs.id }).from(orgs)) {
     total += await pruneMonitorResults(db, org.id, await getSetting(db, org.id, "monitoring.retention_days"));
   }

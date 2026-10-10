@@ -169,6 +169,13 @@
       "when": 1791619636282,
       "tag": "0023_metric_monitors",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791621182098,
+      "tag": "0024_monitor_rollups",
+      "breakpoints": true
     }
   ]
 }

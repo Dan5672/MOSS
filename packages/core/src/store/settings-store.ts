@@ -51,7 +51,7 @@ export const SETTING_DESCRIPTIONS = {
   "tools.allow_dangerous": "Permits tools marked dangerous, such as factory resets, still only through approved changes. Off by default.",
   "changes.allow_emergency": "Lets agents raise emergency changes that run straight away and are reviewed afterwards. Off by default.",
   "changes.require_separate_approver": "Requires a change to be approved by someone other than the person who asked for it.",
-  "monitoring.retention_days": "How many days of individual monitor check results are kept.",
+  "monitoring.retention_days": "How many days of individual monitor check results are kept. Graphs go further back from rollups: 5-minute ones for 90 days and hourly ones for 2 years.",
   "tools.catalog_url": "An optional remote tools catalog (an https URL of its index). Empty means only the bundled catalog.",
   "tools.allow_vulners": "Allows vuln_scan's cve profile, which sends service names and versions to vulners.com. Off by default.",
   "monitoring.quiet_until": "Maintenance mode: until this time, monitors keep checking but raise no incidents. Set from Home Assistant.",
