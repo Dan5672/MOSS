@@ -51,6 +51,8 @@ export const sites = pgTable("sites", {
 // Users & access
 // ---------------------------------------------------------------------------
 export interface UserPreferences {
+  /** Moss has sent this person its welcome message. */
+  mossWelcomed?: boolean;
   /** The dashboard's Getting started checklist was dismissed. */
   hideSetupChecklist?: boolean;
 }

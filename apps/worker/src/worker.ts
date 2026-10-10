@@ -1,4 +1,6 @@
 // The worker: runs agent jobs from the queue, turns agent schedules into jobs, and runs monitor checks.
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   chatSnapshot,
   ensureMoss,
@@ -13,6 +15,7 @@ import {
   SCHEDULE_QUEUE,
   syncBuiltInSkills,
   ensureCoreSkills,
+  welcomeFromMoss,
   type ClaudeCodeConfig,
   type GateClient,
   type ProviderFactory,
@@ -238,6 +241,7 @@ export async function startWorker(cfg: WorkerConfig) {
   for (const org of await db.select({ id: orgs.id }).from(orgs)) await ensureBuiltInRoles(db, org.id);
 
   const lib = cfg.libraryDir ? await loadLibrary(cfg.libraryDir) : null;
+  const welcome = cfg.libraryDir ? await readFile(join(cfg.libraryDir, "docs", "welcome.md"), "utf8").catch(() => null) : null;
   if (lib) {
     for (const org of await db.select({ id: orgs.id }).from(orgs)) {
       await syncBuiltInSkills(db, org.id, lib.skills.values());
@@ -290,7 +294,14 @@ export async function startWorker(cfg: WorkerConfig) {
     try {
       await hireMoss();
       // Agents hired since the last sync get the core skills too (hiring adds them; this is the backstop).
-      for (const org of await db.select({ id: orgs.id }).from(orgs)) await ensureCoreSkills(db, org.id);
+      for (const org of await db.select({ id: orgs.id }).from(orgs)) {
+        await ensureCoreSkills(db, org.id);
+        // Everyone gets Moss's welcome once (new installs, new people, and existing people after an upgrade).
+        if (welcome) {
+          const n = await welcomeFromMoss(db, org.id, welcome);
+          if (n) log("Moss welcomed", { orgId: org.id, people: n });
+        }
+      }
       const res = await syncSchedules(db, boss);
       if (res.added || res.removed) log("schedules synced", res);
     } catch (err) {

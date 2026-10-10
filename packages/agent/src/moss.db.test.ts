@@ -1,15 +1,17 @@
 // Moss: hired automatically once there's a model, can't be fired, answers from the docs and the config,
 // and other agents consult it with ask_moss.
-import { bootstrapOrg, writeAudit } from "@moss/core";
-import { agents, agentSkills, models, providers, skills, type Database } from "@moss/db";
+import { bootstrapOrg, getConversation, listConversations, writeAudit } from "@moss/core";
+import { agents, agentSkills, models, providers, skills, users, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { eq } from "drizzle-orm";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadLibrary, syncBuiltInSkills } from "./library.js";
 import { ensureMoss, fireAgent, MOSS_TEMPLATE } from "./lifecycle.js";
 import { loadDocs, searchDocs } from "./moss-tools.js";
 import { PLATFORM_TOOL_MAP } from "./platform-tools.js";
+import { welcomeFromMoss } from "./welcome.js";
 
 const LIBRARY_DIR = fileURLToPath(new URL("../../../library", import.meta.url));
 
@@ -70,5 +72,23 @@ describe.skipIf(!TEST_DATABASE_URL)("Moss (postgres)", () => {
     expect(await ask.run(ctx, { question: "Why was my scan of 10.9.0.0/16 denied?" })).toEqual({ answer: "Allow 10.9.0.0/16 on the Networks page." });
     expect(asked[0]).toMatch(new RegExp(`^${mossId}:Nina \\(Network Admin\\) asks you about MOSS`));
     expect(await ask.run({ ...ctx, agentId: mossId }, { question: "Am I me?" })).toEqual({ error: "You are Moss." });
+  });
+
+  it("welcomes each person once, with what's left to set up, and doesn't answer itself", async () => {
+    const template = await readFile(`${LIBRARY_DIR}/docs/welcome.md`, "utf8");
+    expect(await welcomeFromMoss(db, orgId, template)).toBe(1);
+    expect(await welcomeFromMoss(db, orgId, template)).toBe(0); // only once
+    const list = await listConversations(db, orgId, ownerId);
+    const dm = list.find((c) => c.agentId === mossId)!;
+    expect(dm.unread).toBe(1);
+    const conv = await getConversation(db, orgId, dm.id, ownerId);
+    const body = conv.messages[0]!.body;
+    expect(body).toMatch(/^Hi O, I'm Moss/);
+    expect(body).toContain("**Allow your network**");
+    expect(body).toContain("If you have any questions about how MOSS works, just ask me here.");
+    expect(body).not.toContain("{");
+    // A person added later gets it too.
+    await db.insert(users).values({ orgId, email: "sam@h.test", displayName: "Sam Smith" });
+    expect(await welcomeFromMoss(db, orgId, template)).toBe(1);
   });
 });
