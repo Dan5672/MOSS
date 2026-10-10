@@ -108,7 +108,8 @@ authenticator app. The **Getting started** checklist on the dashboard walks thro
    your router, Home Assistant). Choose an agent as the responder. When something goes down, MOSS
    raises an incident and the responder starts investigating. Monitors can also track numbers:
    interface traffic over SNMP, a server's load, memory and disk, or any Home Assistant sensor,
-   with thresholds for when they count as degraded or down.
+   with thresholds for when they count as degraded or down. **Monitoring → Dashboards** shows them
+   as graphs, gauges and a status grid, and TV mode puts one on a wall screen.
 
 You'll also meet **Moss**, an agent that knows MOSS itself. Ask it in **Chat** how to set
 something up, or why something isn't working.

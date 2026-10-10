@@ -735,6 +735,56 @@ test("monitoring: add checks, and warn about targets outside allowed networks", 
   await expect(page.getByLabel("Latest values")).toContainText("outBps640 kbps");
 });
 
+test("monitoring dashboards: a starter Overview, editing cards, and TV mode", async () => {
+  await page.goto("/monitoring");
+  await page.getByRole("navigation", { name: "Monitoring" }).getByRole("link", { name: "Dashboards" }).click();
+  // The first visit makes a shared Overview from the monitors.
+  await page.getByRole("list", { name: "Dashboards" }).getByRole("link", { name: /Overview/ }).click();
+  await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
+  for (const card of ["Status", "Open incidents", "Last 24 hours", "Response times", "Uplink"]) {
+    await expect(page.getByRole("region", { name: card })).toBeVisible();
+  }
+  await expect(page.getByRole("region", { name: "Status" }).getByRole("link", { name: "NAS web" })).toBeVisible();
+
+  // Add a gauge for the uplink's traffic.
+  await page.getByRole("button", { name: "Edit" }).click();
+  await page.getByLabel("Card to add").selectOption("gauge");
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Gauge settings" });
+  await settings.getByLabel("Title (optional)").fill("Uplink in");
+  await settings.locator('select[name="monitor"]').selectOption({ label: "Uplink" });
+  await settings.getByLabel("Or a named value").fill("inBps");
+  await settings.getByLabel("Highest").fill("10000000");
+  await settings.getByLabel("Red from").fill("8000000");
+  await settings.getByRole("button", { name: "Apply" }).click();
+  // Wider, then save.
+  const toolbars = page.getByRole("toolbar");
+  await toolbars.last().getByRole("button", { name: "Wider" }).click();
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Dashboard saved.")).toBeVisible();
+  const gauge = page.getByRole("region", { name: "Uplink in" });
+  await expect(gauge.getByRole("img", { name: "Uplink: 2 Mbps" })).toBeVisible();
+
+  // TV mode: the same cards, no menus.
+  const url = page.url();
+  await page.goto(url.replace("/monitoring/dashboards/", "/tv/dashboards/"));
+  await expect(page.getByRole("link", { name: "Exit TV mode" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Uplink in" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Monitoring" })).toHaveCount(0);
+
+  // A personal dashboard, then deleting it.
+  await page.goto("/monitoring/dashboards");
+  await page.getByRole("button", { name: "New dashboard" }).click();
+  await page.getByRole("dialog", { name: "New dashboard" }).getByLabel("Name").fill("Scratch");
+  await page.getByRole("button", { name: "Create dashboard" }).click();
+  await expect(page.getByRole("heading", { name: "Scratch", level: 1 })).toBeVisible();
+  await expect(page.getByText("No cards yet. Edit, then add a card.")).toBeVisible();
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Delete" }).click();
+  await expect(page).toHaveURL(/\/monitoring\/dashboards$/);
+  await expect(page.getByRole("list", { name: "Dashboards" }).getByRole("link")).toHaveCount(1);
+});
+
 test("monitoring: an Uptime Kuma alert raises an incident for the responder agent", async () => {
   const db = createDb(E2E_DATABASE_URL);
   const [nina] = await db.select().from(agents).where(eq(agents.name, "Nina"));

@@ -23,6 +23,7 @@ const LABELS: Record<string, string> = {
   "/agents/models": "Models",
   "/monitoring": "Monitoring",
   "/monitoring/sources": "Webhook sources",
+  "/monitoring/dashboards": "Dashboards",
   "/notifications": "Notifications",
   "/runs": "Activity",
   "/settings": "Settings",

@@ -6,6 +6,7 @@ import { MODULE_NAMES } from "@moss/core";
 import { describe, expect, it } from "vitest";
 import { ACTIVITY_TABS } from "@/app/(app)/runs/tabs";
 import { AGENTS_TABS } from "@/app/(app)/agents/tabs";
+import { MONITORING_TABS } from "@/app/(app)/monitoring/tabs";
 import { SETTINGS_TABS } from "@/app/(app)/settings/tabs";
 import { NAV_ITEMS } from "@/components/nav";
 
@@ -19,7 +20,7 @@ async function allDocs() {
 describe("Moss's docs cover the app", () => {
   it("names every sidebar item and every tab in the overview", async () => {
     const overview = await readFile(`${DOCS}/overview.md`, "utf8");
-    const missing = [...NAV_ITEMS, ...AGENTS_TABS, ...SETTINGS_TABS, ...ACTIVITY_TABS].map((i) => i.label).filter((l) => !overview.includes(l));
+    const missing = [...NAV_ITEMS, ...AGENTS_TABS, ...MONITORING_TABS, ...SETTINGS_TABS, ...ACTIVITY_TABS].map((i) => i.label).filter((l) => !overview.includes(l));
     expect(missing, "Add these to library/docs/overview.md (## Pages)").toEqual([]);
   });
 

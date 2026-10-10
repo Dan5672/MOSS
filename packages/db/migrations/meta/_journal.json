@@ -176,6 +176,13 @@
       "when": 1791621182098,
       "tag": "0024_monitor_rollups",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791621933263,
+      "tag": "0025_monitor_dashboards",
+      "breakpoints": true
     }
   ]
 }

@@ -4,7 +4,6 @@ import { ActionForm } from "@/components/action-form";
 import { FormDialog } from "@/components/form-dialog";
 import { Pill, PriorityBadge, StatusBadge } from "@/components/badges";
 import { Empty, NoPermission, PageHeader, timeAgo } from "@/components/page";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SortableHead } from "@/components/sortable-head";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
@@ -55,9 +54,6 @@ export default async function MonitoringPage({ searchParams }: PageProps<"/monit
         description="Keep watch on the services that matter. When one goes down, MOSS raises an incident and its responder agent starts working it."
         actions={
           <>
-            <Button asChild variant="outline">
-              <Link href="/monitoring/sources">Webhook sources</Link>
-            </Button>
             {canManage && options && (
               <FormDialog
                 label="Add a monitor"

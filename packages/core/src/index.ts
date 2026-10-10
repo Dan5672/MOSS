@@ -20,6 +20,7 @@ export * from "./services/changes.js";
 export * from "./services/monitors.js";
 export * from "./monitoring/metrics.js";
 export * from "./services/monitor-history.js";
+export * from "./services/monitor-dashboards.js";
 export * from "./services/certificates.js";
 export * from "./services/moss-backups.js";
 export * from "./services/knowledge.js";

@@ -24,7 +24,7 @@ export function formatMetric(value: number | null | undefined, unit = ""): strin
     let v = value;
     let i = 0;
     while (Math.abs(v) >= 1000 && i < steps.length - 1) (v /= 1000), i++;
-    return `${v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)} ${steps[i]}`;
+    return `${v >= 100 || i === 0 ? Math.round(v) : Number(v.toFixed(1))} ${steps[i]}`;
   }
   const rounded = Math.abs(value) >= 100 ? Math.round(value) : Math.round(value * 100) / 100;
   return unit ? `${rounded}${unit === "%" ? "" : " "}${unit}` : String(rounded);

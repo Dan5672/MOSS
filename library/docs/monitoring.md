@@ -27,6 +27,24 @@ every 5 minutes into 5-minute and hourly buckets (availability, latency and ever
 and max), kept for 90 days and 2 years. Graphs use raw checks for up to a day and a half, 5-minute
 buckets up to a month, and hourly ones beyond.
 
+## Dashboards
+Monitoring > Dashboards: as many as you like. Shared ones are seen by everyone with monitoring.read and
+edited by people with monitoring.manage; your own are only for you. The first visit makes a shared
+"Overview" from the monitors (status grid, open incidents, 24-hour up/down history, response times, and
+a value card per metric monitor). Edit to change it: drag cards to reorder, drag the corner to resize
+(or use the buttons on each card: move, narrower/wider, shorter/taller), the gear for a card's settings,
+"Add a card" for more. Cards:
+- Graph: one value (response time, availability, the main value, or a named one such as inBps) for up
+  to 20 monitors over 1 hour to 1 year. Hover for values.
+- Gauge: a dial between a low and high mark, amber and red from levels you set.
+- Value: one monitor's current value, with its trend.
+- Up/down history: a bar per slot of the range and the availability %.
+- Status grid: every monitor as a coloured tile, problems first (the "tactical overview").
+- Top list: the highest (or lowest) values, e.g. the slowest services or busiest interfaces.
+- Open incidents, and Note (Markdown).
+Dashboards refresh every minute. TV mode (/tv/dashboards/<id>) is full screen with no menus and refreshes
+every 30 seconds, for a wall screen.
+
 ## Webhook sources
 Monitoring > Webhook sources connects tools you already run: Uptime Kuma, Beszel, Prometheus
 Alertmanager, or any script that posts JSON. Each source has its own URL and token (shown once), and

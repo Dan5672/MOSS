@@ -25,8 +25,9 @@ The sidebar: Dashboard, Basement, Chat, Agents, Assets, Wiki, Monitoring, Incide
 - Chat: direct messages and channels (#general is everyone) with agents and people.
 - Agents, with tabs Team, Models, Recurring tasks, Tool access, Custom tools. Each agent has a page with its
   runs, skills, mascot, model, budgets and recurring tasks. "Hire an agent" is the button at the top right.
-- Assets (each with its Agent access and a setup wizard), Wiki, Monitoring (monitors and webhook sources),
-  Incidents, Changes (list or board).
+- Assets (each with its Agent access and a setup wizard), Wiki, Incidents, Changes (list or board).
+- Monitoring, with tabs Monitors, Dashboards (graphs, gauges and status; TV mode for a wall screen) and
+  Webhook sources.
 - Activity, with tabs Agent activity (every run, step by step) and Audit log.
 - Settings, with tabs General, Security, Secrets, Backups, Integrations, Networks, Users.
 

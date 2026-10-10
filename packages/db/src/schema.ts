@@ -827,6 +827,47 @@ export const monitorRollups = pgTable(
   (t) => [primaryKey({ columns: [t.monitorId, t.resolution, t.bucket] }), index("monitor_rollups_bucket_idx").on(t.resolution, t.bucket)],
 );
 
+/** One card on a monitoring dashboard: what it shows (type and settings), its width and its height. */
+export interface DashboardWidget {
+  id: string;
+  type: "graph" | "gauge" | "value" | "history" | "status" | "top" | "incidents" | "note";
+  title?: string;
+  /** Columns out of 12, and rows (each about 160px). */
+  w: number;
+  h: number;
+  /** Which monitors (empty: all, for the status grid and top lists). */
+  monitorIds?: string[];
+  /** latency, up, value, or a named value such as inBps. */
+  metric?: string;
+  range?: "1h" | "24h" | "7d" | "30d" | "90d" | "1y";
+  /** Gauge scale and colour bands. */
+  min?: number;
+  max?: number;
+  warn?: number;
+  crit?: number;
+  unit?: string;
+  /** Top lists: how many, and largest or smallest first. */
+  count?: number;
+  order?: "desc" | "asc";
+  /** Notes: Markdown. */
+  text?: string;
+}
+
+/** Monitoring dashboards: personal (only the owner sees them) or shared with everyone who can read monitoring. */
+export const monitorDashboards = pgTable(
+  "monitor_dashboards",
+  {
+    id: id(),
+    ...tenancy(),
+    ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    shared: boolean("shared").notNull().default(false),
+    widgets: jsonb("widgets").$type<DashboardWidget[]>().notNull().default([]),
+    ...timestamps(),
+  },
+  (t) => [index("monitor_dashboards_org_idx").on(t.orgId)],
+);
+
 export const monitorStateChanges = pgTable(
   "monitor_state_changes",
   {

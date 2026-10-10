@@ -2,7 +2,6 @@ import { listMonitorSources } from "@moss/core";
 import { agents } from "@moss/db";
 import { and, eq, ne } from "drizzle-orm";
 import { headers } from "next/headers";
-import Link from "next/link";
 import { ActionForm } from "@/components/action-form";
 import { Pill, PriorityBadge } from "@/components/badges";
 import { Empty, NoPermission, PageHeader, timeAgo } from "@/components/page";
@@ -42,13 +41,8 @@ export default async function SourcesPage() {
   return (
     <>
       <PageHeader
-        title="Webhook sources"
-        description={
-          <>
-            Let monitoring tools you already run (Uptime Kuma, Beszel, Alertmanager, scripts) report to MOSS. Each alert becomes a monitor, and failures raise incidents for
-            its responder. <Link href="/monitoring" className="underline">Back to monitoring</Link>
-          </>
-        }
+        title="Monitoring"
+        description="Let monitoring tools you already run (Uptime Kuma, Beszel, Alertmanager, scripts) report to MOSS. Each alert becomes a monitor, and failures raise incidents for its responder."
       />
       {rows.length === 0 ? (
         <Empty>No sources yet.</Empty>
