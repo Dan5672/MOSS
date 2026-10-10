@@ -99,7 +99,7 @@ export async function setHomeAssistantEnabledAction(enabled: boolean): Promise<A
     const { config } = await current(user.orgId);
     await save(user, config, enabled);
     await syncSideEffects(user.orgId);
-    return enabled ? "Home Assistant module switched on." : "Home Assistant module switched off: nothing of it runs, and agents can't use its tools.";
+    return enabled ? "Home Assistant integration switched on." : "Home Assistant integration switched off: nothing of it runs, and agents can't use its tools.";
   });
 }
 
@@ -128,7 +128,7 @@ export async function saveHomeAssistantConnectionAction(_: ActionState, form: Fo
         name: HA_TOKEN_SECRET,
         type: "api_token",
         value: f.token,
-        description: "Home Assistant long-lived access token (Home Assistant module)",
+        description: "Home Assistant long-lived access token (Home Assistant integration)",
         allowedHosts: [f.host],
         allowedTools: HA_TOKEN_TOOLS,
       });
@@ -253,7 +253,7 @@ export async function saveHomeAssistantSimpleAction(feature: "sensors" | "invent
 export async function syncHomeAssistantInventoryAction(_: ActionState): Promise<ActionState> {
   return act(async () => {
     const user = await requirePermission("assets.manage");
-    if (!user.permissions.has("integrations.manage")) throw new Error("You don't have permission to manage modules");
+    if (!user.permissions.has("integrations.manage")) throw new Error("You don't have permission to manage integrations");
     const res = await homeAssistantCall(user.id, "devices");
     if (!res.ok) {
       await updateModuleState(db(), user.orgId, "home_assistant", { lastInventoryAt: new Date().toISOString(), lastInventory: { error: res.error } });

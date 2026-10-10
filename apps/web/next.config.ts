@@ -9,6 +9,13 @@ const nextConfig: NextConfig = {
   // Database and queue drivers stay as plain Node modules rather than being bundled.
   serverExternalPackages: ["postgres", "pg-boss"],
   poweredByHeader: false,
+  // Settings → Modules was renamed Integrations.
+  async redirects() {
+    return [
+      { source: "/settings/modules", destination: "/settings/integrations", permanent: true },
+      { source: "/settings/modules/:path*", destination: "/settings/integrations/:path*", permanent: true },
+    ];
+  },
 };
 
 export default nextConfig;

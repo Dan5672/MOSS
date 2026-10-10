@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 
-export const metadata = { title: "Modules" };
+export const metadata = { title: "Integrations" };
 
 export default async function ModulesPage() {
   const user = await requireUser();
@@ -26,12 +26,12 @@ export default async function ModulesPage() {
   return (
     <>
       <PageHeader title="Settings" />
-      <p className="mb-4 text-sm text-muted-foreground">Optional parts of MOSS. A module that is off does nothing, and agents can&apos;t use its tools.</p>
+      <p className="mb-4 text-sm text-muted-foreground">Connections to the other systems in your home. An integration that is off does nothing, and agents can&apos;t use its tools.</p>
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Link href="/settings/modules/home-assistant" className="underline-offset-2 hover:underline">
+              <Link href="/settings/integrations/home-assistant" className="underline-offset-2 hover:underline">
                 Home Assistant
               </Link>
               <Badge variant={ha.enabled ? "default" : "outline"}>{ha.enabled ? "On" : "Off"}</Badge>
@@ -45,7 +45,7 @@ export default async function ModulesPage() {
             <p>
               {ha.enabled && features.length ? `Using: ${features.join(", ")}.` : ha.enabled ? "On, but no features are switched on yet." : c.host ? `Set up for ${c.host}, switched off.` : "Not set up."}
             </p>
-            <Link href="/settings/modules/home-assistant" className="w-fit border-2 px-3 py-2 font-mono text-sm hover:bg-muted">
+            <Link href="/settings/integrations/home-assistant" className="w-fit border-2 px-3 py-2 font-mono text-sm hover:bg-muted">
               {c.host ? "Configure" : "Set up"}
             </Link>
           </CardContent>

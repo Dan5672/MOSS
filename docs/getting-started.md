@@ -140,7 +140,7 @@ The integration brings MOSS into Home Assistant:
 - **Assist:** ask MOSS by voice.
 - **The Basement card** for your dashboards.
 
-Separately, MOSS's own **Home Assistant module** (Settings → Modules → Home Assistant) works the
+Separately, MOSS's own **Home Assistant integration** (Settings → Integrations → Home Assistant) works the
 other way round: it lets MOSS watch Home Assistant's health, send incidents to your phone, and
 more. You can use either, or both.
 
@@ -149,7 +149,7 @@ more. You can use either, or both.
 1. **Get the integration.**
    - **With HACS:** go to HACS → ⋮ → **Custom repositories**, add
      `https://github.com/Dan5672/MOSS` with category **Integration**, then install **MOSS**.
-   - **Without HACS:** in MOSS, go to **Settings → Modules → Home Assistant**, download the
+   - **Without HACS:** in MOSS, go to **Settings → Integrations → Home Assistant**, download the
      integration, and unzip it into Home Assistant's `config/custom_components` folder.
 
    Restart Home Assistant.

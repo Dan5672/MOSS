@@ -62,7 +62,7 @@ audited.
   post JSON.
   - When something goes down, MOSS opens an incident and its responder agent starts working it.
   - When it recovers, the incident is updated.
-- **A Home Assistant module** for incidents from your automations, phone notifications, MOSS's
+- **A Home Assistant integration** for incidents from your automations, phone notifications, MOSS's
   status as sensors, an internet self-heal and more (see [below](#home-assistant)).
 - **Your own tools.** Describe an HTTP API as a definition and agents can use it, with the same
   checks as built-in tools (see [Custom tools](#custom-tools)).
@@ -161,7 +161,7 @@ When a monitor goes down, after a configurable number of failed checks:
 
 ## Home Assistant
 
-**Settings → Modules → Home Assistant** connects MOSS to your Home Assistant. Give it Home
+**Settings → Integrations → Home Assistant** connects MOSS to your Home Assistant. Give it Home
 Assistant's IP address (on an allowed network) and a long-lived access token, then use **Test
 connection**. An administrator's token also lets MOSS read integrations and the error log. Each
 feature has its own switch:
@@ -176,9 +176,9 @@ feature has its own switch:
 | Internet self-heal | When your internet monitor has been down for a few minutes, an agent power-cycles the modem's smart plug through a pre-approved change, then checks the connection came back. At most once per incident. |
 | Log review | Every day an agent reads Home Assistant's error log, compares it with what is normal for your home, and raises incidents for anything new or getting worse. |
 
-![The Home Assistant module page, with each feature's switch and settings](docs/screenshots/home-assistant.png)
+![The Home Assistant integration page, with each feature's switch and settings](docs/screenshots/home-assistant.png)
 
-While the module is off, none of this runs and agents can't use any Home Assistant tool. The token
+While the integration is off, none of this runs and agents can't use any Home Assistant tool. The token
 is stored encrypted and can only be used against the address you gave. Apart from notifications and
 its own `moss_*` sensors, anything MOSS changes in your home still goes through change management.
 
@@ -188,7 +188,7 @@ The other direction: a Home Assistant integration (in `custom_components/moss`) 
 your dashboards and automations.
 
 1. Install it. With HACS, add this repository as a custom repository (category Integration) and
-   install MOSS. Without HACS, download it from MOSS (Settings → Modules → Home Assistant) and unzip
+   install MOSS. Without HACS, download it from MOSS (Settings → Integrations → Home Assistant) and unzip
    it into Home Assistant's `config/custom_components`. Restart Home Assistant.
 2. In MOSS, make a token on the same page. It acts as you, so Home Assistant can never do more than
    you can.

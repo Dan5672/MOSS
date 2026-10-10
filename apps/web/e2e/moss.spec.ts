@@ -727,8 +727,10 @@ test("monitoring: an Uptime Kuma alert raises an incident for the responder agen
   await expect(page.getByText("Monitors down")).toBeVisible();
 });
 
-test("modules: Home Assistant is connected, tested, switched on, and fills in the inventory", async () => {
+test("integrations: Home Assistant is connected, tested, switched on, and fills in the inventory", async () => {
+  // Modules were renamed Integrations; the old address still works.
   await page.goto("/settings/modules");
+  await expect(page).toHaveURL(/\/settings\/integrations$/);
   await expect(page.getByText("Not set up.")).toBeVisible();
   await page.getByRole("link", { name: "Set up" }).click();
   await expect(page.getByRole("heading", { name: "Home Assistant", exact: true })).toBeVisible();
@@ -746,8 +748,8 @@ test("modules: Home Assistant is connected, tested, switched on, and fills in th
   await connection.getByRole("button", { name: "Test connection" }).click();
   await expect(page.getByText("Connected to Home Assistant 2026.9.2 (Home): 42 entities. All integrations loaded.")).toBeVisible();
 
-  await page.getByRole("button", { name: "Switch module on" }).click();
-  await expect(page.getByText("Home Assistant module switched on.")).toBeVisible();
+  await page.getByRole("button", { name: "Switch integration on" }).click();
+  await expect(page.getByText("Home Assistant integration switched on.")).toBeVisible();
 
   // Alerts: a webhook source with a token shown once, and the rest_command to paste.
   const alerts = page.locator("#alerts");
@@ -766,16 +768,16 @@ test("modules: Home Assistant is connected, tested, switched on, and fills in th
   await page.goto("/assets");
   await expect(page.getByRole("link", { name: "Living room TV", exact: true })).toBeVisible();
 
-  await page.goto("/settings/modules");
+  await page.goto("/settings/integrations");
   await expect(page.getByText("Using: alerts, inventory sync.")).toBeVisible();
   await page.getByRole("link", { name: "Configure" }).click();
   page.once("dialog", (d) => d.accept());
-  await page.getByRole("button", { name: "Switch module off" }).click();
-  await expect(page.getByText("Home Assistant module switched off")).toBeVisible();
+  await page.getByRole("button", { name: "Switch integration off" }).click();
+  await expect(page.getByText("Home Assistant integration switched off")).toBeVisible();
 });
 
 test("MOSS in Home Assistant: a token for the integration, and the small, safe API it opens", async () => {
-  await page.goto("/settings/modules/home-assistant");
+  await page.goto("/settings/integrations/home-assistant");
   const section = page.locator("#integration");
   await section.getByLabel("Token name").fill("Wall tablet");
   await section.getByRole("button", { name: "Make a token" }).click();
@@ -914,7 +916,7 @@ test("users: a viewer can look but not approve or manage", async () => {
   await page.goto("/monitoring");
   await expect(page.getByRole("link", { name: "NAS web" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add monitor" })).toHaveCount(0);
-  await page.goto("/settings/modules/home-assistant");
+  await page.goto("/settings/integrations/home-assistant");
   await expect(page.getByText("You don't have permission to view this page.")).toBeVisible();
 });
 

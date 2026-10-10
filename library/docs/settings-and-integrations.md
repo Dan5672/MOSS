@@ -1,4 +1,4 @@
-# Settings and modules
+# Settings and integrations
 
 ## General settings
 - Kill switch: pauses every agent immediately.
@@ -13,13 +13,13 @@ Settings > Backups lists device configuration backups agents took (encrypted; do
 Backing up MOSS itself is done on the host: sh deploy/backup.sh, and sh deploy/upgrade.sh takes a backup
 before every upgrade. Keep deploy/secrets/master.key safe: without it secrets can't be decrypted.
 
-## Modules
-Settings > Modules: optional parts of MOSS. A module that is off does nothing and its tools refuse to run.
+## Integrations
+Settings > Integrations (once called Modules): connections to other systems. An integration that is off does nothing and its tools refuse to run.
 
-## The Home Assistant module
+## The Home Assistant integration
 Connection: Home Assistant's IP (in an allowed network), port, protocol and a long-lived access token
 (stored as secret:homeassistant-token, usable only against that address). An administrator's token is
-needed for the integration list and the error log. "Test connection" works before the module is on.
+needed for the integration list and the error log. "Test connection" works before the integration is on.
 Features, each with its own switch:
 - Alerts: automations post to a webhook with a rest_command (the page gives you the YAML); each key is
   a monitor, and problem: true opens an incident.
@@ -34,8 +34,8 @@ Features, each with its own switch:
 
 ## MOSS in Home Assistant (the integration)
 A Home Assistant integration (custom_components/moss in the MOSS repository; also downloadable from Settings,
-Modules, Home Assistant) shows MOSS in Home Assistant. Set up: install it (HACS custom repository, or unzip
-into config/custom_components), make a token on the Home Assistant module page in MOSS, then add the MOSS
+Integrations, Home Assistant) shows MOSS in Home Assistant. Set up: install it (HACS custom repository, or unzip
+into config/custom_components), make a token on the Home Assistant integration page in MOSS, then add the MOSS
 integration in Home Assistant with MOSS's address and the token. A token acts as the person who made it.
 It gives: summary sensors, a sensor per agent, a binary sensor per monitor, event entities (incidents,
 monitors, changes, new devices, agents; also the moss_event bus event), a pause-all-agents switch, a

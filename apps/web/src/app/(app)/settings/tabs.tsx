@@ -4,7 +4,7 @@ export const SETTINGS_TABS = [
   { href: "/settings", label: "General" },
   { href: "/settings/secrets", label: "Secrets" },
   { href: "/settings/backups", label: "Backups" },
-  { href: "/settings/modules", label: "Modules" },
+  { href: "/settings/integrations", label: "Integrations" },
   { href: "/networks", label: "Networks" },
   { href: "/users", label: "Users" },
 ] as const;

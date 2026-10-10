@@ -11,7 +11,7 @@ gate and is written to a hash-chained audit log.
 - web: the web UI and its server actions. People sign in here.
 - worker: runs agents (one run per agent at a time), turns recurring tasks into runs, handles events
   (incidents assigned, changes approved, comments, monitors going down), runs monitor checks and the
-  Home Assistant module's background work.
+  Home Assistant integration's background work.
 - gate: the policy gate and secrets broker. The only service that holds the master key and the only
   path to the toolbox. Every network tool call an agent makes is checked here.
 - toolbox: typed network tools (nmap, arp-scan, ping, DNS, probes, SNMP, SSH checks, device APIs).
@@ -28,7 +28,7 @@ The sidebar: Dashboard, Basement, Chat, Agents, Assets, Wiki, Monitoring, Incide
 - Assets (each with its Agent access and a setup wizard), Wiki, Monitoring (monitors and webhook sources),
   Incidents, Changes (list or board).
 - Activity, with tabs Agent activity (every run, step by step) and Audit log.
-- Settings, with tabs General, Secrets, Backups, Modules, Networks, Users.
+- Settings, with tabs General, Secrets, Backups, Integrations, Networks, Users.
 
 ## Runs
 Every piece of agent work is a run: a task, from a person (a task or a chat message), a recurring task,

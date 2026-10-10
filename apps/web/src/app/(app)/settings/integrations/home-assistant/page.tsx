@@ -87,25 +87,25 @@ export default async function HomeAssistantModulePage() {
     <>
       <PageHeader
         title="Home Assistant"
-        description="Let MOSS and your Home Assistant work together. Each feature below has its own switch; none of them runs while the module is off."
+        description="Let MOSS and your Home Assistant work together. Each feature below has its own switch; none of them runs while the integration is off."
         actions={
           <ActionForm
             action={setHomeAssistantEnabledAction.bind(null, !p.enabled)}
-            submitLabel={p.enabled ? "Switch module off" : "Switch module on"}
+            submitLabel={p.enabled ? "Switch integration off" : "Switch integration on"}
             submitVariant={p.enabled ? "outline" : "default"}
-            confirm={p.enabled ? "Switch the Home Assistant module off? Health checks, sensors, notifications, self-heal and log review stop, and agents lose its tools." : undefined}
+            confirm={p.enabled ? "Switch the Home Assistant integration off? Health checks, sensors, notifications, self-heal and log review stop, and agents lose its tools." : undefined}
           />
         }
       />
       <p className="mb-4 text-sm">
-        <Link href="/settings/modules" className="underline underline-offset-2">
-          Modules
+        <Link href="/settings/integrations" className="underline underline-offset-2">
+          Integrations
         </Link>{" "}
         / Home Assistant · <strong>{p.enabled ? "On" : "Off"}</strong>
       </p>
       {off && (
         <p role="status" className="mb-6 border-2 p-3 text-sm">
-          The module is off. You can set up the connection and test it first; nothing runs until you switch the module on.
+          The integration is off. You can set up the connection and test it first; nothing runs until you switch it on.
         </p>
       )}
 
@@ -160,7 +160,7 @@ export default async function HomeAssistantModulePage() {
             id="integration"
             title="MOSS in Home Assistant"
             on={tokens.length > 0}
-            description="The MOSS integration for Home Assistant: sensors for incidents, monitors, agents and spending, events for automations (like a new device joining the network), safe controls, Assist voice and the Basement card. It works whether or not this module is on."
+            description="The other direction: an add-on you install in Home Assistant that shows MOSS there. Sensors for incidents, monitors, agents and spending, events for automations (like a new device joining the network), safe controls, Assist voice and the Basement card. It works whether or not the switch above is on."
           >
             <ol className="grid list-decimal gap-1.5 pl-5 text-sm">
               <li>

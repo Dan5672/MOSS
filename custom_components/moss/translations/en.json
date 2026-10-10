@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Connect to MOSS",
-        "description": "Make a token in MOSS (Settings, Modules, Home Assistant, MOSS in Home Assistant) and paste it here.",
+        "description": "Make a token in MOSS (Settings, Integrations, Home Assistant, MOSS in Home Assistant) and paste it here.",
         "data": {
           "url": "MOSS address",
           "token": "Token",

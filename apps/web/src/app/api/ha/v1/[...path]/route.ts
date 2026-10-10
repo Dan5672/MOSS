@@ -1,4 +1,4 @@
-// The Home Assistant integration's API. Bearer-token only (a token from Settings > Modules > Home
+// The Home Assistant integration's API. Bearer-token only (a token from Settings > Integrations > Home
 // Assistant), acting as the person who made the token and never beyond their permissions. Deliberately
 // small and safe: Home Assistant can read MOSS's state, make it do less (pause agents, quiet monitors) and
 // ask it things (raise an incident, ask an agent, check a monitor, run a recurring task). It can't approve
@@ -40,7 +40,7 @@ async function caller(req: Request): Promise<IntegrationCaller> {
   const auth = req.headers.get("authorization") ?? "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : null;
   const c = await verifyIntegrationToken(db(), token);
-  if (!c) throw new ApiError(401, "Invalid or revoked token. Make a new one in MOSS: Settings > Modules > Home Assistant.");
+  if (!c) throw new ApiError(401, "Invalid or revoked token. Make a new one in MOSS: Settings > Integrations > Home Assistant.");
   return c;
 }
 
@@ -102,7 +102,7 @@ async function handle(req: Request, path: string[], method: "GET" | "POST") {
     }
     case "POST agents/resume": {
       await need(c, "killswitch.use");
-      if (!(await getSetting(db(), c.orgId, "homeassistant.allow_resume"))) throw new ApiError(403, "Resuming agents from Home Assistant is switched off. Resume them in MOSS, or allow it under Settings > Modules > Home Assistant.");
+      if (!(await getSetting(db(), c.orgId, "homeassistant.allow_resume"))) throw new ApiError(403, "Resuming agents from Home Assistant is switched off. Resume them in MOSS, or allow it under Settings > Integrations > Home Assistant.");
       await setSetting(db(), c.orgId, "agents.kill_switch", false);
       await audit(c, "setting.update", "setting", "agents.kill_switch", { value: false });
       return { ok: true, message: "Agents may run again." };

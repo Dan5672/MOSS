@@ -11,7 +11,7 @@ Every network tool call goes through the gate, which checks, in order:
    approved change request, inside its window. Dangerous tools also need "Allow dangerous tools".
 5. Secrets: the agent must be granted each secret it uses, and the tool and target must be within the
    secret's scope.
-6. Modules: tools that belong to a module (Home Assistant) only work while the module is on.
+6. Integrations: tools that belong to an integration (Home Assistant) only work while it is switched on.
 A refused call is logged as tool.denied with a code and a reason; the agent sees the reason.
 
 ## Denial codes
@@ -29,7 +29,7 @@ A refused call is logged as tool.denied with a code and a reason; the agent sees
 - secret_not_granted: grant the secret to the agent (Settings > Secrets, Change scope and agents).
 - secret_scope: the secret isn't allowed for that tool or that host; widen its scope if that's intended.
 - secret_required: a credential must be passed as a secret:<name> handle, never typed in.
-- module_disabled: switch the module on (Settings > Modules).
+- module_disabled: switch the integration on (Settings > Integrations).
 - setting_disabled: the action needs a setting switched on first, e.g. "Allow CVE lookups" (Settings) for
   vuln_scan's cve profile, which sends service versions to vulners.com.
 - invalid_args: the arguments don't fit the tool. For example a password secret passed as an API key:
