@@ -88,6 +88,14 @@ fi
 
 if $checkout; then
   commit=$(manifest commit)
+  # Older backups from the web may only have the version: v0.1.1-75-gbceb394 (the commit is after -g), or
+  # a release tag like v0.2.0, which git can check out as it is.
+  if [ "$commit" = unknown ] || [ -z "$commit" ]; then
+    version=$(manifest version)
+    commit=$(echo "$version" | sed -n 's/.*-g\([0-9a-f]\{7,\}\)\(-dirty\)\{0,1\}$/\1/p')
+    case "$version" in v[0-9]*) [ -n "$commit" ] || commit=$version ;; esac
+    [ -n "$commit" ] || commit=unknown
+  fi
   [ "$commit" != unknown ] || die "the backup does not record a commit; check out the right version yourself and re-run without --checkout"
   info "Checking out $commit"
   git_repo checkout -q --detach "$commit"
