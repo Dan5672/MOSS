@@ -38,6 +38,7 @@ export function integrationConfigSchema(def: IntegrationDef) {
     priority: z.enum(["P1", "P2", "P3", "P4"]).default("P3").catch("P3"),
     responderAgentId: z.uuid().optional().catch(undefined),
     options: z.record(z.string(), z.unknown()).default({}).catch({}),
+    fields: z.record(z.string(), z.string().max(500)).default({}).catch({}),
   });
 }
 
@@ -52,7 +53,12 @@ export async function loadIntegration(db: Pick<Database, "select">, orgId: strin
 
 /** The connection arguments every one of its tools takes. The credential is a handle; only the gate resolves it. */
 export function integrationArgs(def: IntegrationDef, c: IntegrationConfig, at?: { host: string; port: number }): Record<string, unknown> {
-  if (def.connection.cloud) return def.credential ? { [def.credential.arg]: `secret:${def.credential.secretName}` } : {};
+  if (def.connection.cloud) {
+    return {
+      ...Object.fromEntries((def.connection.fields ?? []).map((f) => [f.key, c.fields[f.key]])),
+      ...(def.credential ? { [def.credential.arg]: `secret:${def.credential.secretName}` } : {}),
+    };
+  }
   const host = at?.host ?? c.host;
   if (!host) throw new Error(`Set ${def.name}'s address first`);
   return {
@@ -67,7 +73,7 @@ export function integrationArgs(def: IntegrationDef, c: IntegrationConfig, at?: 
 
 /** Whether it has somewhere to connect to: its address, or at least one of its hosts. */
 export function integrationConfigured(def: IntegrationDef, c: IntegrationConfig): boolean {
-  if (def.connection.cloud) return true;
+  if (def.connection.cloud) return (def.connection.fields ?? []).every((f) => !!c.fields[f.key]);
   return def.connection.multipleHosts ? c.hosts.length > 0 : !!c.host;
 }
 

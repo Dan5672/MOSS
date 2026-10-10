@@ -362,6 +362,57 @@ export const cloudflareTunnels = tool(
   z.object({ apiToken: cloudflareToken, timeoutMs }),
 );
 
+// Microsoft 365 / Entra ID: read-only, with the app registration's own Graph permissions.
+const m365Args = {
+  tenantId: z.guid().describe("The directory (tenant) ID"),
+  clientId: z.guid().describe("The app registration's application (client) ID"),
+  clientSecret: secretHandle.describe("The app registration's client secret, stored as a secret"),
+  timeoutMs,
+};
+
+export const m365Users = tool(
+  { name: "m365_users", class: "read", targetArgs: [], secretArgs: ["clientSecret"] },
+  "List the people in Microsoft 365 / Entra ID: name, sign-in name, email, whether enabled, job title and department. Calls Microsoft Graph.",
+  z.object(m365Args),
+);
+
+export const m365Devices = tool(
+  { name: "m365_devices", class: "read", targetArgs: [], secretArgs: ["clientSecret"] },
+  "List the laptops and phones managed in Intune: name, OS, serial, user, compliance and last check-in. Calls Microsoft Graph.",
+  z.object(m365Args),
+);
+
+export const m365ServiceHealth = tool(
+  { name: "m365_service_health", class: "read", targetArgs: [], secretArgs: ["clientSecret"] },
+  "Microsoft 365's open service incidents and advisories, devices out of compliance, users Entra ID flags as at risk, and when MOSS's app secret expires. Calls Microsoft Graph.",
+  z.object(m365Args),
+);
+
+// Google Workspace: read-only, through a service account with domain-wide delegation.
+const gwsArgs = {
+  serviceAccount: secretHandle.describe("The service account's JSON key, stored as a secret"),
+  adminEmail: z.email().describe("A Workspace admin the service account acts as"),
+  timeoutMs,
+};
+
+export const gworkspaceUsers = tool(
+  { name: "gworkspace_users", class: "read", targetArgs: [], secretArgs: ["serviceAccount"] },
+  "List the people in Google Workspace: email, name, suspended, admin, 2-step verification and last sign-in. Calls Google's Admin SDK.",
+  z.object(gwsArgs),
+);
+
+export const gworkspaceDevices = tool(
+  { name: "gworkspace_devices", class: "read", targetArgs: [], secretArgs: ["serviceAccount"] },
+  "List the phones, tablets and Chromebooks Google Workspace manages: model, OS, serial, user, status and last sync. Calls Google's Admin SDK.",
+  z.object(gwsArgs),
+);
+
+export const gworkspaceAlerts = tool(
+  { name: "gworkspace_alerts", class: "read", targetArgs: [], secretArgs: ["serviceAccount"] },
+  "List Google Workspace Alert Center alerts from the last 7 days that aren't closed (suspicious sign-ins, phishing, leaked passwords and the like). Calls Google's Alert Center API.",
+  z.object(gwsArgs),
+);
+
 export const proxmoxInventory = tool(
   { name: "proxmox_inventory", class: "read", targetArgs: ["target"], secretArgs: ["token"] },
   "List a Proxmox VE cluster's nodes (with their addresses) and every VM and container with its MAC addresses, the addresses " +
@@ -828,6 +879,12 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     dockerApiContainers,
     tailscaleDevices,
     mossReleases,
+    m365Users,
+    m365Devices,
+    m365ServiceHealth,
+    gworkspaceUsers,
+    gworkspaceDevices,
+    gworkspaceAlerts,
     cloudflareDns,
     cloudflareTunnels,
     nutStatus,
@@ -911,8 +968,34 @@ export const homeassistantPublish = tool(
   }),
 );
 
+// Single sign-on, only ever called by the gate for a person signing in (never by agents).
+const ssoProvider = z.enum(["microsoft", "google"]);
+
+export const oidcExchange = tool(
+  { name: "oidc_exchange", class: "read", targetArgs: [], secretArgs: ["clientSecret"] },
+  "Exchange a sign-in code from Microsoft or Google for an ID token.",
+  z
+    .object({
+      provider: ssoProvider,
+      tenantId: z.guid().optional(),
+      clientId: z.string().min(1).max(200),
+      clientSecret: secretHandle,
+      code: z.string().min(1).max(4000),
+      redirectUri: z.url().max(500),
+      codeVerifier: z.string().regex(/^[A-Za-z0-9_-]{43,128}$/),
+      timeoutMs,
+    })
+    .strict(),
+);
+
+export const oidcKeys = tool(
+  { name: "oidc_keys", class: "read", targetArgs: [] },
+  "Fetch Microsoft's or Google's published keys for checking sign-in tokens.",
+  z.object({ provider: ssoProvider, tenantId: z.guid().optional(), timeoutMs }).strict(),
+);
+
 export const SYSTEM_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
-  [homeassistantNotify, homeassistantPublish].map((t) => [t.manifest.name, t as unknown as ToolDefinition]),
+  [homeassistantNotify, homeassistantPublish, oidcExchange, oidcKeys].map((t) => [t.manifest.name, t as unknown as ToolDefinition]),
 );
 
 /** The JSON Schema handed to the LLM for a tool's input. */

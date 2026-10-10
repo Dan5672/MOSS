@@ -92,6 +92,7 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
       "team-memory",
       "unifi-actions",
       "vulnerability-scanning",
+      "workplace-directory",
     ]);
   });
 

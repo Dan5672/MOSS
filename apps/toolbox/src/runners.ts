@@ -8,6 +8,9 @@ import { customHttp, sendRequest, type RawRequest } from "./custom-http.js";
 import { homeassistantDevices, homeassistantHealth, homeassistantLogs, homeassistantNotify, homeassistantPublish } from "./home-assistant.js";
 import { cloudflareDns, cloudflareDnsRecord, cloudflareTunnels, mossReleases, tailscaleDevices } from "./cloud.js";
 import { dockerApiContainers } from "./docker-api.js";
+import { gworkspaceAlerts, gworkspaceDevices, gworkspaceUsers } from "./google.js";
+import { m365Devices, m365ServiceHealth, m365Users } from "./microsoft.js";
+import { oidcExchange, oidcKeys } from "./oidc.js";
 import { nutStatus } from "./nut.js";
 import { opnsenseBlock, opnsenseStatus, pfsenseBlock, pfsenseStatus } from "./firewalls.js";
 import { adguardClients, adguardStats, HomelabError, homeassistantStates, pbsStatus, piholeClients, piholeSummary, proxmoxInventory, proxmoxStatus, synologyStatus, truenasStatus } from "./homelab.js";
@@ -282,6 +285,22 @@ async function runToolInner(
       assertHost(args.target as string);
       return nutStatus(args as never);
     // Cloud services: no target; each calls its service's own address.
+    case "m365_users":
+      return m365Users(args as never);
+    case "m365_devices":
+      return m365Devices(args as never);
+    case "m365_service_health":
+      return m365ServiceHealth(args as never);
+    case "gworkspace_users":
+      return gworkspaceUsers(args as never);
+    case "gworkspace_devices":
+      return gworkspaceDevices(args as never);
+    case "gworkspace_alerts":
+      return gworkspaceAlerts(args as never);
+    case "oidc_exchange":
+      return oidcExchange(args as never);
+    case "oidc_keys":
+      return oidcKeys(args as never);
     case "moss_releases":
       return mossReleases(args as never);
     case "tailscale_devices":

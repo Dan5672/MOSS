@@ -92,14 +92,20 @@ export async function saveIntegrationConnectionAction(key: string, _: ActionStat
     }
     // A cloud service: only its credential (usable with its tools, from anywhere it calls).
     if (def.connection.cloud) {
-      if (!def.credential) throw new Error("Nothing to set up.");
-      if (!f.credential) {
-        if (!(await credentialRow(user.orgId, def))) throw new Error(`Enter the ${def.credential.label.toLowerCase()}.`);
-        return "Nothing changed.";
+      // Its named fields (a tenant id, an admin's email), each checked against what it must look like.
+      const fields = Object.fromEntries(
+        (def.connection.fields ?? []).map((fd) => {
+          const v = (f[`field:${fd.key}`] ?? "").trim();
+          if (!new RegExp(fd.pattern).test(v)) throw new Error(`${fd.label}: ${fd.message}.`);
+          return [fd.key, v];
+        }),
+      );
+      if (def.credential && !f.credential && !(await credentialRow(user.orgId, def))) throw new Error(`Enter the ${def.credential.label.toLowerCase()}.`);
+      if (def.credential && f.credential) {
+        await storeSecret({ userId: user.id, name: def.credential.secretName, type: def.credential.type, value: f.credential, description: `${def.credential.label} (${def.name} integration)`, allowedTools: def.credential.tools });
       }
-      await storeSecret({ userId: user.id, name: def.credential.secretName, type: def.credential.type, value: f.credential, description: `${def.credential.label} (${def.name} integration)`, allowedTools: def.credential.tools });
-      await save(user, def, { ...config });
-      return "Saved the credential.";
+      await save(user, def, { ...config, fields });
+      return f.credential ? "Saved the connection and the credential." : "Saved the connection.";
     }
     const host = (f.host ?? "").trim();
     if (!IPV4.test(host)) throw new Error(`${def.name}'s address must be an IPv4 address.`);

@@ -68,6 +68,8 @@ export interface IntegrationDef {
      * and its tools only work for agents while the integration is on.
      */
     cloud?: true;
+    /** Named settings a cloud service needs (a tenant id, an admin's email), passed to its tools as arguments. */
+    fields?: IntegrationField[];
     /** It's plain HTTP or its own protocol: no certificate to check. */
     tls?: false;
     /** A user name as well as the credential (AdGuard Home). */
@@ -121,7 +123,18 @@ export function integrationOption(def: IntegrationDef, c: IntegrationConfig, key
 }
 
 /** The stored config every integration shares. */
+export interface IntegrationField {
+  key: string;
+  label: string;
+  hint?: string;
+  /** What a value must look like (a regular expression's source), and what to say if it doesn't. */
+  pattern: string;
+  message: string;
+}
+
 export interface IntegrationConfig {
+  /** Values of the connection's named fields. */
+  fields: Record<string, string>;
   host?: string;
   port: number;
   /** For integrations with several hosts. */

@@ -5,6 +5,7 @@ export const TOOL_GROUPS = [
   { key: "discovery", label: "Discovery", tools: ["nmap_scan", "arp_scan", "snmp_query", "traceroute", "name_lookup"] },
   { key: "probes", label: "Probes and monitoring", tools: ["ping", "dns_lookup", "tcp_connect", "http_probe", "tls_inspect"] },
   { key: "unifi", label: "UniFi", tools: ["unifi_clients", "unifi_firewall", "unifi_client_block", "unifi_dhcp_reservation", "unifi_wlan_enable"] },
+  { key: "directory", label: "Microsoft 365 and Google Workspace", tools: ["m365_users", "m365_devices", "m365_service_health", "gworkspace_users", "gworkspace_devices", "gworkspace_alerts"] },
   { key: "cloud", label: "Cloud services", tools: ["moss_releases", "tailscale_devices", "cloudflare_dns", "cloudflare_tunnels", "cloudflare_dns_record"] },
   { key: "firewalls", label: "OPNsense and pfSense", tools: ["opnsense_status", "opnsense_block", "pfsense_status", "pfsense_block"] },
   { key: "servers", label: "Servers (SSH)", tools: ["host_facts", "disk_usage", "service_status", "docker_ps", "service_restart", "container_restart", "host_reboot", "host_shutdown"] },
