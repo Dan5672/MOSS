@@ -1,6 +1,7 @@
 import { models, skills } from "@moss/db";
 import { eq } from "drizzle-orm";
 import Link from "next/link";
+import { FormDialog } from "@/components/form-dialog";
 import { ActionForm } from "@/components/action-form";
 import { StatusBadge } from "@/components/badges";
 import { CheckboxField, SelectField, TextAreaField, TextField } from "@/components/field";
@@ -43,11 +44,88 @@ export default async function AgentsPage({ searchParams }: PageProps<"/agents">)
 
   return (
     <>
-      <PageHeader title="Agents" description="Your AI team. Hire agents from templates or design your own, give them skills, and set their budgets." />
+      <PageHeader
+        title="Agents"
+        description="Your AI team. Hire agents from templates or design your own, give them skills, and set their budgets."
+        actions={
+          canManage && (
+            <FormDialog label="Hire an agent" title="Hire an agent" description="Start from a ready-made role, or design your own." wide>
+                  {enabledModels.length === 0 ? (
+                    <Empty>
+                      Add a model first: agents need an LLM to think with. <Link href="/models" className="underline">Add a model</Link>
+                    </Empty>
+                  ) : (
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {[...lib.templates.values()].filter((t) => t.key !== "moss").map((t) => (
+                        <Card key={t.key}>
+                          <CardHeader>
+                            <CardTitle>{t.title}</CardTitle>
+                            <CardDescription>{t.description}</CardDescription>
+                          </CardHeader>
+                          <CardContent className="space-y-3">
+                            <div className="text-xs text-muted-foreground">Skills: {t.skills.join(", ")}</div>
+                            <ActionForm action={hireAction} submitLabel={`Hire ${t.defaultName}`}>
+                              <input type="hidden" name="templateKey" value={t.key} />
+                              <TextField label="Name" name="name" defaultValue={t.defaultName} maxLength={60} />
+                              <SelectField
+                                label="Model"
+                                name="modelId"
+                                defaultValue={enabledModels.find((m) => m.modelId === t.suggestedModel)?.id ?? enabledModels[0]!.id}
+                                options={enabledModels.map((m) => ({ value: m.id, label: m.displayName }))}
+                              />
+                            </ActionForm>
+                          </CardContent>
+                        </Card>
+                      ))}
+                      <Card className="md:col-span-2">
+                        <CardHeader>
+                          <CardTitle>Custom agent</CardTitle>
+                          <CardDescription>Design your own role: describe the job, then choose which skills (and so which tools) it gets.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <ActionForm action={hireCustomAction} submitLabel="Hire custom agent">
+                            <div className="grid gap-4 md:grid-cols-2">
+                              <TextField label="Name" name="name" placeholder="Wren" maxLength={60} required />
+                              <TextField label="Job title" name="title" placeholder="Backup Admin" maxLength={60} required />
+                            </div>
+                            <TextAreaField
+                              label="Instructions"
+                              name="systemPrompt"
+                              rows={4}
+                              maxLength={8000}
+                              required
+                              placeholder="You look after backups. Check that the NAS is reachable each morning and raise an incident if it isn't."
+                              hint="What the agent is for and how it should work. Skills add their own instructions on top of this."
+                            />
+                            <fieldset className="grid gap-2">
+                              <legend className="mb-2 text-sm font-medium">Skills</legend>
+                              <p className="text-xs text-muted-foreground">
+                                Every agent already knows how MOSS works: {skillRows.filter((s) => s.core).map((s) => s.name).join(", ")}. Add what this one needs on top.
+                              </p>
+                              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                                {skillRows.filter((s) => !s.core).map((s) => (
+                                  <CheckboxField key={s.key} label={s.name} name="skills" value={s.key} hint={s.description} />
+                                ))}
+                              </div>
+                            </fieldset>
+                            <div className="grid gap-4 md:grid-cols-2">
+                              <SelectField label="Model" name="modelId" options={enabledModels.map((m) => ({ value: m.id, label: m.displayName }))} />
+                              <SelectField label="Effort" name="effort" defaultValue="medium" options={EFFORTS.map((e) => ({ value: e, label: e }))} />
+                            </div>
+                          </ActionForm>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+
+            </FormDialog>
+          )
+        }
+      />
 
       <Section title="Team">
         {team.length === 0 ? (
-          <Empty>No agents yet. Hire one below.</Empty>
+          <Empty>No agents yet. Hire one with Hire an agent.</Empty>
         ) : (
           <Table>
             <TableHeader>
@@ -100,79 +178,6 @@ export default async function AgentsPage({ searchParams }: PageProps<"/agents">)
         )}
       </Section>
 
-      {canManage && (
-        <div className="mt-8">
-          <Section title="Hire an agent">
-            {enabledModels.length === 0 ? (
-              <Empty>
-                Add a model first: agents need an LLM to think with. <Link href="/models" className="underline">Add a model</Link>
-              </Empty>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {[...lib.templates.values()].filter((t) => t.key !== "moss").map((t) => (
-                  <Card key={t.key}>
-                    <CardHeader>
-                      <CardTitle>{t.title}</CardTitle>
-                      <CardDescription>{t.description}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <div className="text-xs text-muted-foreground">Skills: {t.skills.join(", ")}</div>
-                      <ActionForm action={hireAction} submitLabel={`Hire ${t.defaultName}`}>
-                        <input type="hidden" name="templateKey" value={t.key} />
-                        <TextField label="Name" name="name" defaultValue={t.defaultName} maxLength={60} />
-                        <SelectField
-                          label="Model"
-                          name="modelId"
-                          defaultValue={enabledModels.find((m) => m.modelId === t.suggestedModel)?.id ?? enabledModels[0]!.id}
-                          options={enabledModels.map((m) => ({ value: m.id, label: m.displayName }))}
-                        />
-                      </ActionForm>
-                    </CardContent>
-                  </Card>
-                ))}
-                <Card className="md:col-span-2 lg:col-span-3">
-                  <CardHeader>
-                    <CardTitle>Custom agent</CardTitle>
-                    <CardDescription>Design your own role: describe the job, then choose which skills (and so which tools) it gets.</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <ActionForm action={hireCustomAction} submitLabel="Hire custom agent">
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <TextField label="Name" name="name" placeholder="Wren" maxLength={60} required />
-                        <TextField label="Job title" name="title" placeholder="Backup Admin" maxLength={60} required />
-                      </div>
-                      <TextAreaField
-                        label="Instructions"
-                        name="systemPrompt"
-                        rows={4}
-                        maxLength={8000}
-                        required
-                        placeholder="You look after backups. Check that the NAS is reachable each morning and raise an incident if it isn't."
-                        hint="What the agent is for and how it should work. Skills add their own instructions on top of this."
-                      />
-                      <fieldset className="grid gap-2">
-                        <legend className="mb-2 text-sm font-medium">Skills</legend>
-                        <p className="text-xs text-muted-foreground">
-                          Every agent already knows how MOSS works: {skillRows.filter((s) => s.core).map((s) => s.name).join(", ")}. Add what this one needs on top.
-                        </p>
-                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                          {skillRows.filter((s) => !s.core).map((s) => (
-                            <CheckboxField key={s.key} label={s.name} name="skills" value={s.key} hint={s.description} />
-                          ))}
-                        </div>
-                      </fieldset>
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <SelectField label="Model" name="modelId" options={enabledModels.map((m) => ({ value: m.id, label: m.displayName }))} />
-                        <SelectField label="Effort" name="effort" defaultValue="medium" options={EFFORTS.map((e) => ({ value: e, label: e }))} />
-                      </div>
-                    </ActionForm>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
-          </Section>
-        </div>
-      )}
 
       {fired.length > 0 && (
         <div className="mt-8">

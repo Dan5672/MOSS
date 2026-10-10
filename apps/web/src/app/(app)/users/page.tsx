@@ -4,7 +4,7 @@ import { ActionForm } from "@/components/action-form";
 import { Pill, StatusBadge } from "@/components/badges";
 import { SelectField, TextField } from "@/components/field";
 import { PageHeader, timeAgo, NoPermission } from "@/components/page";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { FormDialog } from "@/components/form-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
@@ -36,7 +36,20 @@ export default async function UsersPage() {
 
   return (
     <>
-      <PageHeader title="Users" description="People who can sign in to MOSS. Agents are managed on the Agents page." />
+      <PageHeader
+        title="Users"
+        description="People who can sign in to MOSS. Agents are managed on the Agents page."
+        actions={
+          <FormDialog label="Add a person" title="Add a person" description="They sign in with this email and password, and can change the password later.">
+            <ActionForm action={addUserAction} submitLabel="Add person" resetOnSuccess>
+              <TextField label="Name" name="displayName" required />
+              <TextField label="Email" name="email" type="email" required />
+              <SelectField label="Role" name="role" defaultValue="viewer" options={roleOptions} />
+              <TextField label="Initial password" name="password" type="password" autoComplete="new-password" minLength={12} required />
+            </ActionForm>
+          </FormDialog>
+        }
+      />
       <Table>
         <TableHeader>
           <TableRow>
@@ -90,19 +103,6 @@ export default async function UsersPage() {
         </TableBody>
       </Table>
 
-      <Card className="mt-8 max-w-xl">
-        <CardHeader>
-          <CardTitle>Add a person</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ActionForm action={addUserAction} submitLabel="Add person" resetOnSuccess>
-            <TextField label="Name" name="displayName" required />
-            <TextField label="Email" name="email" type="email" required />
-            <SelectField label="Role" name="role" defaultValue="viewer" options={roleOptions} />
-            <TextField label="Initial password" name="password" type="password" autoComplete="new-password" minLength={12} required />
-          </ActionForm>
-        </CardContent>
-      </Card>
     </>
   );
 }
