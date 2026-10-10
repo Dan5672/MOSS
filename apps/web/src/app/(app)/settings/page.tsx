@@ -9,7 +9,6 @@ import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { confirmTotpAction, disableTotpAction, setMotionAction, setSetupChecklistHiddenAction, startTotpAction, toggleSettingAction } from "./actions";
 import { HttpsCard } from "./https-card";
-import { SettingsTabs } from "./tabs";
 
 export const metadata = { title: "Settings" };
 
@@ -57,7 +56,6 @@ export default async function SettingsPage() {
   return (
     <>
       <PageHeader title="Settings" />
-      <SettingsTabs current="/settings" />
       <div className="grid gap-6 lg:grid-cols-2">
         <HttpsCard />
         <Card>

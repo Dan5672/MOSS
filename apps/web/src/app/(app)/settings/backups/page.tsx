@@ -6,7 +6,6 @@ import { Empty, NoPermission, PageHeader, Section, timeAgo } from "@/components/
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
-import { SettingsTabs } from "../tabs";
 import { deleteBackupAction } from "./actions";
 
 export const metadata = { title: "Backups" };
@@ -42,7 +41,6 @@ export default async function BackupsPage() {
         title="Settings"
         description="Device configurations that agents backed up with config_backup. They're encrypted by the gate; agents only ever see a backup's size and hash. The newest 20 per device and file are kept."
       />
-      <SettingsTabs current="/settings/backups" />
       <Section title="Config backups">
         {rows.length === 0 ? (
           <Empty>No backups yet. Agents with the Config Backups skill take one before changing a device.</Empty>

@@ -5,7 +5,6 @@ import { Empty, NoPermission, PageHeader, Section } from "@/components/page";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { RecurringTaskList } from "../recurring-task-list";
-import { AgentsTabs } from "../tabs";
 
 export const metadata = { title: "Recurring tasks" };
 
@@ -37,7 +36,6 @@ export default async function RecurringTasksPage() {
   return (
     <>
       <PageHeader title="Agents" description="Work your agents do on a timetable, such as a weekly backup check or a daily log review." />
-      <AgentsTabs current="/agents/recurring" />
       <p className="mb-6 text-sm text-muted-foreground">
         {total === 0 ? "No recurring tasks yet." : `${total} recurring task${total === 1 ? "" : "s"}, ${on} on.`} Times are in {timeZone}.
       </p>

@@ -784,6 +784,18 @@ test("MOSS in Home Assistant: a token for the integration, and the small, safe A
   expect((await api("state")).status()).toBe(401);
 });
 
+test("section tabs stay in the same place on every page of the section", async () => {
+  const y = async (path: string, label: string) => {
+    await page.goto(path);
+    return (await page.getByRole("navigation", { name: label }).boundingBox())!.y;
+  };
+  const settings = await Promise.all([y("/settings", "Settings")]);
+  for (const p of ["/settings/secrets", "/settings/backups", "/networks", "/users"]) expect(await y(p, "Settings")).toBe(settings[0]);
+  const agents = await y("/agents", "Agents");
+  for (const p of ["/agents/recurring", "/agents/tools", "/agents/custom-tools"]) expect(await y(p, "Agents")).toBe(agents);
+  expect(await y("/audit", "Activity")).toBe(await y("/runs", "Activity"));
+});
+
 test("tables: columns sort by clicking their header, and the order is in the URL", async () => {
   await page.goto("/assets");
   const ip = page.getByRole("columnheader", { name: /^IP/ });

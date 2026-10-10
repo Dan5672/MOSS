@@ -23,7 +23,6 @@ import {
   syncHomeAssistantInventoryAction,
   testHomeAssistantAction,
 } from "../actions";
-import { SettingsTabs } from "../../tabs";
 import { AlertsForm } from "./alerts-form";
 import { TokenForm } from "./token-form";
 
@@ -98,7 +97,6 @@ export default async function HomeAssistantModulePage() {
           />
         }
       />
-      <SettingsTabs current="/settings/modules" />
       <p className="mb-4 text-sm">
         <Link href="/settings/modules" className="underline underline-offset-2">
           Modules

@@ -11,7 +11,6 @@ import { db } from "@/server/db";
 import { bundledCatalog, remoteCatalog, type CatalogEntry } from "@/server/tool-library";
 import { getSetting } from "@moss/core";
 import { TextField } from "@/components/field";
-import { AgentsTabs } from "../tabs";
 import {
   addCustomToolAction,
   deleteCustomToolAction,
@@ -73,7 +72,6 @@ export default async function CustomToolsPage() {
         title="Agents"
         description="Your own HTTP tools, defined in YAML or JSON. They run through the policy gate like built-in tools: allowed networks only, write tools need an approved change, secrets stay in the gate, and every call is audited. No code runs."
       />
-      <AgentsTabs current="/agents/custom-tools" />
 
       <div className="grid gap-8 lg:grid-cols-[1fr_28rem]">
         <Section title="Custom tools">

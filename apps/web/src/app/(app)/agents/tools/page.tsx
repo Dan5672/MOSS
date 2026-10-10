@@ -8,7 +8,6 @@ import { requireUser } from "@/server/auth";
 import { recentDenials, toolAccess } from "@/server/tool-catalog";
 import { ActionForm } from "@/components/action-form";
 import { CheckboxField } from "@/components/field";
-import { AgentsTabs } from "../tabs";
 import { groupTools, toolGroup } from "@/lib/tool-groups";
 import { setToolAccessAction } from "./actions";
 
@@ -44,7 +43,6 @@ export default async function ToolAccessPage({ searchParams }: PageProps<"/agent
         title="Agents"
         description="Which tools each agent can use, where that access comes from, and how much they use it. Agents get tools only through their skills."
       />
-      <AgentsTabs current="/agents/tools" />
 
       <div className="mb-8 grid grid-cols-[repeat(auto-fit,minmax(min(170px,100%),1fr))] gap-3">
         {[

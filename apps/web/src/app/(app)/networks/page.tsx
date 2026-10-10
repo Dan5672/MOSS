@@ -6,7 +6,6 @@ import { ActionForm } from "@/components/action-form";
 import { StatusBadge } from "@/components/badges";
 import { SelectField, TextField } from "@/components/field";
 import { Empty, PageHeader, timeAgo, NoPermission } from "@/components/page";
-import { SettingsTabs } from "../settings/tabs";
 import { FormDialog } from "@/components/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -83,7 +82,6 @@ export default async function NetworksPage() {
           )
         }
       />
-      <SettingsTabs current="/networks" />
       {rows.length === 0 ? (
         <Empty>No networks yet. Add the subnet your devices are on (for example 192.168.1.0/24) and mark it allowed.</Empty>
       ) : (

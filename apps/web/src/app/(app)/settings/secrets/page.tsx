@@ -7,7 +7,6 @@ import { CheckboxField, SelectField, TextAreaField, TextField } from "@/componen
 import { Empty, NoPermission, PageHeader, Section, timeAgo } from "@/components/page";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
-import { SettingsTabs } from "../tabs";
 import { deleteSecretAction, saveSecretAction, updateSecretScopeAction } from "./actions";
 import { ToolPicker } from "./tool-picker";
 
@@ -111,7 +110,6 @@ export default async function SecretsPage() {
         title="Settings"
         description="Secrets are encrypted by the gate and never shown again. Agents refer to them by name, as secret:<name>; only the gate sees the value."
       />
-      <SettingsTabs current="/settings/secrets" />
 
       <div className="grid gap-8 lg:grid-cols-[1fr_24rem]">
         <div className="grid content-start gap-8">

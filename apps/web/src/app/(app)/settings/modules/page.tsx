@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
-import { SettingsTabs } from "../tabs";
 
 export const metadata = { title: "Modules" };
 
@@ -27,7 +26,6 @@ export default async function ModulesPage() {
   return (
     <>
       <PageHeader title="Settings" />
-      <SettingsTabs current="/settings/modules" />
       <p className="mb-4 text-sm text-muted-foreground">Optional parts of MOSS. A module that is off does nothing, and agents can&apos;t use its tools.</p>
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
