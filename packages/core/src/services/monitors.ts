@@ -11,6 +11,7 @@ import {
   monitorSources,
   monitorStateChanges,
   networks,
+  settings,
   users,
   type Database,
   type MonitorConfig,
@@ -303,6 +304,12 @@ export async function claimDueMonitors(db: Database, limit = 50): Promise<string
 }
 
 /** Is a change on this asset being carried out right now? Outages it causes are expected. */
+async function quietNow(db: Pick<Database, "select">, orgId: string, now: Date): Promise<boolean> {
+  const [row] = await db.select({ value: settings.value }).from(settings).where(and(eq(settings.orgId, orgId), eq(settings.key, "monitoring.quiet_until")));
+  const until = typeof row?.value === "string" ? row.value : "";
+  return !!until && new Date(until).getTime() > now.getTime();
+}
+
 async function inMaintenance(db: Pick<Database, "select">, assetId: string): Promise<boolean> {
   const rows = await db
     .select({ id: changeRequests.id })
@@ -323,7 +330,8 @@ export async function recordMonitorResult(db: Database, monitorId: string, resul
     if (!m || !m.enabled) return null; // paused while the check was in flight
     const message = result.message.slice(0, 500);
     const t = nextState(m, result);
-    const suppressed = m.assetId ? await inMaintenance(tx, m.assetId) : false;
+    // Quiet during an approved change on its asset, or while maintenance mode is on (from Home Assistant).
+    const suppressed = (m.assetId ? await inMaintenance(tx, m.assetId) : false) || (await quietNow(tx, m.orgId, now));
 
     await tx.insert(monitorResults).values({ monitorId, at: now, ok: result.ok, degraded: !!result.degraded, latencyMs: result.latencyMs ?? null, message });
 

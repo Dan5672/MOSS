@@ -32,6 +32,22 @@ Features, each with its own switch:
   plug through a pre-approved standard change, once per incident.
 - Log review: a chosen agent reads the error log daily and raises incidents for anomalies.
 
+## MOSS in Home Assistant (the integration)
+A Home Assistant integration (custom_components/moss in the MOSS repository; also downloadable from Settings,
+Modules, Home Assistant) shows MOSS in Home Assistant. Set up: install it (HACS custom repository, or unzip
+into config/custom_components), make a token on the Home Assistant module page in MOSS, then add the MOSS
+integration in Home Assistant with MOSS's address and the token. A token acts as the person who made it.
+It gives: summary sensors, a sensor per agent, a binary sensor per monitor, event entities (incidents,
+monitors, changes, new devices, agents; also the moss_event bus event), a pause-all-agents switch, a
+maintenance mode select (monitors raise no incidents for 1, 2 or 4 hours), check-now and run-now buttons,
+the actions moss.raise_incident, moss.ask_agent and moss.acknowledge_incident, a calendar, an update
+entity and an Assist conversation agent (its agent is chosen in the integration's options). The Basement
+card is custom:moss-basement-card (compact: true for a strip).
+Home Assistant can't approve changes or reach secrets, tools, networks or settings. Resuming agents from
+Home Assistant is refused unless "Let Home Assistant resume agents" is ticked. Troubleshooting: "Invalid
+or revoked token" means make a new token; entities unavailable means Home Assistant can't reach MOSS's
+address (it must be reachable from Home Assistant, e.g. http://<MOSS host IP>:3000).
+
 ## Upgrades
 On the host: sh deploy/upgrade.sh (newest release) or sh deploy/upgrade.sh <version>. It backs up, builds
 while the old version keeps running, migrates in one transaction and health-checks.

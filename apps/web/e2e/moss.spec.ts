@@ -748,6 +748,42 @@ test("modules: Home Assistant is connected, tested, switched on, and fills in th
   await expect(page.getByText("Home Assistant module switched off")).toBeVisible();
 });
 
+test("MOSS in Home Assistant: a token for the integration, and the small, safe API it opens", async () => {
+  await page.goto("/settings/modules/home-assistant");
+  const section = page.locator("#integration");
+  await section.getByLabel("Token name").fill("Wall tablet");
+  await section.getByRole("button", { name: "Make a token" }).click();
+  const token = await section.getByLabel("New token").inputValue();
+  expect(token).toMatch(/^moss_ha_/);
+  await page.reload();
+  await expect(page.getByRole("list", { name: "Home Assistant tokens" })).toContainText("Wall tablet");
+  await expect(page.getByLabel("New token")).toHaveCount(0); // shown once
+
+  const api = (path: string, init: { method?: "GET" | "POST"; data?: unknown; auth?: string } = {}) =>
+    page.request.fetch(`/api/ha/v1/${path}`, { method: init.method ?? "GET", data: init.data, headers: { authorization: `Bearer ${init.auth ?? token}` } });
+  const state = await (await api("state")).json();
+  expect(state.summary).toMatchObject({ killSwitch: false, allowResume: false });
+  expect(state.agents.map((a: { name: string }) => a.name)).toContain("Nina");
+  expect(state.agents[0].picture).toMatch(/^data:image\/svg\+xml;base64,/);
+  expect(typeof (await (await api("events")).json()).cursor).toBe("number");
+  expect((await (await api("calendar")).json()).events).toBeInstanceOf(Array);
+  // Resuming agents is off unless the owner allows it; there's no endpoint for approving changes at all.
+  expect((await api("agents/resume", { method: "POST" })).status()).toBe(403);
+  expect((await api("changes/approve", { method: "POST" })).status()).toBe(404);
+  expect((await api("state", { auth: "moss_ha_wrong" })).status()).toBe(401);
+
+  // The integration itself, for installs without HACS.
+  const zip = await page.request.get("/api/integrations/home-assistant.zip");
+  expect(zip.headers()["content-type"]).toBe("application/zip");
+  expect((await zip.body()).includes(Buffer.from("moss/manifest.json"))).toBe(true);
+
+  // Revoking signs Home Assistant out.
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("list", { name: "Home Assistant tokens" }).getByRole("button", { name: "Revoke" }).click();
+  await expect(page.getByText("Token revoked")).toBeVisible();
+  expect((await api("state")).status()).toBe(401);
+});
+
 test("tables: columns sort by clicking their header, and the order is in the URL", async () => {
   await page.goto("/assets");
   const ip = page.getByRole("columnheader", { name: /^IP/ });

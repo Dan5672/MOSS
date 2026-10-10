@@ -1,4 +1,4 @@
-import { assets, assetServices, networks, type Database } from "@moss/db";
+import { assets, assetServices, events, networks, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -68,6 +68,15 @@ describe.skipIf(!TEST_DATABASE_URL)("asset and network services (postgres)", () 
     await db.update(assets).set({ name: "Office printer" }).where(eq(assets.id, a!.id));
     await ingestDiscoveredHosts(db, orgId, [{ ip: "192.168.9.40", hostnames: ["prn2.home.lan"] }], "agent:x");
     expect((await db.select().from(assets).where(eq(assets.id, a!.id)))[0]!.name).toBe("Office printer");
+  });
+
+  it("announces devices it has never seen (for Home Assistant), not ones it already knows", async () => {
+    const before = await db.select().from(events).where(eq(events.type, "asset.discovered"));
+    const { created } = await ingestDiscoveredHosts(db, orgId, [{ ip: "192.168.9.77", mac: "de:ad:be:ef:00:77" }, { ip: "192.168.1.11", mac: "aa:bb:cc:00:00:10" }], "agent:x");
+    const after = await db.select().from(events).where(eq(events.type, "asset.discovered"));
+    expect(created).toHaveLength(1);
+    expect(after.length - before.length).toBe(1);
+    expect(after.at(-1)!.payload).toEqual({ assetId: created[0] });
   });
 
   it("treats a different MAC on a known IP as a new device", async () => {

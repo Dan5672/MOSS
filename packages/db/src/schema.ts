@@ -842,6 +842,28 @@ export const secretGrants = pgTable(
   (t) => [primaryKey({ columns: [t.secretId, t.agentId] })],
 );
 
+/**
+ * Tokens other systems use to reach MOSS's API: today, the Home Assistant integration. Only the hash is
+ * kept. A token acts for the person who made it, and only through the integration's own small API.
+ */
+export const integrationTokens = pgTable(
+  "integration_tokens",
+  {
+    id: id(),
+    ...tenancy(),
+    kind: text("kind", { enum: ["home_assistant"] }).notNull(),
+    name: text("name").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    createdByUserId: uuid("created_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("integration_tokens_hash_idx").on(t.tokenHash)],
+);
+
 // ---------------------------------------------------------------------------
 // Platform: audit, notifications, settings
 // ---------------------------------------------------------------------------

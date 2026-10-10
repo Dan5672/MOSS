@@ -11,6 +11,10 @@ export const SETTING_DEFAULTS = {
   "tools.catalog_url": "" as string,
   /** vuln_scan's "cve" profile sends service names and versions to vulners.com, so it is off until allowed. */
   "tools.allow_vulners": false,
+  /** Until when (ISO time) monitors stay quiet: no new incidents. Set from Home Assistant's maintenance mode. */
+  "monitoring.quiet_until": "" as string,
+  /** Whether Home Assistant may resume agents (pausing them is always allowed). */
+  "homeassistant.allow_resume": false,
 } satisfies Record<string, unknown>;
 
 export type SettingKey = keyof typeof SETTING_DEFAULTS;

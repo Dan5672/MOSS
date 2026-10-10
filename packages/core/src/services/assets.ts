@@ -3,6 +3,7 @@ import { assets, assetServices, networks, type Database } from "@moss/db";
 import { contains, parseRange } from "@moss/policy";
 import { and, desc, eq, ilike, inArray, ne, or, sql, type SQL } from "drizzle-orm";
 import { writeAudit } from "../store/audit-store.js";
+import { emitEvent } from "./events.js";
 
 export interface DiscoveredPort {
   protocol: "tcp" | "udp";
@@ -124,6 +125,7 @@ export async function ingestDiscoveredHosts(
         .returning({ id: assets.id });
       assetId = row!.id;
       result.created.push(assetId);
+      await emitEvent(db, orgId, { type: "asset.discovered", payload: { assetId } });
     }
 
     for (const p of h.ports ?? []) {

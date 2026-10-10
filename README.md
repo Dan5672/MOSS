@@ -173,6 +173,37 @@ While the module is off, none of this runs and agents can't use any Home Assista
 is stored encrypted and can only be used against the address you gave. Apart from notifications and
 its own `moss_*` sensors, anything MOSS changes in your home still goes through change management.
 
+### MOSS in Home Assistant (the integration)
+
+The other direction: a Home Assistant integration (in `custom_components/moss`) that shows MOSS in
+your dashboards and automations.
+
+1. Install it. With HACS, add this repository as a custom repository (category Integration) and
+   install MOSS. Without HACS, download it from MOSS (Settings → Modules → Home Assistant) and unzip
+   it into Home Assistant's `config/custom_components`. Restart Home Assistant.
+2. In MOSS, make a token on the same page. It acts as you, so Home Assistant can never do more than
+   you can.
+3. In Home Assistant: Settings → Devices & services → Add integration → MOSS, with MOSS's address and
+   the token.
+
+| What | Entities |
+| --- | --- |
+| At a glance | Open incidents (and the highest priority), monitors down, changes waiting for approval, agents working, spend today and this month, open security incidents, last config backup |
+| Agents | One sensor per agent: working, on a break or paused, its current task, last run, runs and cost today, with its mascot as the picture |
+| Monitors | One binary sensor per monitor (on = a problem), with uptime and the last result |
+| Events | Incident opened or resolved, monitor down or recovered, change waiting for approval, **new device on the network**, agent finished a run or asked a question. Also fired on the bus as `moss_event` |
+| Controls | Pause all agents, maintenance mode (1, 2 or 4 hours with no monitoring incidents), check a monitor now, run a recurring task now |
+| Actions | `moss.raise_incident`, `moss.ask_agent` (returns the answer), `moss.acknowledge_incident` |
+| Also | A calendar of change windows and recurring tasks, an update entity for new MOSS releases, and an Assist agent so you can ask MOSS by voice |
+
+The **Basement card** comes with it: add a card of type `custom:moss-basement-card` to a dashboard
+for the Basement, live (agents at their desks or on a break, the responder's desk on fire when a
+monitor is down, tap an agent for what it's doing), or `compact: true` for a one-line strip.
+
+Nothing dangerous is reachable from Home Assistant: it can't approve changes or touch secrets,
+tools, networks or settings, and resuming paused agents is off unless you allow it. Revoking the
+token in MOSS signs Home Assistant out.
+
 ## Custom tools
 
 You can give agents your own HTTP tools under **Agents → Custom tools**. A custom tool is a definition,

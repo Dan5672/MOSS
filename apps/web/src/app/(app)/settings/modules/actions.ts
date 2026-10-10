@@ -2,6 +2,7 @@
 
 import {
   applyHomeAssistantDevices,
+  createIntegrationToken,
   createMonitorSource,
   HA_SELF_HEAL_AGENT_TOOLS,
   HA_SELF_HEAL_TEMPLATE,
@@ -10,9 +11,11 @@ import {
   HA_TOKEN_TOOLS,
   haConfigSchema,
   loadHomeAssistant,
+  revokeIntegrationToken,
   rotateMonitorSourceToken,
   saveModule,
   selfHealTemplate,
+  setSetting,
   updateModuleState,
   upsertStandardTemplate,
   writeAudit,
@@ -350,3 +353,37 @@ export async function saveHomeAssistantLogReviewAction(_: ActionState, form: For
 }
 
 export type { Feature };
+
+// --- The MOSS integration for Home Assistant: tokens it signs in with, and what it may do ---------------
+
+export type TokenCreated = (NonNullable<ActionState> & { token?: string }) | undefined;
+
+/** Makes a token for the Home Assistant integration. It's shown once; MOSS keeps only its hash. */
+export async function createHomeAssistantTokenAction(_: TokenCreated, form: FormData): Promise<TokenCreated> {
+  let token: string | undefined;
+  const state = await act(async () => {
+    const user = await requirePermission("integrations.manage");
+    const name = z.string().trim().max(60).parse(form.get("name") ?? "") || "Home Assistant";
+    ({ token } = await createIntegrationToken(db(), user.orgId, user.id, name));
+    return "Token made. Copy it now: it won't be shown again.";
+  });
+  return { ...state, token };
+}
+
+export async function revokeHomeAssistantTokenAction(tokenId: string, _: ActionState): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("integrations.manage");
+    await revokeIntegrationToken(db(), user.orgId, tokenId, user.id);
+    return "Token revoked: anything using it is signed out.";
+  });
+}
+
+export async function setHomeAssistantAllowResumeAction(_: ActionState, form: FormData): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("settings.manage");
+    const allow = on(form.get("allowResume"));
+    await setSetting(db(), user.orgId, "homeassistant.allow_resume", allow);
+    await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "setting.update", targetType: "setting", targetId: "homeassistant.allow_resume", details: { value: allow } });
+    return allow ? "Home Assistant may now resume agents." : "Home Assistant can pause agents but not resume them.";
+  });
+}

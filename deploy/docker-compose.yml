@@ -81,7 +81,7 @@ services:
   # write-only secrets API. Holds no master key.
   web:
     image: moss-web:${MOSS_VERSION:-dev}
-    build: { context: .., dockerfile: deploy/docker/web.Dockerfile }
+    build: { context: .., dockerfile: deploy/docker/web.Dockerfile, args: { MOSS_RELEASE: "${MOSS_RELEASE:-dev}" } }
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-moss}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-moss}

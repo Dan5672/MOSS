@@ -1,4 +1,4 @@
-import { HA_SELF_HEAL_AGENT_TOOLS, HA_TOKEN_SECRET } from "@moss/core";
+import { getSetting, HA_SELF_HEAL_AGENT_TOOLS, HA_TOKEN_SECRET, listIntegrationTokens } from "@moss/core";
 import { headers } from "next/headers";
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -9,19 +9,23 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { describeCron } from "@/lib/schedule";
 import { requireUser } from "@/server/auth";
+import { db } from "@/server/db";
 import { blockedByRole, homeAssistantPage } from "@/server/home-assistant";
 import {
+  revokeHomeAssistantTokenAction,
   saveHomeAssistantConnectionAction,
   saveHomeAssistantLogReviewAction,
   saveHomeAssistantNotifyAction,
   saveHomeAssistantSelfHealAction,
   saveHomeAssistantSimpleAction,
+  setHomeAssistantAllowResumeAction,
   setHomeAssistantEnabledAction,
   syncHomeAssistantInventoryAction,
   testHomeAssistantAction,
 } from "../actions";
 import { SettingsTabs } from "../../tabs";
 import { AlertsForm } from "./alerts-form";
+import { TokenForm } from "./token-form";
 
 export const metadata = { title: "Home Assistant" };
 
@@ -61,7 +65,12 @@ function RoleWarning({ agent, tools }: { agent: string; tools: string[] }) {
 export default async function HomeAssistantModulePage() {
   const user = await requireUser();
   if (!user.permissions.has("integrations.manage")) return <NoPermission />;
-  const [p, base] = await Promise.all([homeAssistantPage(user.orgId), baseUrl()]);
+  const [p, base, tokens, allowResume] = await Promise.all([
+    homeAssistantPage(user.orgId),
+    baseUrl(),
+    listIntegrationTokens(db(), user.orgId),
+    getSetting(db(), user.orgId, "homeassistant.allow_resume"),
+  ]);
   const c = p.config;
   const s = p.state;
   const agentOptions = p.agents.map((a) => ({ value: a.id, label: `${a.name} (${a.title})` }));
@@ -147,6 +156,53 @@ export default async function HomeAssistantModulePage() {
             </div>
           </CardContent>
         </Card>
+
+        <div className="lg:col-span-2">
+          <Feature
+            id="integration"
+            title="MOSS in Home Assistant"
+            on={tokens.length > 0}
+            description="The MOSS integration for Home Assistant: sensors for incidents, monitors, agents and spending, events for automations (like a new device joining the network), safe controls, Assist voice and the Basement card. It works whether or not this module is on."
+          >
+            <ol className="grid list-decimal gap-1.5 pl-5 text-sm">
+              <li>
+                Install the integration. With HACS: HACS, the three-dot menu, Custom repositories, add <code>https://github.com/Dan5672/MOSS</code> as an
+                Integration, then install MOSS. Without HACS:{" "}
+                <a href="/api/integrations/home-assistant.zip" className="underline underline-offset-2">
+                  download it
+                </a>{" "}
+                and unzip it into Home Assistant&apos;s <code>config/custom_components</code> folder. Restart Home Assistant.
+              </li>
+              <li>Make a token below. It acts as you, so Home Assistant can never do more than you can.</li>
+              <li>
+                In Home Assistant: Settings, Devices &amp; services, Add integration, MOSS. Enter <code>{c.mossUrl || base}</code> and the token.
+              </li>
+            </ol>
+            <TokenForm />
+            {tokens.length > 0 && (
+              <ul className="grid gap-2 text-sm" aria-label="Home Assistant tokens">
+                {tokens.map((t) => (
+                  <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 border-2 p-2">
+                    <span>
+                      <span className="font-medium">{t.name}</span> <span className="text-muted-foreground">made by {t.createdBy} {timeAgo(t.createdAt)}</span>
+                      <span className="block font-mono text-xs text-dim">{t.lastUsedAt ? `last used ${timeAgo(t.lastUsedAt)}` : "not used yet"}</span>
+                    </span>
+                    <ActionForm action={revokeHomeAssistantTokenAction.bind(null, t.id)} submitLabel="Revoke" submitVariant="outline" confirm={`Revoke ${t.name}? Home Assistant stops working until you give it a new token.`} />
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="grid gap-2 border-t-2 pt-4 text-sm">
+              <p>
+                Home Assistant can read MOSS, pause agents, put monitoring in maintenance mode, raise incidents, ask agents questions, check monitors and run
+                recurring tasks. It can never approve changes or touch secrets, tools, networks or settings.
+              </p>
+              <ActionForm action={setHomeAssistantAllowResumeAction} submitLabel="Save" submitVariant="outline">
+                <CheckboxField label="Let Home Assistant resume agents too (pausing is always allowed)" name="allowResume" defaultChecked={allowResume} />
+              </ActionForm>
+            </div>
+          </Feature>
+        </div>
 
         <div className="lg:col-span-2">
           <Feature

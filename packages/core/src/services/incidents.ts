@@ -186,6 +186,9 @@ export async function updateIncident(db: Database, orgId: string, incidentId: st
     if (reassigning && set.assignedAgentId && set.assignedAgentId !== incident.assignedAgentId) {
       await emitEvent(tx, orgId, { type: "incident.assigned", payload: { incidentId, agentId: set.assignedAgentId } });
     }
+    if ((set.status === "resolved" || set.status === "closed") && incident.status !== "resolved" && incident.status !== "closed") {
+      await emitEvent(tx, orgId, { type: "incident.resolved", payload: { incidentId } });
+    }
     return row!;
   });
   const { note: _, ...changes } = update;

@@ -1,0 +1,75 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to MOSS",
+        "description": "Make a token in MOSS (Settings, Modules, Home Assistant, MOSS in Home Assistant) and paste it here.",
+        "data": {
+          "url": "MOSS address",
+          "token": "Token",
+          "verify_ssl": "Verify the TLS certificate"
+        },
+        "data_description": {
+          "url": "How Home Assistant reaches MOSS, e.g. http://10.0.0.20:3000",
+          "token": "Starts with moss_ha_. It acts as the person who made it, and can't approve changes or change settings."
+        }
+      },
+      "reauth_confirm": {
+        "title": "New MOSS token",
+        "description": "The token was revoked or is no longer valid. Make a new one in MOSS and paste it here.",
+        "data": { "token": "Token" }
+      }
+    },
+    "error": {
+      "cannot_connect": "Can't reach MOSS at that address.",
+      "invalid_auth": "MOSS didn't accept that token."
+    },
+    "abort": {
+      "already_configured": "This MOSS is already set up.",
+      "reauth_successful": "Token updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "MOSS options",
+        "data": { "assist_agent": "Who answers in Assist" }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "agent_status": {
+        "state": { "working": "Working", "on_break": "On a break", "paused": "Paused" }
+      }
+    }
+  },
+  "services": {
+    "raise_incident": {
+      "name": "Raise incident",
+      "description": "Raise an incident in MOSS, optionally for an agent to work on.",
+      "fields": {
+        "title": { "name": "Title", "description": "What's wrong." },
+        "description": { "name": "Description", "description": "More detail." },
+        "priority": { "name": "Priority", "description": "P1 (critical) to P4 (low)." },
+        "type": { "name": "Type", "description": "break_fix, security or request." },
+        "agent": { "name": "Agent", "description": "The agent to give it to, by name." }
+      }
+    },
+    "ask_agent": {
+      "name": "Ask an agent",
+      "description": "Ask a MOSS agent a question and get its answer back.",
+      "fields": {
+        "agent": { "name": "Agent", "description": "The agent's name. Moss by default." },
+        "question": { "name": "Question", "description": "What to ask." }
+      }
+    },
+    "acknowledge_incident": {
+      "name": "Acknowledge incident",
+      "description": "Note on an incident that you've seen it.",
+      "fields": {
+        "incident_id": { "name": "Incident", "description": "The incident's id (in the Incident event's data)." }
+      }
+    }
+  }
+}

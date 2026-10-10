@@ -5,7 +5,7 @@
 //   - API providers: MOSS drives the model turn by turn (runApiLoop, below).
 //   - Claude subscription: the Claude Code CLI drives the model, and calls MOSS's tools through a
 //     local MCP server that runs the same execute() path (see claude-code.ts).
-import { agentToolGrants, effectivePermissions, getBudgetStatus, getSetting, ingestDiscoveredHosts, writeAudit, type DiscoveredHost } from "@moss/core";
+import { agentToolGrants, effectivePermissions, emitEvent, getBudgetStatus, getSetting, ingestDiscoveredHosts, writeAudit, type DiscoveredHost } from "@moss/core";
 import {
   agentRuns,
   agents,
@@ -242,6 +242,7 @@ async function prepareRun(deps: RunDeps, input: RunInput): Promise<PreparedRun |
 
   const finish = async (status: FinalStatus, summary: string): Promise<RunOutcome> => {
     await db.update(agentRuns).set({ status, summary: summary.slice(0, 4000), endedAt: now() }).where(eq(agentRuns.id, runId));
+    await emitEvent(db, orgId, { type: "run.finished", payload: { runId, agentId: agent.id, status } });
     return { runId, status, summary, steps: seq };
   };
 

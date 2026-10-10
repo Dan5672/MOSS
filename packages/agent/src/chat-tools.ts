@@ -2,7 +2,7 @@
 // been added to (chat_post). (Replying to a DM or a mention needs no
 // tool: a chat run's final message is posted as the reply.) What an agent posts is its own words, so it
 // never starts another agent's run: only people's messages do.
-import { openDm, postMessage } from "@moss/core";
+import { emitEvent, openDm, postMessage } from "@moss/core";
 import { agentRuns, agents, conversationMembers, conversationMessages, conversations, notifications, rolePermissions, userRoles, users } from "@moss/db";
 import { and, count, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -52,6 +52,7 @@ export const CHAT_TOOLS: PlatformTool[] = [
       const { messageId } = await postMessage(db, orgId, conversationId, { type: "agent", id: agentId }, `${question}${context}`);
       await db.update(conversationMessages).set({ runId }).where(eq(conversationMessages.id, messageId));
       const [me] = await db.select({ name: agents.name }).from(agents).where(eq(agents.id, agentId));
+      await emitEvent(db, orgId, { type: "agent.asked", payload: { agentId, conversationId, question: question.slice(0, 500) } });
       await db.insert(notifications).values({ orgId, userId, kind: "agent.question", title: `${me?.name ?? "An agent"} has a question for you`, body: question.slice(0, 500), link: `/chat/${conversationId}` });
       return { ok: true, sent: "Asked in a direct message. Finish this run now with a short summary saying what you're waiting for." };
     },

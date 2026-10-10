@@ -201,6 +201,8 @@ sh "$DEPLOY_DIR/init.sh" >&2
 
 save_images
 info "Building $new_version (MOSS keeps running meanwhile)"
+# The version the web image reports (to Home Assistant's update entity).
+export MOSS_RELEASE="$new_version"
 if ! dc build >&2; then
   switch_back
   restore_images || true

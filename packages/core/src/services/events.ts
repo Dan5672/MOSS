@@ -16,7 +16,14 @@ export type DomainEvent =
   | { type: "monitor.up"; payload: { monitorId: string; downSince: string } }
   /** A person commented on an incident or a change (agents' own comments don't emit these). */
   | { type: "incident.commented"; payload: { incidentId: string; commentId: string } }
-  | { type: "change.commented"; payload: { changeId: string; noteId: string } };
+  | { type: "change.commented"; payload: { changeId: string; noteId: string } }
+  | { type: "incident.resolved"; payload: { incidentId: string } }
+  /** Discovery found a device MOSS had never seen. */
+  | { type: "asset.discovered"; payload: { assetId: string } }
+  /** An agent's run ended (for Home Assistant's events; the worker doesn't act on it). */
+  | { type: "run.finished"; payload: { runId: string; agentId: string; status: string } }
+  /** An agent asked a person something and is waiting for the answer. */
+  | { type: "agent.asked"; payload: { agentId: string; conversationId: string; question: string } };
 
 /** Anything with insert(): the database or an open transaction. */
 type Writer = Pick<Database, "insert">;

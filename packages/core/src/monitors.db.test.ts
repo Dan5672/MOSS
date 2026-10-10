@@ -21,6 +21,7 @@ import {
   setMonitorEnabled,
 } from "./services/monitors.js";
 import { bootstrapOrg } from "./store/bootstrap.js";
+import { setSetting } from "./store/settings-store.js";
 
 describe.skipIf(!TEST_DATABASE_URL)("monitoring (postgres)", () => {
   let db: Database;
@@ -142,6 +143,17 @@ describe.skipIf(!TEST_DATABASE_URL)("monitoring (postgres)", () => {
     await db.update(changeRequests).set({ status: "succeeded" }).where(eq(changeRequests.id, cr!.id));
     await recordMonitorResult(db, m.id, fail);
     expect(await pendingEvents()).toEqual([{ type: "monitor.down", payload: { monitorId: m.id } }]);
+  });
+
+  it("maintenance mode (from Home Assistant) keeps monitors quiet, and an outage that outlasts it is raised", async () => {
+    const m = await newMonitor({ failureThreshold: 1, assetId: null });
+    await setSetting(db, orgId, "monitoring.quiet_until", new Date(Date.now() + 3_600_000).toISOString());
+    await recordMonitorResult(db, m.id, fail);
+    expect(await pendingEvents()).toEqual([]);
+    await setSetting(db, orgId, "monitoring.quiet_until", new Date(Date.now() - 1000).toISOString());
+    await recordMonitorResult(db, m.id, fail);
+    expect(await pendingEvents()).toEqual([{ type: "monitor.down", payload: { monitorId: m.id } }]);
+    await setSetting(db, orgId, "monitoring.quiet_until", "");
   });
 
   it("ignores results for paused monitors", async () => {
