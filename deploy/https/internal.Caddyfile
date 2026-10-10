@@ -1,5 +1,5 @@
 # HTTPS managed from MOSS (the default). Either MOSS's own certificate authority (Caddy creates a private
-# CA the first time it starts and issues certificates for the names and addresses in MOSS_HTTPS_HOSTS;
+# CA the first time it starts and issues certificates for the names and addresses in /tls/web/lan.caddy;
 # devices trust it once via /moss-ca.crt), or a certificate uploaded in Settings → HTTPS. Which one is in
 # /tls/web/tls.caddy, written by the web app; it restarts Caddy through the admin socket beside it, which
 # only the web app and Caddy can reach. Nothing is sent to the internet.
@@ -7,8 +7,9 @@
 	admin "unix//tls/web/admin.sock|0666"
 	https_port 8443
 	auto_https disable_redirects
-	# Clients connecting by IP address (https://192.168.1.20) send no server name; they get this one's certificate.
-	default_sni {$MOSS_HTTPS_DEFAULT_NAME:localhost}
+	# Clients connecting by IP address (https://192.168.1.20) send no server name; they get this one's certificate
+	# ("default_sni <address>", the first IP address in Settings → HTTPS → Addresses).
+	import /tls/web/sni.caddy
 	local_certs
 	skip_install_trust
 	pki {
@@ -24,7 +25,7 @@ import /etc/caddy/moss.caddy
 # its own site block, written by the web app. None by default.
 import /tls/web/sites/*.caddy
 
-{$MOSS_HTTPS_HOSTS:localhost} {
+(lan_site) {
 	import /tls/web/tls.caddy
 	# The CA certificate, for devices to trust once (it's public; it's what makes the padlock work).
 	handle /moss-ca.crt {
@@ -36,6 +37,10 @@ import /tls/web/sites/*.caddy
 	}
 	import moss
 }
+
+# The names and addresses MOSS answers to on your network (Settings → HTTPS): a site block written by the web
+# app that imports lan_site. The https service writes the first one from MOSS_HTTPS_HOSTS.
+import /tls/web/lan.caddy
 
 # Inside Docker only (not published): the CA certificate for MOSS's web app, which shows its fingerprint.
 http://:8080 {

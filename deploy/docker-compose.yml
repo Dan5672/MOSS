@@ -219,13 +219,14 @@ services:
     build: { context: .., dockerfile: deploy/docker/https.Dockerfile }
     profiles: [https]
     restart: unless-stopped
-    # /tls/web is shared with the web app (which writes the uploaded certificate and the choice of certificate);
-    # it starts out as "MOSS's own CA".
+    # /tls/web is shared with the web app (which writes the uploaded certificate, the choice of certificate and the
+    # names MOSS answers to); it starts out as "MOSS's own CA", for MOSS_HTTPS_HOSTS.
     command:
       - sh
       - -c
-      - mkdir -p /tls/web/sites && chmod 0777 /tls/web /tls/web/sites && { [ -f /tls/web/tls.caddy ] || echo "tls internal" > /tls/web/tls.caddy; } && exec caddy run --config "/etc/caddy/${MOSS_TLS:-internal}.Caddyfile" --adapter caddyfile
+      - mkdir -p /tls/web/sites && chmod 0777 /tls/web /tls/web/sites && { [ -f /tls/web/tls.caddy ] || echo "tls internal" > /tls/web/tls.caddy; } && { [ -f /tls/web/lan.caddy ] || printf '%s {\n\timport lan_site\n}\n' "$$MOSS_HTTPS_HOSTS" > /tls/web/lan.caddy; } && { [ -f /tls/web/sni.caddy ] || echo "default_sni $$MOSS_HTTPS_DEFAULT_NAME" > /tls/web/sni.caddy; } && exec caddy run --config "/etc/caddy/${MOSS_TLS:-internal}.Caddyfile" --adapter caddyfile
     environment:
+      # Only the starting list: after that, Settings → HTTPS → Addresses.
       MOSS_HTTPS_HOSTS: ${MOSS_HTTPS_HOSTS:-localhost}
       # The certificate for clients that connect by IP address (they send no name): usually the LAN IP.
       MOSS_HTTPS_DEFAULT_NAME: ${MOSS_HTTPS_DEFAULT_NAME:-localhost}

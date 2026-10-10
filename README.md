@@ -126,14 +126,26 @@ screen to create the owner account. Then:
 **Back up `deploy/secrets/master.key`.** Without it, stored secrets can't be decrypted, even from a
 database backup.
 
-### Reaching MOSS from other devices: HTTPS
+### Reaching MOSS from your other devices
 
-New installs serve MOSS over HTTPS to your whole network, using MOSS's own certificate authority:
-nothing to buy or expose. Each device trusts it once (Settings → HTTPS has the certificate, its
-fingerprint and per-device steps). To use your own certificate (Let's Encrypt, Tailscale, a company
-CA), put `cert.pem` and `key.pem` in `deploy/certs` and set `MOSS_TLS=files`. The names and
-addresses MOSS answers to are `MOSS_HTTPS_HOSTS` in `deploy/.env`. Without HTTPS
-(`COMPOSE_PROFILES` not set to `https`), MOSS only listens on `http://localhost:3000`.
+It works out of the box. `init.sh` sets MOSS up to serve HTTPS to your whole network, so any phone,
+tablet or computer at home can open the address it printed (for example https://192.168.1.20).
+There's no reverse proxy to set up and no ports to open on your router.
+
+- **The browser warning, once per device.** MOSS makes its own certificate, so nothing is bought or
+  exposed to the internet. Settings → HTTPS has the steps to trust it on Windows, macOS, iPhone and
+  Android, and the fingerprint to check.
+- **A different name or address?** Change them in Settings → HTTPS → Change addresses, for example
+  after your computer gets a new IP address or to add a name like `moss.lan`.
+- **A certificate every device already trusts?** If you own a domain on Cloudflare, Settings → HTTPS
+  → Use Let's Encrypt. You can also upload one you already have.
+- **From outside your home?** Use Tailscale: see [Getting started](docs/getting-started.md).
+  Don't forward a port to MOSS.
+- **Monitoring tools on other machines** (Uptime Kuma and others) send their webhooks to the same
+  HTTPS address.
+
+Prefer MOSS on this computer only? Remove `COMPOSE_PROFILES=https` from `deploy/.env` and restart. It
+then answers only at `http://localhost:3000`.
 
 ### Discovery on your LAN
 

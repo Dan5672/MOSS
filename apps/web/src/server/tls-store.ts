@@ -138,3 +138,51 @@ export async function setLetsEncrypt(next: { hostname: string; token?: string } 
   // Switched off: the token isn't needed any more.
   if (!next) await rm(CF_TOKEN, { force: true });
 }
+
+// --- The names and addresses MOSS answers to on the network ---------------------------------------
+// lan.caddy is the site block for them (it imports lan_site from internal.Caddyfile), and sni.caddy picks the
+// certificate for browsers that connect by IP address. The https service writes both the first time it starts,
+// from MOSS_HTTPS_HOSTS and MOSS_HTTPS_DEFAULT_NAME; after that they're changed here.
+const LAN = join(DIR, "lan.caddy");
+const SNI = join(DIR, "sni.caddy");
+const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+const HOSTNAME = /^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/;
+
+/** Whether this is something MOSS can answer to: localhost, an IPv4 address or a host name. */
+export function validHttpsHost(h: string): boolean {
+  return /^[\d.]+$/.test(h) ? IPV4.test(h) : HOSTNAME.test(h);
+}
+
+const parseHosts = (text: string) =>
+  text
+    .split(/[\s,]+/)
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+
+/** The names and addresses MOSS answers to over HTTPS. */
+export async function httpsHosts(): Promise<string[]> {
+  const site = await readOrNull(LAN);
+  const line = site?.match(/^([^#\n{]+)\{/m)?.[1];
+  return parseHosts(line ?? process.env.MOSS_HTTPS_HOSTS ?? "localhost");
+}
+
+/** Changes the names and addresses (already checked), putting the old files back if Caddy refuses. */
+export async function setHttpsHosts(hosts: string[]): Promise<void> {
+  const caddyfile = await readFile(CADDY_CONFIG, "utf8").catch(() => {
+    throw new Error("This install's HTTPS can't be managed from MOSS (the https service's config isn't shared with the web app).");
+  });
+  if ((await readOrNull(CHOICE)) === null) throw new Error("HTTPS isn't running, so there's nothing to change.");
+  const before = { lan: await readOrNull(LAN), sni: await readOrNull(SNI) };
+  const sni = hosts.find((h) => IPV4.test(h)) ?? hosts.find((h) => h !== "localhost") ?? "localhost";
+  try {
+    await writeAtomic(LAN, `${hosts.join(", ")} {\n\timport lan_site\n}\n`);
+    await writeAtomic(SNI, `default_sni ${sni}\n`);
+    await reloadCaddy(caddyfile);
+  } catch (err) {
+    if (before.lan !== null) await writeAtomic(LAN, before.lan);
+    else await rm(LAN, { force: true });
+    if (before.sni !== null) await writeAtomic(SNI, before.sni);
+    else await rm(SNI, { force: true });
+    throw new Error(`The HTTPS service didn't accept it, so nothing changed. (${err instanceof Error ? err.message : String(err)})`);
+  }
+}

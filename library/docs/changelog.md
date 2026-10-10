@@ -12,6 +12,8 @@ Newest first. After an upgrade, Moss posts the newest section in #general.
   (through an approved change, using an alias your own rule uses).
 - **UPS (Network UPS Tools)**: know the moment the power goes, and shut your home lab down in order
   before the battery runs out, with your approval each time or approved in advance.
+- **Change MOSS's addresses in Settings → HTTPS**: no more editing deploy/.env and restarting when your
+  computer's address changes.
 - **Settings → About**: the version running here, what's new, and a Check for updates button.
 - **Agent instructions on monitors**: tell the responding agent what a device is and what to check first.
 - **Cloudflare**: know the moment anything new is exposed to the internet through Cloudflare, tunnels

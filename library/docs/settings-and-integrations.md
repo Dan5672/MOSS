@@ -215,12 +215,12 @@ sh deploy/upgrade.sh <version> (it backs MOSS up first; sh deploy/upgrade.sh --r
 never updates itself. Agents can check too, with the moss_releases tool.
 
 ## HTTPS
-New installs serve MOSS over HTTPS to the whole network (deploy/.env: COMPOSE_PROFILES=https,
-MOSS_SECURE_COOKIES=true). MOSS_TLS=internal (default): MOSS's own certificate authority; each device
+New installs serve MOSS over HTTPS to the whole network (deploy/.env: COMPOSE_PROFILES=https): no reverse
+proxy or port forwarding, and the sign-in cookie is marked secure automatically. MOSS_TLS=internal (default): MOSS's own certificate authority; each device
 trusts it once by downloading /moss-ca.crt (Settings, HTTPS shows it, its SHA-256 fingerprint and steps for
 Windows, macOS, iOS, Android). With settings.manage you can upload your own certificate there instead (PEM:
 the full chain and an unencrypted key; a .pfx converts with openssl pkcs12 -nodes). It's checked first (key
-matches, in date, chain in order, covers at least one of MOSS_HTTPS_HOSTS; uncovered names and a missing
+matches, in date, chain in order, covers at least one of MOSS's addresses; uncovered names and a missing
 chain are warnings), then the https service switches to it without a restart. If the service refuses it,
 nothing changes. "Use MOSS's own certificate" switches back and deletes the uploaded key. Moss reminds
 everyone in #general 30 and 7 days before an uploaded certificate runs out. Backups include it.
@@ -228,12 +228,17 @@ Let's Encrypt (with Cloudflare): for a domain on Cloudflare, Settings > HTTPS > 
 public name (e.g. moss.example.com) and a Cloudflare API token ("Edit zone DNS", that zone only). The https
 service (Caddy with the caddy-dns/cloudflare module) proves ownership with a temporary DNS record, gets the
 certificate and renews it itself; nothing is opened to the internet. The name needs a DNS record pointing at
-MOSS's address (a private address is fine; not proxied). Only that name uses it: MOSS_HTTPS_HOSTS keep the
+MOSS's address (a private address is fine; not proxied). Only that name uses it: MOSS's other addresses keep the
 certificate above. The token is kept in the https service's shared folder, readable only by the web and https
 services. "Stop using Let's Encrypt" removes it and deletes the token.
 MOSS_TLS=files (older option): your own cert.pem (full chain) and key.pem in deploy/certs.
-MOSS_HTTPS_HOSTS lists the names and IPs the certificate covers; a browser warning about the name usually
-means the address used isn't in that list (add it and restart). The Home Assistant integration shows the
+Addresses (Settings > HTTPS > Change addresses, settings.manage): the names and IPv4 addresses MOSS answers
+to and its certificate covers, up to 20, changed without a restart (if the https service refuses them,
+nothing changes). Browsers that connect by IP address get the first IP's certificate. A browser warning
+about the name usually means the address used isn't in that list: add it there. MOSS_HTTPS_HOSTS in
+deploy/.env is only the starting list. Which ports MOSS listens on stays in deploy/.env (MOSS_HTTPS_PORT),
+since changing it from the web would mean giving the web app control of Docker. From outside the home,
+use Tailscale rather than forwarding a port. The Home Assistant integration shows the
 fingerprint at setup and then trusts MOSS's CA. Backups include the CA.
 
 ## Upgrades

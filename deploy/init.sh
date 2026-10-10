@@ -26,8 +26,8 @@ if [ ! -f .env ]; then
   {
     echo ""
     echo "# HTTPS (added by init.sh). Open https://<one of MOSS_HTTPS_HOSTS>; trust /moss-ca.crt once per device."
+    echo "# These are only the starting names and addresses: change them later in Settings → HTTPS."
     echo "COMPOSE_PROFILES=https"
-    echo "MOSS_SECURE_COOKIES=true"
     echo "MOSS_TLS=internal"
     echo "MOSS_HTTPS_HOSTS=$hosts"
     echo "MOSS_HTTPS_DEFAULT_NAME=${first:-localhost}"

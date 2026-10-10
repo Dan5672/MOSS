@@ -1417,6 +1417,22 @@ test("https: upload your own certificate (checked first), then go back to MOSS's
   await expect(page.getByText(/^Let's Encrypt is off, and the Cloudflare token has been deleted/)).toBeVisible();
   expect(existsSync(join(E2E_TLS_DIR, "sites", "letsencrypt.caddy"))).toBe(false);
   expect(existsSync(join(E2E_TLS_DIR, "cloudflare-token"))).toBe(false);
+
+  // The addresses MOSS answers to, changed here rather than in deploy/.env.
+  await expect(card.locator("#addresses")).toContainText("Other devices on your network open MOSS at https://moss.test, https://10.0.0.5.");
+  await card.getByRole("button", { name: "Change addresses" }).click();
+  const addresses = page.getByRole("dialog", { name: "Addresses MOSS answers to" });
+  await expect(addresses.getByLabel("Names and addresses")).toHaveValue("localhost\nmoss.test\n10.0.0.5");
+  await addresses.getByLabel("Names and addresses").fill("localhost\n10.0.0.300\nmoss lan");
+  await addresses.getByRole("button", { name: "Save addresses" }).click();
+  await expect(addresses.getByRole("alert")).toContainText("Not a name or IPv4 address: 10.0.0.300.");
+  await addresses.getByLabel("Names and addresses").fill("localhost\nMOSS.lan, 192.168.1.20\nmoss.lan");
+  await addresses.getByRole("button", { name: "Save addresses" }).click();
+  await expect(page.getByText("MOSS now answers to localhost, moss.lan, 192.168.1.20.")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(card.locator("#addresses")).toContainText("open MOSS at https://moss.lan, https://192.168.1.20.");
+  expect(readFileSync(join(E2E_TLS_DIR, "lan.caddy"), "utf8")).toBe("localhost, moss.lan, 192.168.1.20 {\n\timport lan_site\n}\n");
+  expect(readFileSync(join(E2E_TLS_DIR, "sni.caddy"), "utf8")).toBe("default_sni 192.168.1.20\n");
 });
 
 test("integrations: Cloudflare's public hostnames, new ones flagged until marked as expected", async () => {

@@ -70,8 +70,9 @@ one button. Moss reminds everyone 30 and 7 days before an uploaded certificate r
 You can also put `cert.pem` (the full chain) and `key.pem` in `deploy/certs/`, set
 `MOSS_TLS=files` in `deploy/.env` and restart MOSS. Renewals are then up to you.
 
-**Names and addresses.** MOSS's certificate covers the names in `MOSS_HTTPS_HOSTS` in
-`deploy/.env`. If you reach MOSS by another name or address, add it there and restart.
+**Names and addresses.** MOSS answers to, and its certificate covers, the names and addresses in
+**Settings → HTTPS → Change addresses**. If your computer's address changes, or you want a name like
+`moss.lan`, change them there: there's no restart, and no reverse proxy to set up.
 
 **Turning HTTPS off.** Remove `COMPOSE_PROFILES=https` from `deploy/.env`. MOSS then only answers
 on the machine itself, at `http://localhost:3000`.

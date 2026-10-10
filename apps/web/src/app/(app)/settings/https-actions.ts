@@ -6,7 +6,7 @@ import { z } from "zod";
 import { act, type ActionState } from "@/server/action";
 import { requirePermission } from "@/server/auth";
 import { db } from "@/server/db";
-import { setLetsEncrypt, switchCertificate } from "@/server/tls-store";
+import { httpsHosts, setHttpsHosts, setLetsEncrypt, switchCertificate, validHttpsHost } from "@/server/tls-store";
 
 const MAX_BYTES = 64 * 1024;
 
@@ -25,7 +25,7 @@ export async function uploadCertificateAction(_: ActionState, form: FormData): P
     const keyText = await fileText(form, "key", "private key");
     let checked;
     try {
-      checked = checkCertificate(certText, keyText, httpsHostList(process.env.MOSS_HTTPS_HOSTS ?? ""));
+      checked = checkCertificate(certText, keyText, httpsHostList((await httpsHosts()).join(",")));
     } catch (err) {
       if (err instanceof CertificateError) throw new Error(err.message);
       throw err;
@@ -94,5 +94,21 @@ export async function stopLetsEncryptAction(_: ActionState): Promise<ActionState
     await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "https.letsencrypt_off", targetType: "setting", targetId: "https.letsencrypt", details: {} });
     revalidatePath("/settings");
     return "Let's Encrypt is off, and the Cloudflare token has been deleted. MOSS's other addresses are unchanged.";
+  });
+}
+
+/** Changes the names and addresses MOSS answers to (one per line, or separated by commas). */
+export async function saveHttpsHostsAction(_: ActionState, form: FormData): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("settings.manage");
+    const hosts = [...new Set(String(form.get("hosts") ?? "").split(/[\s,]+/).map((h) => h.trim().toLowerCase()).filter(Boolean))];
+    if (!hosts.length) throw new Error("Enter at least one name or address.");
+    if (hosts.length > 20) throw new Error("At most 20 names and addresses.");
+    const bad = hosts.filter((h) => !validHttpsHost(h));
+    if (bad.length) throw new Error(`Not a name or IPv4 address: ${bad.join(", ")}.`);
+    await setHttpsHosts(hosts);
+    await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "https.hosts", targetType: "setting", targetId: "https.hosts", details: { hosts } });
+    revalidatePath("/settings");
+    return `MOSS now answers to ${hosts.join(", ")}.`;
   });
 }

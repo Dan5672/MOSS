@@ -1,24 +1,25 @@
 import { getSetting } from "@moss/core";
 import { headers } from "next/headers";
 import { ActionForm } from "@/components/action-form";
-import { TextField } from "@/components/field";
+import { TextAreaField, TextField } from "@/components/field";
 import { FormDialog } from "@/components/form-dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { db } from "@/server/db";
 import { httpsInfo } from "@/server/https-info";
-import { activeCertificate, letsEncryptHostname } from "@/server/tls-store";
-import { stopLetsEncryptAction, switchToOwnCaAction, uploadCertificateAction, useLetsEncryptAction } from "./https-actions";
+import { activeCertificate, httpsHosts, letsEncryptHostname } from "@/server/tls-store";
+import { saveHttpsHostsAction, stopLetsEncryptAction, switchToOwnCaAction, uploadCertificateAction, useLetsEncryptAction } from "./https-actions";
 
 /**
  * Whether this connection is HTTPS, how each device trusts MOSS's own certificate authority, and (for
  * people who manage settings) uploading a certificate of your own instead.
  */
 export async function HttpsCard({ orgId, canManage }: { orgId: string; canManage: boolean }) {
-  const [info, h, active, leHost, uploaded] = await Promise.all([
+  const [info, h, active, leHost, hosts, uploaded] = await Promise.all([
     httpsInfo(),
     headers(),
     activeCertificate(),
     letsEncryptHostname(),
+    httpsHosts(),
     getSetting(db(), orgId, "https.certificate") as Promise<{ subject?: string; notAfter?: string; fingerprint?: string }>,
   ]);
   const secure = (h.get("x-forwarded-proto") ?? "").split(",")[0]?.trim() === "https";
@@ -41,6 +42,46 @@ export async function HttpsCard({ orgId, canManage }: { orgId: string; canManage
           )}
         </CardDescription>
       </CardHeader>
+      {info.mode === "internal" && active && (
+        <CardContent className="grid gap-2 text-sm" id="addresses">
+          <p>
+            Other devices on your network open MOSS at{" "}
+            {hosts
+              .filter((x) => x !== "localhost")
+              .map((x, i) => (
+                <span key={x}>
+                  {i > 0 && ", "}
+                  <a href={`https://${x}`} className="font-mono underline underline-offset-2">
+                    https://{x}
+                  </a>
+                </span>
+              ))}
+            {hosts.every((x) => x === "localhost") && <strong>nowhere yet: add this computer&apos;s address</strong>}. Nothing else to set up: no
+            reverse proxy, no ports to forward. From outside your home, use Tailscale (see Settings → Integrations → Tailscale).
+          </p>
+          {canManage && (
+            <div>
+              <FormDialog
+                label="Change addresses"
+                variant="outline"
+                title="Addresses MOSS answers to"
+                description="The names and IPv4 addresses people and devices use to reach MOSS on your network. MOSS's own certificate covers each one; browsers that connect by IP address get the first IP's certificate."
+              >
+                <ActionForm action={saveHttpsHostsAction} submitLabel="Save addresses">
+                  <TextAreaField
+                    label="Names and addresses"
+                    name="hosts"
+                    rows={4}
+                    defaultValue={hosts.join("\n")}
+                    required
+                    hint="One per line, e.g. 192.168.1.20 and moss.lan. Keep localhost to use MOSS on this computer. If this computer's address changes, update it here."
+                  />
+                </ActionForm>
+              </FormDialog>
+            </div>
+          )}
+        </CardContent>
+      )}
       {info.mode === "internal" && active === "uploaded" && (
         <CardContent className="grid gap-3 text-sm">
           <p>MOSS uses a certificate you uploaded{uploaded.subject ? <> for <strong>{uploaded.subject}</strong></> : null}.</p>

@@ -128,7 +128,8 @@ export async function startSession(userId: string) {
   (await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: config.secureCookies(),
+    // Secure whenever the sign-in came over HTTPS (the https service says so), so nothing needs setting by hand.
+    secure: config.secureCookies() || h.get("x-forwarded-proto")?.split(",")[0]?.trim() === "https",
     path: "/",
     maxAge: SESSION_TTL_MS / 1000,
   });
