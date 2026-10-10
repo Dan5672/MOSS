@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 /** Sidebar items. `also` lists other sections an item covers (shown as its tabs), so it stays highlighted there. */
-const ITEMS: { href: string; label: string; also?: string[] }[] = [
+export const NAV_ITEMS: { href: string; label: string; also?: string[] }[] = [
   { href: "/", label: "Dashboard" },
   { href: "/basement", label: "Basement" },
   { href: "/chat", label: "Chat" },
@@ -31,7 +31,7 @@ export function Nav({ badges }: { badges: Record<string, number> }) {
   const pathname = usePathname();
   return (
     <nav aria-label="Main" className="grid gap-0.5">
-      {ITEMS.map(({ href, label, also = [] }) => {
+      {NAV_ITEMS.map(({ href, label, also = [] }) => {
         const under = (h: string) => pathname === h || pathname.startsWith(`${h}/`);
         const active = href === "/" ? pathname === "/" : under(href) || also.some(under);
         const count = badges[href];

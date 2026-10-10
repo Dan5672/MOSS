@@ -16,6 +16,7 @@ import {
   syncBuiltInSkills,
   ensureCoreSkills,
   welcomeFromMoss,
+  announceWhatsNew,
   type ClaudeCodeConfig,
   type GateClient,
   type ProviderFactory,
@@ -242,6 +243,7 @@ export async function startWorker(cfg: WorkerConfig) {
 
   const lib = cfg.libraryDir ? await loadLibrary(cfg.libraryDir) : null;
   const welcome = cfg.libraryDir ? await readFile(join(cfg.libraryDir, "docs", "welcome.md"), "utf8").catch(() => null) : null;
+  const changelog = cfg.libraryDir ? await readFile(join(cfg.libraryDir, "docs", "changelog.md"), "utf8").catch(() => null) : null;
   if (lib) {
     for (const org of await db.select({ id: orgs.id }).from(orgs)) {
       await syncBuiltInSkills(db, org.id, lib.skills.values());
@@ -300,6 +302,11 @@ export async function startWorker(cfg: WorkerConfig) {
         if (welcome) {
           const n = await welcomeFromMoss(db, org.id, welcome);
           if (n) log("Moss welcomed", { orgId: org.id, people: n });
+        }
+        // After an upgrade, Moss says what's new in #general (once per version).
+        if (changelog) {
+          const v = await announceWhatsNew(db, org.id, changelog);
+          if (v) log("Moss announced what's new", { orgId: org.id, version: v });
         }
       }
       const res = await syncSchedules(db, boss);

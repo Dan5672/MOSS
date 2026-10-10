@@ -60,16 +60,20 @@ export function searchDocs(sections: DocSection[], query: string, limit = 5): Do
   const lower = sections.map((s) => ({ title: `${s.doc} ${s.section}`.toLowerCase(), body: s.text.toLowerCase() }));
   // Inverse document frequency: a word in every section says little; one in a single section says a lot.
   const weight = new Map(words.map((w) => [w, Math.log((sections.length + 1) / (lower.filter((l) => l.title.includes(w) || l.body.includes(w)).length + 1)) + 0.1]));
-  return sections
+  const ranked = sections
     .map((s, i) => {
       const { title, body } = lower[i]!;
       const score = words.reduce((n, w) => n + weight.get(w)! * ((title.includes(w) ? 2 : 0) + (body.includes(w) ? 1 : 0)), 0);
-      return { s, score };
+      return { s, score, generated: s.doc.startsWith("Reference") };
     })
     .filter((x) => x.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map((x) => x.s);
+    .sort((a, b) => b.score - a.score);
+  // Written explanations first, then the generated reference's facts (a tool's or skill's own entry), which
+  // always keep up to two places so a question about one tool still finds it.
+  const written = ranked.filter((x) => !x.generated);
+  const generated = ranked.filter((x) => x.generated);
+  const keep = Math.min(2, generated.length);
+  return [...written.slice(0, limit - keep), ...generated.slice(0, limit - Math.min(limit - keep, written.length))].slice(0, limit).map((x) => x.s);
 }
 
 const CONFIG_SECTIONS = ["settings", "modules", "agents", "monitoring", "denials", "health"] as const;

@@ -349,6 +349,16 @@ is offered under both an open-source and a commercial license.
 
 Please report security problems privately rather than in a public issue.
 
+**Keeping Moss's knowledge current.** Moss (the agent that explains MOSS) answers from
+`library/docs`, which ships with each version. When you change what people see or what MOSS does:
+
+- update the relevant page in `library/docs`;
+- run `corepack pnpm gen:reference` to regenerate `library/docs/reference.md` from the code
+  (settings, tools, skills, templates, roles). A test fails if it's out of date, and another fails
+  if a page, tab or integration isn't mentioned in the docs;
+- add a line to the top section of `library/docs/changelog.md`. After an upgrade, Moss posts that
+  section in #general.
+
 ## License
 
 MOSS is open core under the [GNU AGPL v3.0](LICENSE). A commercial license is available for

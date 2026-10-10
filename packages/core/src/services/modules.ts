@@ -7,6 +7,8 @@ import type { Actor } from "./assets.js";
 
 export const MODULE_KEYS = ["home_assistant"] as const;
 export type ModuleKey = (typeof MODULE_KEYS)[number];
+/** What each integration is called on screen (and in Moss's docs, which a test checks). */
+export const MODULE_NAMES: Record<ModuleKey, string> = { home_assistant: "Home Assistant" };
 
 /** The module a built-in tool belongs to: its tools only work while the module is on. */
 export function moduleForTool(tool: string): ModuleKey | null {

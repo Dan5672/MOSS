@@ -1,7 +1,7 @@
 // Moss: hired automatically once there's a model, can't be fired, answers from the docs and the config,
 // and other agents consult it with ask_moss.
 import { bootstrapOrg, getConversation, listConversations, writeAudit } from "@moss/core";
-import { agents, agentSkills, models, providers, skills, users, type Database } from "@moss/db";
+import { agents, agentSkills, models, orgs, providers, skills, users, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { eq } from "drizzle-orm";
 import { readFile } from "node:fs/promises";
@@ -12,6 +12,7 @@ import { ensureMoss, fireAgent, MOSS_TEMPLATE } from "./lifecycle.js";
 import { loadDocs, searchDocs } from "./moss-tools.js";
 import { PLATFORM_TOOL_MAP } from "./platform-tools.js";
 import { welcomeFromMoss } from "./welcome.js";
+import { announceWhatsNew, latestChanges } from "./whats-new.js";
 
 const LIBRARY_DIR = fileURLToPath(new URL("../../../library", import.meta.url));
 
@@ -22,6 +23,9 @@ describe("MOSS docs", () => {
     const [top] = searchDocs(docs, "what does secret_scope mean");
     expect(top!.section).toBe("Denial codes");
     expect(searchDocs(docs, "UniFi local account")[0]!.text).toMatch(/Restrict to local access only/);
+    // The generated reference answers questions about one tool or setting, behind the written docs.
+    expect(searchDocs(docs, "what does nmap_scan do").map((s) => s.section)).toContain("Tool nmap_scan");
+    expect(searchDocs(docs, "allow_vulners setting").some((s) => s.text.includes("tools.allow_vulners"))).toBe(true);
   });
 });
 
@@ -90,5 +94,19 @@ describe.skipIf(!TEST_DATABASE_URL)("Moss (postgres)", () => {
     // A person added later gets it too.
     await db.insert(users).values({ orgId, email: "sam@h.test", displayName: "Sam Smith" });
     expect(await welcomeFromMoss(db, orgId, template)).toBe(1);
+  });
+
+  it("announces what's new in #general once per version, but not on a brand-new install", async () => {
+    const log = ["# What's new", "", "## 0.3.0", "- Dashboards you can arrange.", "", "## 0.2.0", "- Older.", ""].join("\n");
+    expect(latestChanges(log)).toEqual({ version: "0.3.0", body: "- Dashboards you can arrange." });
+    expect(await announceWhatsNew(db, orgId, log)).toBeNull(); // the org was made today
+    await db.update(orgs).set({ createdAt: new Date(Date.now() - 7 * 86_400_000) }).where(eq(orgs.id, orgId));
+    expect(await announceWhatsNew(db, orgId, log)).toBeNull(); // already noted for this version
+    const next = log.replace("## 0.3.0", ["## 0.4.0", "- Charts.", "", "## 0.3.0"].join("\n"));
+    expect(await announceWhatsNew(db, orgId, next)).toBe("0.4.0");
+    const general = (await listConversations(db, orgId, ownerId)).find((c) => c.title === "#general")!;
+    const msgs = (await getConversation(db, orgId, general.id, ownerId)).messages;
+    expect(msgs.at(-1)!.body).toBe(["**What's new in MOSS 0.4.0**", "", "- Charts.", "", "Ask me about any of it."].join("\n"));
+    expect(await announceWhatsNew(db, orgId, next)).toBeNull();
   });
 });

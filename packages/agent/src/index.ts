@@ -12,3 +12,5 @@ export * from "./queue.js";
 export * from "./claude-code.js";
 export * from "./mcp-server.js";
 export * from "./welcome.js";
+export * from "./whats-new.js";
+export * from "./reference.js";
