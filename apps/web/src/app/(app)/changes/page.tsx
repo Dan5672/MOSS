@@ -116,7 +116,23 @@ export default async function ChangesPage({ searchParams }: PageProps<"/changes"
         </nav>
       </div>
       {board ? (
-        <ChangesBoard rows={unsorted} name={name} />
+        <ChangesBoard
+          canApprove={user.permissions.has("changes.approve")}
+          cards={unsorted
+            // Finished changes stay on the board for 30 days.
+            .filter((c) => !["succeeded", "failed", "rolled_back", "rejected", "cancelled"].includes(c.status) || c.updatedAt.getTime() >= Date.now() - 30 * 86_400_000)
+            .map((c) => ({
+              id: c.id,
+              ref: changeRef(c.number),
+              title: c.title,
+              status: c.status,
+              risk: c.risk,
+              type: c.type,
+              requester: name(c.requestedByAgentId ?? c.requestedByUserId),
+              updated: timeAgo(c.updatedAt),
+              postReviewRequired: c.postReviewRequired,
+            }))}
+        />
       ) : rows.length === 0 ? (
         <Empty>{view === "pending" ? "Nothing waiting for approval." : "No changes here."}</Empty>
       ) : (

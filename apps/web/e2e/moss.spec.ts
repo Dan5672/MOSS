@@ -631,7 +631,23 @@ test("changes: a person raises one by hand, it's approved, and they record the r
   const waiting = page.getByRole("listitem", { name: /^Waiting for approval/ });
   await expect(waiting.getByText("Wake the media PC")).toBeVisible();
   await expect(page.getByRole("listitem", { name: /^Done/ }).getByText("Replace the garage switch")).toBeVisible();
-  await waiting.getByRole("link", { name: /Tidy the cupboard cables/ }).click();
+
+  // Dragging a change to Approved approves it (after confirming); Reject asks for a reason.
+  const approved = page.getByRole("listitem", { name: /^Approved/ });
+  await waiting.getByRole("link", { name: /Tidy the cupboard cables/ }).dragTo(approved);
+  const confirm = page.getByRole("dialog", { name: /^Approve CR-\d+\?/ });
+  await confirm.getByRole("button", { name: "Approve" }).click();
+  await expect(confirm).toHaveCount(0);
+  await expect(approved.getByText("Tidy the cupboard cables")).toBeVisible();
+  const wake = waiting.locator("div[draggable]").filter({ hasText: "Wake the media PC" });
+  await wake.getByRole("button", { name: /^Reject CR-/ }).click();
+  const reject = page.getByRole("dialog", { name: /^Reject CR-\d+\?/ });
+  await expect(reject.getByLabel("Reason")).toHaveAttribute("required", ""); // a reason is required
+  await reject.getByLabel("Reason").fill("Not needed this week.");
+  await reject.getByRole("button", { name: "Reject" }).click();
+  await expect(page.getByRole("listitem", { name: /^Closed without running/ }).getByText("Wake the media PC")).toBeVisible();
+
+  await approved.getByRole("link", { name: /Tidy the cupboard cables/ }).click();
   await expect(page.getByRole("heading", { name: /CR-\d+: Tidy the cupboard cables/ })).toBeVisible();
   await page.goto("/changes?view=all");
   await page.getByRole("link", { name: /^CR-\d+$/ }).first().click();
