@@ -62,6 +62,19 @@ export async function hostReboot(t: SshTarget & { delayMinutes: number }, ssh: S
   };
 }
 
+/** Schedules a clean power-off (for an orderly shutdown in a power cut), a minute or more ahead. */
+export async function hostShutdown(t: SshTarget & { delayMinutes: number }, ssh: SshRun = sshRun) {
+  const res = await run(t, `sudo -n shutdown -h +${Math.trunc(t.delayMinutes)} 'Shutdown by an approved MOSS change'`, ssh);
+  if (res.code !== 0) throw sudoHint(res.stderr, "shutdown") ?? new ServerError(`shutdown failed: ${clean(res.stderr) ?? `exit ${res.code}`}`);
+  return {
+    target: t.target,
+    scheduled: true,
+    inMinutes: t.delayMinutes,
+    note: "The server will power off shortly and stay off until it's switched on again.",
+    ...pinNote(t, res.hostKeySha256),
+  };
+}
+
 // --- Home Assistant ------------------------------------------------------------------------------
 
 async function haState(send: RawRequest, a: Base & { token: string }, entity: string) {

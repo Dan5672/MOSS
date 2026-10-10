@@ -7,6 +7,7 @@ import { configBackup, type BackupArgs } from "./backups.js";
 import { customHttp, sendRequest, type RawRequest } from "./custom-http.js";
 import { homeassistantDevices, homeassistantHealth, homeassistantLogs, homeassistantNotify, homeassistantPublish } from "./home-assistant.js";
 import { dockerApiContainers } from "./docker-api.js";
+import { nutStatus } from "./nut.js";
 import { opnsenseBlock, opnsenseStatus, pfsenseBlock, pfsenseStatus } from "./firewalls.js";
 import { adguardClients, adguardStats, HomelabError, homeassistantStates, pbsStatus, piholeClients, piholeSummary, proxmoxInventory, proxmoxStatus, synologyStatus, truenasStatus } from "./homelab.js";
 import { unifiAuthMode, unifiClientsByLogin, unifiFirewall } from "./unifi.js";
@@ -276,6 +277,9 @@ async function runToolInner(
       if (name === "opnsense_block") return opnsenseBlock(a, send);
       return pfsenseBlock(a, send);
     }
+    case "nut_status":
+      assertHost(args.target as string);
+      return nutStatus(args as never);
     case "docker_api_containers":
       assertHost(args.target as string);
       return dockerApiContainers(args as never, send);
@@ -331,11 +335,13 @@ async function runToolInner(
     // Write tools: the gate only sends these as a step of an approved change request.
     case "service_restart":
     case "container_restart":
-    case "host_reboot": {
+    case "host_reboot":
+    case "host_shutdown": {
       assertHost(args.target as string);
       const t = args as never;
       if (name === "service_restart") return actions.serviceRestart(t, ssh);
       if (name === "container_restart") return actions.containerRestart(t, ssh);
+      if (name === "host_shutdown") return actions.hostShutdown(t, ssh);
       return actions.hostReboot(t, ssh);
     }
     case "homeassistant_switch":

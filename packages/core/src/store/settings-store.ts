@@ -25,6 +25,10 @@ export const SETTING_DEFAULTS = {
   "backups.schedule": {} as Record<string, unknown>,
   /** When the last scheduled MOSS backup was started (ISO time), or when the schedule was saved. */
   "backups.last_scheduled": "" as string,
+  /** The UPS shutdown plan (integrations/ups-shutdown.ts); empty means off. */
+  "ups.shutdown_plan": {} as Record<string, unknown>,
+  /** The shutdown in progress, if any (its change). */
+  "ups.shutdown_run": {} as Record<string, unknown>,
 } satisfies Record<string, unknown>;
 
 export type SettingKey = keyof typeof SETTING_DEFAULTS;
@@ -64,4 +68,7 @@ export const SETTING_DESCRIPTIONS = {
   "backups.schedule":
     "Scheduled MOSS backups (Settings → Backups): off, daily or weekly at an hour in the install's time zone, and how many archives to keep (10 by default). Archives go to deploy/backups on the host, the same as deploy/backup.sh makes.",
   "backups.last_scheduled": "When the last scheduled MOSS backup started (or the schedule was saved), so each slot runs once.",
+  "ups.shutdown_plan":
+    "The UPS shutdown plan (Settings > Integrations > UPS): what to switch off, in order, when a UPS on battery runs low; who carries it out; and whether it asks for approval each time or was approved in advance with a two-factor code.",
+  "ups.shutdown_run": "The shutdown MOSS raised in the current power cut, so it isn't raised twice and can be cancelled if the power comes back.",
 } satisfies Record<SettingKey, string>;

@@ -43,6 +43,6 @@ export async function applyFeatureRun(
   }
   if (out.alerts?.length) await reportIntegrationHealth(db, orgId, def, c, state, out.alerts, now);
   const summary = res.ok ? (out.summary ?? (parts.join("; ") || "OK")) : res.error.slice(0, 300);
-  await updateModuleState(db, orgId, def.key, { runs: { ...state.runs, [feature.key]: { at: now.toISOString(), ok: res.ok, summary } } } satisfies IntegrationState);
+  await updateModuleState(db, orgId, def.key, { ...(out.state ?? {}), runs: { ...state.runs, [feature.key]: { at: now.toISOString(), ok: res.ok, summary } } } satisfies IntegrationState);
   return { ok: res.ok, summary };
 }

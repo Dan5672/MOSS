@@ -20,6 +20,8 @@ Stored per install; most are switched on the Settings page.
 | tools.allow_dangerous | false | Permits tools marked dangerous, such as factory resets, still only through approved changes. Off by default. |
 | tools.allow_vulners | false | Allows vuln_scan's cve profile, which sends service names and versions to vulners.com. Off by default. |
 | tools.catalog_url | "" | An optional remote tools catalog (an https URL of its index). Empty means only the bundled catalog. |
+| ups.shutdown_plan | {} | The UPS shutdown plan (Settings > Integrations > UPS): what to switch off, in order, when a UPS on battery runs low; who carries it out; and whether it asks for approval each time or was approved in advance with a two-factor code. |
+| ups.shutdown_run | {} | The shutdown MOSS raised in the current power cut, so it isn't raised twice and can be cancelled if the power comes back. |
 
 ## Tool adguard_clients
 A network tool (read), run by the toolbox through the policy gate. List AdGuard Home's clients: the ones set up by hand (with their addresses and MACs) and the ones it found itself, with their names.
@@ -97,6 +99,10 @@ Granted by: Server Actions, Server Checks.
 A network tool (changes things: only through an approved change), run by the toolbox through the policy gate. Schedule a reboot of a Linux server over SSH (sudo -n shutdown -r), a minute or more ahead so the session ends cleanly. Needs passwordless sudo for shutdown. Only runs as part of an approved change.
 Granted by: Server Actions.
 
+## Tool host_shutdown
+A network tool (changes things: only through an approved change), run by the toolbox through the policy gate. Schedule a clean power-off of a Linux server over SSH (sudo -n shutdown -h), a minute or more ahead, for example in a power cut. It stays off until someone switches it on. Needs passwordless sudo for shutdown. Only runs as part of an approved change.
+Granted by: Server Actions.
+
 ## Tool http_probe
 A network tool (read), run by the toolbox through the policy gate. Make one HTTP(S) request to a host and report the status code, latency and whether an optional keyword appears in the first 256 KB of the body. Does not follow redirects. Use hostHeader for virtual hosts (also used as TLS SNI).
 Granted by: Monitoring Response, Service Health Checks.
@@ -112,6 +118,10 @@ Granted by: Network Discovery, Security Baseline Review, Service Health Checks.
 ## Tool nuclei_scan
 A network tool (read), run by the toolbox through the policy gate. Check one host with Nuclei's community templates for known vulnerabilities, misconfigurations, exposed admin panels and default pages. Only non-intrusive templates run (no denial-of-service, fuzzing, brute force or default-login attempts), rate-limited, with no out-of-band callbacks. Ports default to 80 and 443.
 Granted by: Vulnerability Scanning.
+
+## Tool nut_status
+A network tool (read), run by the toolbox through the policy gate. Read the UPSes on a Network UPS Tools server (upsd): status (on mains, on battery, low battery, battery needs replacing), charge, runtime left, load and input voltage.
+Granted by: Server Actions.
 
 ## Tool opnsense_block
 A network tool (changes things: only through an approved change), run by the toolbox through the policy gate. Block or unblock a device on OPNsense by adding or removing its address in the moss_blocked alias (the owner's own block rule uses it; MOSS never edits rules). Only runs as part of an approved change.
@@ -423,7 +433,7 @@ Tools: nmap_scan, unifi_firewall, inventory_search, inventory_update.
 
 ## Skill Server Actions
 Added per agent. Key server-actions. Restart services and containers, reboot a Linux server, or snapshot and power Proxmox guests, as steps of an approved change request.
-Tools: service_restart, container_restart, host_reboot, proxmox_snapshot, proxmox_guest_power, service_status, docker_ps, host_facts, proxmox_status.
+Tools: service_restart, container_restart, host_reboot, host_shutdown, proxmox_snapshot, proxmox_guest_power, nut_status, service_status, docker_ps, host_facts, proxmox_status.
 
 ## Skill Server Checks
 Added per agent. Key server-checks. Check Linux servers over SSH - OS and load, disk space, systemd services and Docker containers - with fixed, read-only commands.

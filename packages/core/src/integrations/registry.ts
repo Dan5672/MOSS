@@ -3,10 +3,11 @@
 import { ADGUARD, PIHOLE } from "./dns-filters.js";
 import { DOCKER } from "./docker.js";
 import { OPNSENSE, PFSENSE } from "./firewalls.js";
+import { NUT } from "./nut.js";
 import { PROXMOX, PROXMOX_BACKUP } from "./proxmox.js";
 import type { IntegrationDef } from "./types.js";
 
-export const INTEGRATIONS: IntegrationDef[] = [PROXMOX, PROXMOX_BACKUP, DOCKER, OPNSENSE, PFSENSE, PIHOLE, ADGUARD];
+export const INTEGRATIONS: IntegrationDef[] = [PROXMOX, PROXMOX_BACKUP, DOCKER, OPNSENSE, PFSENSE, NUT, PIHOLE, ADGUARD];
 
 export function getIntegration(key: string): IntegrationDef | null {
   return INTEGRATIONS.find((d) => d.key === key) ?? null;

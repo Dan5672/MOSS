@@ -29,6 +29,8 @@ export interface FeatureOutput {
   alerts?: ParsedAlert[];
   /** A one-line summary for the integration's page. */
   summary?: string;
+  /** Kept in the integration's state for other checks to read (the UPS readings, for the shutdown plan). */
+  state?: Record<string, unknown>;
 }
 
 export interface IntegrationFeature {

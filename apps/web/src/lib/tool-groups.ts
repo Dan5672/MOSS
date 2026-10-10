@@ -6,7 +6,7 @@ export const TOOL_GROUPS = [
   { key: "probes", label: "Probes and monitoring", tools: ["ping", "dns_lookup", "tcp_connect", "http_probe", "tls_inspect"] },
   { key: "unifi", label: "UniFi", tools: ["unifi_clients", "unifi_firewall", "unifi_client_block", "unifi_dhcp_reservation", "unifi_wlan_enable"] },
   { key: "firewalls", label: "OPNsense and pfSense", tools: ["opnsense_status", "opnsense_block", "pfsense_status", "pfsense_block"] },
-  { key: "servers", label: "Servers (SSH)", tools: ["host_facts", "disk_usage", "service_status", "docker_ps", "service_restart", "container_restart", "host_reboot"] },
+  { key: "servers", label: "Servers (SSH)", tools: ["host_facts", "disk_usage", "service_status", "docker_ps", "service_restart", "container_restart", "host_reboot", "host_shutdown"] },
   { key: "homelab", label: "Home lab apps", tools: ["docker_api_containers", "proxmox_status", "proxmox_inventory", "pbs_status", "proxmox_snapshot", "proxmox_guest_power", "truenas_status", "synology_status"] },
   {
     key: "dns",
@@ -18,7 +18,7 @@ export const TOOL_GROUPS = [
     label: "Home Assistant",
     tools: ["homeassistant_states", "homeassistant_health", "homeassistant_logs", "homeassistant_devices", "homeassistant_switch", "homeassistant_power_cycle"],
   },
-  { key: "power", label: "Power", tools: ["wake_on_lan"] },
+  { key: "power", label: "Power", tools: ["wake_on_lan", "nut_status"] },
   { key: "backups", label: "Backups", tools: ["config_backup"] },
   { key: "vuln", label: "Vulnerability scanning", tools: ["vuln_scan", "nuclei_scan", "tls_audit"] },
 ] as const;

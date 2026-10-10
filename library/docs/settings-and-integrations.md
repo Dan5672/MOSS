@@ -137,6 +137,23 @@ Settings > Integrations > pfSense. pfSense has no API of its own: install the pf
 checks and device names as OPNsense, and pfsense_block for the moss_blocked alias (it applies the change).
 Agent tools: pfsense_status, pfsense_block.
 
+## The UPS (Network UPS Tools) integration
+Settings > Integrations > UPS (Network UPS Tools). Connection: the machine running upsd (the NUT server
+the UPS is plugged into, or a NAS sharing its UPS over NUT), port 3493; it must allow MOSS's address
+(LISTEN in upsd.conf). A upsd user and password only if it needs one (secret:nut-password). UPS checks (every
+minute): a monitor per UPS, down on battery or low battery (raising an incident) and degraded when the
+battery needs replacing, with charge, runtime left, load and input voltage as readings.
+Shutdown plan (on the same page): an ordered list of steps (Proxmox VMs and containers, shut down through
+the Proxmox VE integration's connection; Linux servers, powered off over SSH with a stored key and
+passwordless sudo for shutdown), an agent to carry it out (it's granted the plan's tools and secrets), and
+the minutes left at which to act (10 by default, or when the UPS reports a low battery). How it runs:
+"Ask for approval each time" raises the plan as a normal change, so approvers get it (with Approve and
+Reject buttons in Telegram or Discord); "Approved in advance" is approved once by someone who can approve
+changes, with a fresh two-factor code, as a standard change, so MOSS raises it already approved. Changing
+the steps withdraws the approval. If the power comes back before the plan finishes, MOSS cancels the
+change. Changing the plan needs integrations.manage and secrets.manage. Agent tools: nut_status, and the
+change-gated host_shutdown.
+
 ## The Pi-hole integration
 Settings > Integrations > Pi-hole (v6 or newer). Connection: its address, port (80) and http/https, and an
 app password (Pi-hole: Settings > Web interface / API > Configure app password), stored as

@@ -1112,6 +1112,49 @@ test("two-factor: enrol, then sign in with a code", async () => {
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
 });
 
+test("integrations: the UPS shutdown plan, asked each time or approved in advance with a code", async () => {
+  // A key for the NAS only, so the agent the plan names can't use it anywhere else.
+  const db = createDb(E2E_DATABASE_URL);
+  const [owner] = await db.select().from(users).where(eq(users.email, OWNER.email));
+  const keyId = randomUUID();
+  await db.insert(secrets).values({ id: keyId, orgId: owner!.orgId, name: "nas-ssh-key", type: "ssh_key", allowedHosts: ["192.168.50.10"], allowedTools: ["host_shutdown"], ...encryptSecret(parseMasterKey(Buffer.from(E2E_MASTER_KEY_HEX)), keyId, "-----BEGIN OPENSSH PRIVATE KEY-----") });
+  await page.goto("/settings/integrations/nut");
+  const plan = page.locator("#shutdown-plan");
+  await expect(plan).toContainText("No steps yet.");
+  await plan.getByRole("button", { name: "Add a Linux server" }).click();
+  const add = page.getByRole("dialog", { name: "Add a Linux server" });
+  await add.getByLabel("Name").fill("NAS");
+  await add.getByLabel("Address").fill("192.168.50.10");
+  await add.getByLabel("Sign in as").fill("moss");
+  await add.locator('select[name="secret"]').selectOption("nas-ssh-key");
+  await add.getByRole("button", { name: "Add step" }).click();
+  await expect(page.getByText("Added NAS.")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(plan.getByRole("list", { name: "Shutdown steps" })).toContainText("moss@192.168.50.10");
+
+  await plan.locator('select[name="mode"]').selectOption("ask");
+  await plan.getByRole("button", { name: "Save plan settings" }).click();
+  await expect(page.getByText("Choose the agent that carries the plan out.")).toBeVisible();
+  await plan.locator('select[name="agentId"]').selectOption({ label: "Nina (Network Admin)" });
+  await plan.getByRole("button", { name: "Save plan settings" }).click();
+  await expect(page.getByText("Saved.", { exact: true })).toBeVisible();
+  await expect(plan).toContainText("Asks each time");
+
+  await page.reload();
+  await plan.locator('select[name="mode"]').selectOption("auto");
+  await plan.getByRole("button", { name: "Save plan settings" }).click();
+  await expect(page.getByText("Saved. Approve the plan below so it can run without asking.")).toBeVisible();
+  await page.reload();
+  await plan.getByLabel("Authenticator code").fill("000000");
+  await plan.getByRole("button", { name: "Approve this plan in advance" }).click();
+  await expect(page.getByText("That code didn't match.")).toBeVisible();
+  await plan.getByLabel("Authenticator code").fill(totpCode(ownerTotpSecret));
+  await plan.getByRole("button", { name: "Approve this plan in advance" }).click();
+  await expect(page.getByText("Approved. In a power cut, MOSS will run the plan without asking.")).toBeVisible();
+  await page.reload();
+  await expect(plan).toContainText("Approved in advance on");
+});
+
 test("users: a viewer can look but not approve or manage", async () => {
   await page.goto("/users");
   await page.getByRole("button", { name: "Add a person" }).click();

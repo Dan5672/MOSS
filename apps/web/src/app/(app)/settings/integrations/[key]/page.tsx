@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/server/auth";
 import { integrationOrNull, integrationPage } from "@/server/integrations";
+import { UpsPlanCard } from "./ups-plan";
 import { saveIntegrationConnectionAction, saveIntegrationFeaturesAction, setIntegrationEnabledAction, syncIntegrationFeatureAction, testIntegrationAction } from "./actions";
 
 /** One integration's settings: its connection and credential, its features, and how each last ran. */
@@ -80,7 +81,7 @@ export default async function IntegrationSettingsPage({ params }: PageProps<"/se
                     ]}
                   />
                 )}
-                {def.connection.user && <TextField label={def.connection.user.label} name="user" defaultValue={c.user} required />}
+                {def.connection.user && <TextField label={def.connection.user.label} name="user" defaultValue={c.user} required={!cred?.optional} />}
               </div>
               {multi && (
                 <TextAreaField
@@ -192,6 +193,8 @@ export default async function IntegrationSettingsPage({ params }: PageProps<"/se
             )}
           </CardContent>
         </Card>
+
+        {def.key === "nut" && <UpsPlanCard orgId={user.orgId} agents={p.agents} canApprove={user.permissions.has("changes.approve")} />}
 
         {def.agentTools.length > 0 && (
           <Card className="lg:col-span-2">

@@ -311,6 +311,19 @@ export const pfsenseStatus = tool(
   z.object(pfsenseApi),
 );
 
+export const nutStatus = tool(
+  { name: "nut_status", class: "read", targetArgs: ["target"], secretArgs: ["password"] },
+  "Read the UPSes on a Network UPS Tools server (upsd): status (on mains, on battery, low battery, battery needs replacing), " +
+    "charge, runtime left, load and input voltage.",
+  z.object({
+    target: hostIp,
+    port: port.default(3493),
+    user: z.string().min(1).max(64).optional().describe("A upsd user, if it requires one"),
+    password: secretHandle.optional().describe("That user's password stored as a secret"),
+    timeoutMs,
+  }),
+);
+
 export const proxmoxInventory = tool(
   { name: "proxmox_inventory", class: "read", targetArgs: ["target"], secretArgs: ["token"] },
   "List a Proxmox VE cluster's nodes (with their addresses) and every VM and container with its MAC addresses, the addresses " +
@@ -552,6 +565,13 @@ export const hostReboot = tool(
   z.object({ ...sshArgs, delayMinutes: z.number().int().min(1).max(60).default(1) }),
 );
 
+export const hostShutdown = tool(
+  { name: "host_shutdown", class: "write", targetArgs: ["target"], secretArgs: ["key"] },
+  "Schedule a clean power-off of a Linux server over SSH (sudo -n shutdown -h), a minute or more ahead, for example in a power " +
+    "cut. It stays off until someone switches it on. Needs passwordless sudo for shutdown. Only runs as part of an approved change.",
+  z.object({ ...sshArgs, delayMinutes: z.number().int().min(1).max(60).default(1) }),
+);
+
 export const homeassistantSwitch = tool(
   { name: "homeassistant_switch", class: "write", targetArgs: ["target"], secretArgs: ["token"] },
   "Turn a Home Assistant switch, light, fan or input_boolean on or off (or toggle it), then report its new state. Only runs " +
@@ -751,6 +771,7 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     proxmoxStatus,
     proxmoxInventory,
     dockerApiContainers,
+    nutStatus,
     opnsenseStatus,
     pfsenseStatus,
     pbsStatus,
@@ -767,6 +788,7 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     serviceRestart,
     containerRestart,
     hostReboot,
+    hostShutdown,
     homeassistantSwitch,
     homeassistantPowerCycle,
     proxmoxSnapshot,

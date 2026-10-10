@@ -1,6 +1,6 @@
 // The integrations' background features (health checks, inventory syncs), each on its own schedule. The calls
 // themselves go through the gate, which reads the config and holds the credentials.
-import { applyFeatureRun, featureDue, INTEGRATIONS, integrationConfigured, loadIntegration, orgsWithModule, type IntegrationState, type OpResult } from "@moss/core";
+import { applyFeatureRun, featureDue, INTEGRATIONS, integrationConfigured, loadIntegration, orgsWithModule, upsShutdownTick, type IntegrationState, type OpResult } from "@moss/core";
 import type { Database } from "@moss/db";
 
 export type IntegrationCaller = (orgId: string, key: string, op: string) => Promise<OpResult>;
@@ -42,6 +42,15 @@ export async function runIntegrationsTick(db: Database, call: IntegrationCaller,
           opts.log?.(`${def.name} ${f.label.toLowerCase()} failed`, { orgId, error: (err as Error).message });
         }
       }
+    }
+  }
+  // The UPS shutdown plan, after the UPS readings are in.
+  for (const orgId of await orgsWithModule(db, "nut")) {
+    try {
+      const did = await upsShutdownTick(db, orgId, now);
+      if (did) opts.log?.(`UPS: ${did}`, { orgId });
+    } catch (err) {
+      opts.log?.("UPS shutdown plan failed", { orgId, error: (err as Error).message });
     }
   }
 }
