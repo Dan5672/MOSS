@@ -12,6 +12,8 @@ Newest first. After an upgrade, Moss posts the newest section in #general.
   (through an approved change, using an alias your own rule uses).
 - **UPS (Network UPS Tools)**: know the moment the power goes, and shut your home lab down in order
   before the battery runs out, with your approval each time or approved in advance.
+- **Tailscale**: your servers on the tailnet and their node keys watched, devices in the inventory, and
+  MOSS reachable from anywhere at https://moss.<tailnet>.ts.net.
 - **Proxmox VE and Proxmox Backup Server**: nodes, storage and the VMs that should be running are watched,
   every VM and container joins the inventory under its node, and you hear when a guest hasn't been
   backed up. Agents can snapshot a VM before changing it.

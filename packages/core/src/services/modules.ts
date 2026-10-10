@@ -19,7 +19,10 @@ export const MODULE_NAMES: Record<ModuleKey, string> = {
 
 /** The module a built-in tool belongs to: its tools only work while the module is on. */
 export function moduleForTool(tool: string): ModuleKey | null {
-  return tool.startsWith("homeassistant_") ? "home_assistant" : null;
+  if (tool.startsWith("homeassistant_")) return "home_assistant";
+  // A cloud integration's tools reach out to that service: only while the owner has it switched on.
+  const cloud = INTEGRATIONS.find((d) => d.connection.cloud && (d.tools ?? d.credential?.tools ?? []).includes(tool));
+  return cloud?.key ?? null;
 }
 
 export interface ModuleRow {

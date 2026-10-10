@@ -154,6 +154,19 @@ the steps withdraws the approval. If the power comes back before the plan finish
 change. Changing the plan needs integrations.manage and secrets.manage. Agent tools: nut_status, and the
 change-gated host_shutdown.
 
+## The Tailscale integration
+Settings > Integrations > Tailscale (a cloud service: MOSS reads api.tailscale.com). Credential: an API
+access token (admin console: Settings > Keys > Generate access token, tskey-api-...), stored as
+secret:tailscale-api-key; tokens last up to 90 days, and the Tailscale monitor goes down when one stops
+working. Device and key checks (every 10 minutes): a monitor per tagged device (your servers), down when
+offline (untagged phones and laptops come and go and aren't watched), and a "Tailscale node keys" monitor,
+degraded when a key expires within 14 days and down once one has expired. Tailnet devices in the inventory
+(every 6 hours): matched to assets by the local addresses Tailscale sees for them, with their Tailscale
+address and tags. Agent tool: tailscale_devices, usable only while the integration is on.
+Reaching MOSS over Tailscale (separate from the integration): add tailscale to COMPOSE_PROFILES in
+deploy/.env and set MOSS_TAILSCALE_AUTHKEY to an auth key; a sidecar joins the tailnet as "moss" and serves
+https://moss.<tailnet>.ts.net with a real certificate, with no ports opened.
+
 ## The Pi-hole integration
 Settings > Integrations > Pi-hole (v6 or newer). Connection: its address, port (80) and http/https, and an
 app password (Pi-hole: Settings > Web interface / API > Configure app password), stored as

@@ -324,6 +324,38 @@ export const nutStatus = tool(
   }),
 );
 
+// --- Cloud services ---------------------------------------------------------------------------
+// The toolbox calls each service's own fixed address; these tools only work while their integration is on.
+
+export const tailscaleDevices = tool(
+  { name: "tailscale_devices", class: "read", targetArgs: [], secretArgs: ["apiKey"] },
+  "List the devices on the Tailscale tailnet: name, OS, Tailscale and local addresses, whether online, key expiry and updates. " +
+    "Calls api.tailscale.com.",
+  z.object({
+    apiKey: secretHandle.describe("A Tailscale API access token stored as a secret"),
+    tailnet: z
+      .string()
+      .regex(/^[A-Za-z0-9.@_-]{1,100}$/)
+      .default("-")
+      .describe("The tailnet; - is the token's own"),
+    timeoutMs,
+  }),
+);
+
+const cloudflareToken = secretHandle.describe("A Cloudflare API token stored as a secret");
+
+export const cloudflareDns = tool(
+  { name: "cloudflare_dns", class: "read", targetArgs: [], secretArgs: ["apiToken"] },
+  "List the Cloudflare zones the token can see, and each zone's DNS records (type, name, content, proxied). Calls api.cloudflare.com.",
+  z.object({ apiToken: cloudflareToken, timeoutMs }),
+);
+
+export const cloudflareTunnels = tool(
+  { name: "cloudflare_tunnels", class: "read", targetArgs: [], secretArgs: ["apiToken"] },
+  "List the Cloudflare Tunnels, their status and connections, and the public hostnames each serves. Calls api.cloudflare.com.",
+  z.object({ apiToken: cloudflareToken, timeoutMs }),
+);
+
 export const proxmoxInventory = tool(
   { name: "proxmox_inventory", class: "read", targetArgs: ["target"], secretArgs: ["token"] },
   "List a Proxmox VE cluster's nodes (with their addresses) and every VM and container with its MAC addresses, the addresses " +
@@ -647,6 +679,23 @@ export const pfsenseBlock = tool(
   z.object({ ...pfsenseApi, ...blockArgs }).strict(),
 );
 
+export const cloudflareDnsRecord = tool(
+  { name: "cloudflare_dns_record", class: "write", targetArgs: [], secretArgs: ["apiToken"] },
+  "Create, update or delete one DNS record in a Cloudflare zone. Only runs as part of an approved change.",
+  z
+    .object({
+      apiToken: cloudflareToken,
+      zone: dnsName.describe("The zone, e.g. example.com"),
+      action: z.enum(["upsert", "delete"]),
+      type: z.enum(["A", "AAAA", "CNAME", "TXT"]),
+      name: dnsName.describe("The full record name, e.g. moss.example.com"),
+      content: z.string().min(1).max(500).optional(),
+      proxied: z.boolean().default(false),
+      timeoutMs,
+    })
+    .strict(),
+);
+
 export const piholeDomainRule = tool(
   { name: "pihole_domain_rule", class: "write", targetArgs: ["target"], secretArgs: ["password"] },
   "Add or remove an exact domain on Pi-hole's (v6) deny or allow list. Only runs as part of an approved change.",
@@ -771,6 +820,9 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     proxmoxStatus,
     proxmoxInventory,
     dockerApiContainers,
+    tailscaleDevices,
+    cloudflareDns,
+    cloudflareTunnels,
     nutStatus,
     opnsenseStatus,
     pfsenseStatus,
@@ -792,6 +844,7 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     homeassistantSwitch,
     homeassistantPowerCycle,
     proxmoxSnapshot,
+    cloudflareDnsRecord,
     opnsenseBlock,
     pfsenseBlock,
     proxmoxGuestPower,

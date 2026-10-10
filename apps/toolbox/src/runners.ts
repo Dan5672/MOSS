@@ -6,6 +6,7 @@ import * as actions from "./actions.js";
 import { configBackup, type BackupArgs } from "./backups.js";
 import { customHttp, sendRequest, type RawRequest } from "./custom-http.js";
 import { homeassistantDevices, homeassistantHealth, homeassistantLogs, homeassistantNotify, homeassistantPublish } from "./home-assistant.js";
+import { cloudflareDns, cloudflareDnsRecord, cloudflareTunnels, tailscaleDevices } from "./cloud.js";
 import { dockerApiContainers } from "./docker-api.js";
 import { nutStatus } from "./nut.js";
 import { opnsenseBlock, opnsenseStatus, pfsenseBlock, pfsenseStatus } from "./firewalls.js";
@@ -280,6 +281,15 @@ async function runToolInner(
     case "nut_status":
       assertHost(args.target as string);
       return nutStatus(args as never);
+    // Cloud services: no target; each calls its service's own address.
+    case "tailscale_devices":
+      return tailscaleDevices(args as never);
+    case "cloudflare_dns":
+      return cloudflareDns(args as never);
+    case "cloudflare_tunnels":
+      return cloudflareTunnels(args as never);
+    case "cloudflare_dns_record":
+      return cloudflareDnsRecord(args as never);
     case "docker_api_containers":
       assertHost(args.target as string);
       return dockerApiContainers(args as never, send);

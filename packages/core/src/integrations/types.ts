@@ -63,6 +63,11 @@ export interface IntegrationDef {
     defaultPort: number;
     /** Offer http/https. */
     scheme?: { default: "http" | "https" };
+    /**
+     * A cloud service (Tailscale, Cloudflare): no address to set, the toolbox calls the service's own fixed address,
+     * and its tools only work for agents while the integration is on.
+     */
+    cloud?: true;
     /** It's plain HTTP or its own protocol: no certificate to check. */
     tls?: false;
     /** A user name as well as the credential (AdGuard Home). */

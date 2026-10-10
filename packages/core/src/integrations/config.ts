@@ -52,6 +52,7 @@ export async function loadIntegration(db: Pick<Database, "select">, orgId: strin
 
 /** The connection arguments every one of its tools takes. The credential is a handle; only the gate resolves it. */
 export function integrationArgs(def: IntegrationDef, c: IntegrationConfig, at?: { host: string; port: number }): Record<string, unknown> {
+  if (def.connection.cloud) return def.credential ? { [def.credential.arg]: `secret:${def.credential.secretName}` } : {};
   const host = at?.host ?? c.host;
   if (!host) throw new Error(`Set ${def.name}'s address first`);
   return {
@@ -66,6 +67,7 @@ export function integrationArgs(def: IntegrationDef, c: IntegrationConfig, at?: 
 
 /** Whether it has somewhere to connect to: its address, or at least one of its hosts. */
 export function integrationConfigured(def: IntegrationDef, c: IntegrationConfig): boolean {
+  if (def.connection.cloud) return true;
   return def.connection.multipleHosts ? c.hosts.length > 0 : !!c.host;
 }
 

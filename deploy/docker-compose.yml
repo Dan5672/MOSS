@@ -156,6 +156,28 @@ services:
       migrate: { condition: service_completed_successfully }
       gate: { condition: service_started }
 
+  # Reach MOSS from anywhere over Tailscale, with a real certificate and no open ports: it joins your tailnet as
+  # "moss" (MOSS_TAILSCALE_HOSTNAME) and serves https://moss.<tailnet>.ts.net. Enable with the tailscale profile
+  # (COMPOSE_PROFILES=https,tailscale) and an auth key in MOSS_TAILSCALE_AUTHKEY.
+  tailscale:
+    image: tailscale/tailscale:stable
+    profiles: [tailscale]
+    restart: unless-stopped
+    hostname: ${MOSS_TAILSCALE_HOSTNAME:-moss}
+    environment:
+      TS_AUTHKEY: ${MOSS_TAILSCALE_AUTHKEY:-}
+      TS_HOSTNAME: ${MOSS_TAILSCALE_HOSTNAME:-moss}
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SERVE_CONFIG: /config/serve.json
+      TS_USERSPACE: "true"
+    volumes:
+      - tailscale_state:/var/lib/tailscale
+      - ./tailscale:/config:ro
+    networks: [backend, egress]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on: [web]
+
   # MOSS backups from the web: the same archives as deploy/backup.sh, into deploy/backups. It reads the
   # secrets and .env (to put them in the archive) and hands archives out only encrypted with a passphrase.
   # Root inside the container, with just the capabilities to read those files and give archives to the
@@ -247,3 +269,5 @@ volumes:
   caddy_config:
   # A certificate uploaded in Settings → HTTPS, and which certificate Caddy uses.
   tls:
+  # The Tailscale sidecar's identity on your tailnet.
+  tailscale_state:

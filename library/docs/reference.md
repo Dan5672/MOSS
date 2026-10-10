@@ -43,6 +43,18 @@ Granted by: Home & DNS Actions, Home Lab Integrations.
 A network tool (read), run by the toolbox through the policy gate. Discover devices on a directly attached IPv4 subnet using ARP. Returns IP, MAC and NIC vendor. Only works for subnets the toolbox is directly connected to.
 Granted by: Network Discovery.
 
+## Tool cloudflare_dns
+A network tool (read), run by the toolbox through the policy gate. List the Cloudflare zones the token can see, and each zone's DNS records (type, name, content, proxied). Calls api.cloudflare.com.
+Granted by: no skill (grant it on Agents → Tool access).
+
+## Tool cloudflare_dns_record
+A network tool (changes things: only through an approved change), run by the toolbox through the policy gate. Create, update or delete one DNS record in a Cloudflare zone. Only runs as part of an approved change.
+Granted by: no skill (grant it on Agents → Tool access).
+
+## Tool cloudflare_tunnels
+A network tool (read), run by the toolbox through the policy gate. List the Cloudflare Tunnels, their status and connections, and the public hostnames each serves. Calls api.cloudflare.com.
+Granted by: no skill (grant it on Agents → Tool access).
+
 ## Tool config_backup
 A network tool (read), run by the toolbox through the policy gate. Back up a device's configuration into MOSS, encrypted. Sources: 'ssh_file' copies one config file over SSH (under /etc, /opt, /srv, /usr/local/etc, /var/lib or a home directory; at most 512 KB); 'pihole' downloads a Pi-hole (v6) Teleporter export. You get back the backup's id, size and SHA-256, never its contents. Take one before changing a device's config.
 Granted by: Config Backups.
@@ -193,6 +205,10 @@ Granted by: Network Insight.
 
 ## Tool synology_status
 A network tool (read), run by the toolbox through the policy gate. Read a Synology NAS (DSM): model, version and temperature, each volume's status and use, and each disk's health.
+Granted by: Home Lab Integrations.
+
+## Tool tailscale_devices
+A network tool (read), run by the toolbox through the policy gate. List the devices on the Tailscale tailnet: name, OS, Tailscale and local addresses, whether online, key expiry and updates. Calls api.tailscale.com.
 Granted by: Home Lab Integrations.
 
 ## Tool tcp_connect
@@ -401,7 +417,7 @@ Tools: homeassistant_health, homeassistant_logs, homeassistant_states, homeassis
 
 ## Skill Home Lab Integrations
 Added per agent. Key homelab-integrations. Read Proxmox (and its Backup Server), TrueNAS, Synology, Home Assistant, Pi-hole and AdGuard Home through their own APIs.
-Tools: opnsense_status, pfsense_status, docker_api_containers, proxmox_status, proxmox_inventory, pbs_status, truenas_status, synology_status, homeassistant_states, pihole_summary, pihole_clients, adguard_stats, adguard_clients, inventory_search.
+Tools: tailscale_devices, opnsense_status, pfsense_status, docker_api_containers, proxmox_status, proxmox_inventory, pbs_status, truenas_status, synology_status, homeassistant_states, pihole_summary, pihole_clients, adguard_stats, adguard_clients, inventory_search.
 
 ## Skill Incident Management
 Core: built into every agent (except Moss). Key incident-management. Raise, work and resolve incidents.

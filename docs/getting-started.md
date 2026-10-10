@@ -222,6 +222,10 @@ reading, never changing, and only from an address in an allowed network:
   account in Settings → General. Risky changes still have to be approved in MOSS itself.
 - **Proxmox VE and Proxmox Backup Server**: nodes, storage and VMs watched, every VM and container in
   the inventory, and a warning when a guest hasn't been backed up.
+- **Tailscale**: servers on your tailnet watched, node keys about to expire flagged, and devices in the
+  inventory. To reach MOSS itself from anywhere over Tailscale, add `tailscale` to `COMPOSE_PROFILES`
+  in `deploy/.env` and set `MOSS_TAILSCALE_AUTHKEY` to an auth key from the Tailscale admin console:
+  MOSS appears at `https://moss.<your-tailnet>.ts.net`, with a real certificate and no open ports.
 - **Pi-hole and AdGuard Home**: a warning when blocking is switched off, graphs of your DNS, and device
   names for the inventory.
 

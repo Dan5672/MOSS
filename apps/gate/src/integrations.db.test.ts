@@ -1,6 +1,6 @@
 // The gate's integration calls (Pi-hole as the example), against Postgres with a fake toolbox.
 import { bootstrapOrg, encryptSecret, generateMasterKey, saveModule } from "@moss/core";
-import { auditLog, networks, secrets, type Database } from "@moss/db";
+import { agents, agentToolOverrides, auditLog, models, networks, providers, secretGrants, secrets, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { desc, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -91,5 +91,21 @@ describe.skipIf(!TEST_DATABASE_URL)("integration calls (gate)", () => {
     });
     expect(calls).toEqual([{ tool: "docker_api_containers", args: { target: "192.168.1.20", port: 2375, timeoutMs: 10000, checkUpdates: false } }]);
     expect(await gate.integration({ orgId, key: "docker", op: "health" })).toEqual({ ok: false, error: "Health checks is switched off" });
+  });
+
+  it("lets agents use a cloud integration's tools only while it's on", async () => {
+    const [provider] = await db.insert(providers).values({ orgId, kind: "ollama", name: "Local" }).returning();
+    const [model] = await db.insert(models).values({ orgId, providerId: provider!.id, modelId: "m", displayName: "M" }).returning();
+    const [agent] = await db.insert(agents).values({ orgId, name: "Tess", title: "Network Admin", systemPrompt: "x", modelId: model!.id }).returning();
+    const keyId = randomUUID();
+    await db.insert(secrets).values({ id: keyId, orgId, name: "tailscale-api-key", type: "api_token", allowedTools: ["tailscale_devices"], ...encryptSecret(masterKey, keyId, "tskey-api-abc") });
+    await db.insert(agentToolOverrides).values({ agentId: agent!.id, tool: "tailscale_devices", granted: true });
+    await db.insert(secretGrants).values({ secretId: keyId, agentId: agent!.id });
+    const ask = () => gate.handleToolCall({ agentId: agent!.id, tool: "tailscale_devices", args: { apiKey: "secret:tailscale-api-key" } });
+    expect(await ask()).toMatchObject({ allowed: false, code: "module_disabled" });
+    await saveModule(db, orgId, "tailscale", { enabled: true, config: {} }, { type: "user", id: ownerId });
+    reply = { ok: true, result: { devices: [] } };
+    expect(await ask()).toMatchObject({ allowed: true, ok: true });
+    expect(calls.at(-1)).toEqual({ tool: "tailscale_devices", args: { apiKey: "tskey-api-abc", tailnet: "-", timeoutMs: 10000 } });
   });
 });

@@ -88,6 +88,17 @@ export async function saveIntegrationConnectionAction(key: string, _: ActionStat
       await save(user, def, { ...config, hosts, port });
       return `Saved ${hosts.length} host${hosts.length === 1 ? "" : "s"}.`;
     }
+    // A cloud service: only its credential (usable with its tools, from anywhere it calls).
+    if (def.connection.cloud) {
+      if (!def.credential) throw new Error("Nothing to set up.");
+      if (!f.credential) {
+        if (!(await credentialRow(user.orgId, def))) throw new Error(`Enter the ${def.credential.label.toLowerCase()}.`);
+        return "Nothing changed.";
+      }
+      await storeSecret({ userId: user.id, name: def.credential.secretName, type: def.credential.type, value: f.credential, description: `${def.credential.label} (${def.name} integration)`, allowedTools: def.credential.tools });
+      await save(user, def, { ...config });
+      return "Saved the credential.";
+    }
     const host = (f.host ?? "").trim();
     if (!IPV4.test(host)) throw new Error(`${def.name}'s address must be an IPv4 address.`);
     const existing = await credentialRow(user.orgId, def);

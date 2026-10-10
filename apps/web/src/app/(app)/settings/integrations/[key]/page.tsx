@@ -22,7 +22,8 @@ export default async function IntegrationSettingsPage({ params }: PageProps<"/se
   const c = p.config;
   const cred = def.credential;
   const multi = def.connection.multipleHosts;
-  const connected = (multi ? c.hosts.length > 0 : !!c.host) && (!cred || !!cred.optional || !!p.credential);
+  const cloud = !!def.connection.cloud;
+  const connected = (cloud || (multi ? c.hosts.length > 0 : !!c.host)) && (!cred || !!cred.optional || !!p.credential);
   const canSecrets = user.permissions.has("secrets.manage");
 
   return (
@@ -56,18 +57,18 @@ export default async function IntegrationSettingsPage({ params }: PageProps<"/se
               Connection <Badge variant={connected ? "default" : "outline"}>{connected ? "Set up" : "Not set up"}</Badge>
             </CardTitle>
             <CardDescription>
-              {def.connection.hint} {multi ? "Each must be on an allowed network." : "It must be on an allowed network."}
+              {def.connection.hint} {cloud ? "" : multi ? "Each must be on an allowed network." : "It must be on an allowed network."}
               {cred && (
                 <>
                   {" "}
-                  The {cred.label.toLowerCase()} is stored encrypted as <code>secret:{cred.secretName}</code>, usable only against this address.
+                  The {cred.label.toLowerCase()} is stored encrypted as <code>secret:{cred.secretName}</code>, usable only {cloud ? "with this integration's tools" : "against this address"}.
                 </>
               )}
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
             <ActionForm action={saveIntegrationConnectionAction.bind(null, def.key)} submitLabel="Save connection">
-              <div className="grid gap-3 sm:grid-cols-2">
+              {!cloud && <div className="grid gap-3 sm:grid-cols-2">
                 {!multi && <TextField label="Address" name="host" defaultValue={c.host} placeholder="192.168.1.10" required />}
                 <TextField label={multi ? "Default port" : "Port"} name="port" type="number" min={1} max={65535} defaultValue={c.port} />
                 {def.connection.scheme && (
@@ -82,7 +83,7 @@ export default async function IntegrationSettingsPage({ params }: PageProps<"/se
                   />
                 )}
                 {def.connection.user && <TextField label={def.connection.user.label} name="user" defaultValue={c.user} required={!cred?.optional} />}
-              </div>
+              </div>}
               {multi && (
                 <TextAreaField
                   label={multi.label}
@@ -105,7 +106,7 @@ export default async function IntegrationSettingsPage({ params }: PageProps<"/se
                   disabled={!canSecrets}
                 />
               )}
-              {def.connection.tls !== false && <CheckboxField label="Check its certificate" name="verifyTls" defaultChecked={c.verifyTls} hint="Leave off for the self-signed certificate most home lab devices have." />}
+              {!cloud && def.connection.tls !== false && <CheckboxField label="Check its certificate" name="verifyTls" defaultChecked={c.verifyTls} hint="Leave off for the self-signed certificate most home lab devices have." />}
               {!canSecrets && <p className="text-sm text-muted-foreground">Changing the connection also needs permission to manage secrets.</p>}
             </ActionForm>
             {connected && <ActionForm action={testIntegrationAction.bind(null, def.key)} submitLabel="Test connection" submitVariant="outline" />}
