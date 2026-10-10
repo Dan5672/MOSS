@@ -1,4 +1,15 @@
-import { CHAT_NAMES, CHAT_PLATFORMS, INTEGRATIONS, listChatLinks, loadChatModule, loadHomeAssistant, loadIntegration } from "@moss/core";
+import {
+  CHAT_NAMES,
+  CHAT_PLATFORMS,
+  getLicenceStatus,
+  integrationAllowed,
+  INTEGRATIONS,
+  listChatLinks,
+  loadChatModule,
+  loadHomeAssistant,
+  loadIntegration,
+  type IntegrationDef,
+} from "@moss/core";
 import Link from "next/link";
 import { NoPermission, PageHeader } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
@@ -11,12 +22,14 @@ export const metadata = { title: "Integrations" };
 export default async function ModulesPage() {
   const user = await requireUser();
   if (!user.permissions.has("integrations.manage")) return <NoPermission />;
-  const [ha, others, chats, links] = await Promise.all([
+  const [ha, others, chats, links, licence] = await Promise.all([
     loadHomeAssistant(db(), user.orgId),
     Promise.all(INTEGRATIONS.map(async (def) => ({ def, it: await loadIntegration(db(), user.orgId, def) }))),
     Promise.all(CHAT_PLATFORMS.map(async (p) => ({ p, it: await loadChatModule(db(), user.orgId, p) }))),
     listChatLinks(db(), user.orgId),
+    getLicenceStatus(db(), user.orgId),
   ]);
+  const business = others.filter(({ def }) => def.plan === "business");
   const c = ha.config;
   const features = [
     c.alerts.enabled && "alerts",
@@ -77,37 +90,91 @@ export default async function ModulesPage() {
             </Card>
           );
         })}
-        {others.map(({ def, it }) => {
-          const on = def.features.filter((f) => it.config.features[f.key]).map((f) => f.label.toLowerCase());
-          return (
-            <Card key={def.key}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Link href={`/settings/integrations/${def.key}`} className="underline-offset-2 hover:underline">
-                    {def.name}
-                  </Link>
-                  <Badge variant={it.enabled ? "default" : "outline"}>{it.enabled ? "On" : "Off"}</Badge>
-                </CardTitle>
-                <CardDescription>{def.description}</CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-3 text-sm">
-                <p>
-                  {it.enabled && on.length
-                    ? `Using: ${on.join(", ")}.`
-                    : it.enabled
-                      ? "On, but no features are switched on yet."
-                      : it.config.host || it.config.hosts.length
-                        ? `Set up for ${it.config.host ?? it.config.hosts.map((h) => h.host).join(", ")}, switched off.`
-                        : "Not set up."}
-                </p>
-                <Link href={`/settings/integrations/${def.key}`} className="w-fit border-2 px-3 py-2 font-mono text-sm hover:bg-muted">
-                  {it.config.host || it.config.hosts.length ? "Configure" : "Set up"}
-                </Link>
-              </CardContent>
-            </Card>
-          );
-        })}
+        {others
+          .filter(({ def }) => def.plan !== "business")
+          .map(({ def, it }) => (
+            <IntegrationCard key={def.key} def={def} it={it} />
+          ))}
       </div>
+      {business.length > 0 && (
+        <section aria-labelledby="business" className="mt-10 grid gap-4">
+          <div className="grid gap-1">
+            <h2 id="business" className="flex items-center gap-2 font-medium">
+              Business <Badge variant="outline">{licence.state === "valid" || licence.state === "grace" ? "Licensed" : "Needs a licence"}</Badge>
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              For companies: single sign-on, the tools your team works in, and cloud and network services.{" "}
+              {licence.state === "valid" || licence.state === "grace" ? (
+                <>Your licence is in Settings → About.</>
+              ) : (
+                <>
+                  They need a business licence:{" "}
+                  <Link href="/settings/about#licence" className="underline underline-offset-2">
+                    add one in Settings → About
+                  </Link>
+                  .
+                </>
+              )}
+            </p>
+          </div>
+          <div className="grid gap-6 lg:grid-cols-2">
+            {business.map(({ def, it }) => (
+              <IntegrationCard key={def.key} def={def} it={it} locked={!integrationAllowed(def, licence)} />
+            ))}
+          </div>
+        </section>
+      )}
     </>
+  );
+}
+
+type Loaded = Awaited<ReturnType<typeof loadIntegration>>;
+
+/** One integration: on or off, what it's using, and a link to set it up (none while it needs a licence). */
+function IntegrationCard({ def, it, locked = false }: { def: IntegrationDef; it: Loaded; locked?: boolean }) {
+  const on = def.features.filter((f) => it.config.features[f.key]).map((f) => f.label.toLowerCase());
+  if (locked) {
+    return (
+      <Card aria-disabled="true" className="opacity-60">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            {def.name} <Badge variant="outline">Business licence</Badge>
+          </CardTitle>
+          <CardDescription>{def.description}</CardDescription>
+        </CardHeader>
+        <CardContent className="text-sm">
+          <Link href={`/settings/integrations/${def.key}`} className="underline underline-offset-2">
+            What it does
+          </Link>
+        </CardContent>
+      </Card>
+    );
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Link href={`/settings/integrations/${def.key}`} className="underline-offset-2 hover:underline">
+            {def.name}
+          </Link>
+          <Badge variant={it.enabled ? "default" : "outline"}>{it.enabled ? "On" : "Off"}</Badge>
+        </CardTitle>
+        <CardDescription>{def.description}</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3 text-sm">
+        <p>
+          {it.enabled && on.length
+            ? `Using: ${on.join(", ")}.`
+            : it.enabled
+              ? "On, but no features are switched on yet."
+              : it.config.host || it.config.hosts.length
+                ? `Set up for ${it.config.host ?? it.config.hosts.map((h) => h.host).join(", ")}, switched off.`
+                : "Not set up."}
+        </p>
+        <Link href={`/settings/integrations/${def.key}`} className="w-fit border-2 px-3 py-2 font-mono text-sm hover:bg-muted">
+          {it.config.host || it.config.hosts.length ? "Configure" : "Set up"}
+        </Link>
+      </CardContent>
+    </Card>
   );
 }

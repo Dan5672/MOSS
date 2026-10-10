@@ -82,6 +82,7 @@ export type DenyCode =
   | "secret_scope"
   | "secret_required"
   | "module_disabled"
+  | "licence_required"
   | "setting_disabled";
 
 export type PolicyDecision =

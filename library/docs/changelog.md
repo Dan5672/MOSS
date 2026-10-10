@@ -12,6 +12,8 @@ Newest first. After an upgrade, Moss posts the newest section in #general.
   (through an approved change, using an alias your own rule uses).
 - **UPS (Network UPS Tools)**: know the moment the power goes, and shut your home lab down in order
   before the battery runs out, with your approval each time or approved in advance.
+- **Business licences**: business integrations (coming next) are unlocked with a licence key in
+  Settings → About. Everything else in MOSS stays free.
 - **Change MOSS's addresses in Settings → HTTPS**: no more editing deploy/.env and restarting when your
   computer's address changes.
 - **Settings → About**: the version running here, what's new, and a Check for updates button.

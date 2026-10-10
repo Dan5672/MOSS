@@ -1,8 +1,8 @@
 "use server";
 
-import { compareRelease, setSetting } from "@moss/core";
+import { compareRelease, LicenceError, removeLicence, saveLicence, setSetting } from "@moss/core";
 import { act, type ActionState } from "@/server/action";
-import { requireUser } from "@/server/auth";
+import { requirePermission, requireUser } from "@/server/auth";
 import { config } from "@/server/config";
 import { db } from "@/server/db";
 
@@ -35,5 +35,27 @@ export async function checkForUpdatesAction(_: ActionState): Promise<ActionState
       default:
         return check.latest ? `The newest release is ${check.latest}; this install's version isn't recorded, so it can't be compared.` : "No MOSS releases were found.";
     }
+  });
+}
+
+/** Checks a business licence key and stores it. */
+export async function saveLicenceAction(_: ActionState, form: FormData): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("settings.manage");
+    try {
+      const status = await saveLicence(db(), user.orgId, String(form.get("licence") ?? ""), { type: "user", id: user.id });
+      return `Licence added for ${status.licence!.licensee}, until ${new Date(status.licence!.expires).toDateString()}.`;
+    } catch (err) {
+      if (err instanceof LicenceError) throw new Error(err.message);
+      throw err;
+    }
+  });
+}
+
+export async function removeLicenceAction(_: ActionState): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("settings.manage");
+    await removeLicence(db(), user.orgId, { type: "user", id: user.id });
+    return "Licence removed. Business integrations have stopped; their settings are kept.";
   });
 }

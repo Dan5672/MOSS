@@ -1,4 +1,4 @@
-import { getSetting, listConversations } from "@moss/core";
+import { getLicenceStatus, getSetting, listConversations } from "@moss/core";
 import { changeRequests, incidents, monitors, notifications } from "@moss/db";
 import { and, count, eq, isNull, notInArray } from "drizzle-orm";
 import Link from "next/link";
@@ -18,7 +18,7 @@ function initials(name: string) {
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const user = await requireUser({ unblocks: "any" });
-  const [killSwitch, [pending], [unread], [down], [open], chats] = await Promise.all([
+  const [killSwitch, [pending], [unread], [down], [open], chats, licence] = await Promise.all([
     getSetting(db(), user.orgId, "agents.kill_switch"),
     db()
       .select({ n: count() })
@@ -37,7 +37,10 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       .from(incidents)
       .where(and(eq(incidents.orgId, user.orgId), notInArray(incidents.status, ["resolved", "closed"]))),
     listConversations(db(), user.orgId, user.id),
+    getLicenceStatus(db(), user.orgId),
   ]);
+  // An expired business licence: shown to the people who can renew it.
+  const licenceWarning = user.permissions.has("settings.manage") && (licence.state === "grace" || licence.state === "expired") ? licence : null;
   const badges = {
     "/changes": user.permissions.has("changes.approve") ? (pending?.n ?? 0) : 0,
     "/monitoring": user.permissions.has("monitoring.read") ? (down?.n ?? 0) : 0,
@@ -98,6 +101,19 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
             </span>
             <Link href="/settings" className="underline underline-offset-2">
               Settings
+            </Link>
+          </div>
+        )}
+        {licenceWarning && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-amber px-6 py-2 font-mono text-sm text-on-brand">
+            <span>
+              <strong className="font-medium">Business licence expired</strong> ·{" "}
+              {licenceWarning.state === "grace"
+                ? `business integrations stop on ${new Date(licenceWarning.stopsAt!).toLocaleDateString()}`
+                : "business integrations have stopped"}
+            </span>
+            <Link href="/settings/about#licence" className="underline underline-offset-2">
+              Renew
             </Link>
           </div>
         )}

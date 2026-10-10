@@ -206,6 +206,16 @@ password has expired is sent to Settings > Security. Requiring two-factor needs 
 policy first, so they can't lock themselves out, and it can't then be turned off by someone it applies to.
 People who sign in with SSO have no MOSS password and are left out.
 
+## The business licence
+Business integrations (listed under Business in Settings > Integrations) need a business licence; everything
+else in MOSS is free. Without one they're greyed out: their pages say what they do, and nothing can be set up,
+run or used by agents (the gate refuses their tools with licence_required). Settings > About > Business
+licence (settings.manage): Add a licence (paste the key you were sent; it's checked on this machine, nothing
+is sent anywhere), Replace or Remove. It shows who it's licensed to, which integrations it covers, any limit
+on people, and when it ends. Reminders go to everyone who manages settings 30 and 7 days before it expires.
+After it expires, business integrations keep working for 14 days, with a banner for those people, then stop;
+their settings are kept, and a renewed licence switches them back on.
+
 ## About MOSS and updates
 Settings > About shows the version running (a release such as v0.2.0, or a development build such as
 v0.2.0-14-gabc1234: 14 changes after it), the database migrations applied, and what's new in the newest

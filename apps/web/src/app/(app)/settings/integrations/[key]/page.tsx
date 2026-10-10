@@ -1,4 +1,4 @@
-import { integrationOption } from "@moss/core";
+import { integrationLicensed, integrationOption, type IntegrationDef } from "@moss/core";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
@@ -8,6 +8,7 @@ import { NoPermission, PageHeader, timeAgo } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/server/auth";
+import { db } from "@/server/db";
 import { integrationOrNull, integrationPage } from "@/server/integrations";
 import { CloudflareExposureCard } from "./cloudflare-exposure";
 import { UpsPlanCard } from "./ups-plan";
@@ -19,6 +20,7 @@ export default async function IntegrationSettingsPage({ params }: PageProps<"/se
   if (!user.permissions.has("integrations.manage")) return <NoPermission />;
   const def = integrationOrNull((await params).key);
   if (!def) notFound();
+  if (!(await integrationLicensed(db(), user.orgId, def))) return <NeedsLicence def={def} />;
   const p = await integrationPage(user.orgId, def);
   const c = p.config;
   const cred = def.credential;
@@ -221,6 +223,46 @@ export default async function IntegrationSettingsPage({ params }: PageProps<"/se
           </Card>
         )}
       </div>
+    </>
+  );
+}
+
+/** A business integration without a licence: what it does, and where to add one. Nothing here can be changed. */
+function NeedsLicence({ def }: { def: IntegrationDef }) {
+  return (
+    <>
+      <PageHeader
+        title={def.name}
+        description={def.description}
+        trail={[
+          { href: "/settings", label: "Settings" },
+          { href: "/settings/integrations", label: "Integrations" },
+        ]}
+      />
+      <Card className="max-w-2xl">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            Needs a business licence <Badge variant="outline">Business</Badge>
+          </CardTitle>
+          <CardDescription>
+            {def.name} is a business integration. Add a licence in{" "}
+            <Link href="/settings/about#licence" className="underline underline-offset-2">
+              Settings → About
+            </Link>{" "}
+            to set it up.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="mb-2 text-sm font-medium">What it does</p>
+          <ul className="grid list-disc gap-1 pl-5 text-sm">
+            {def.features.map((f) => (
+              <li key={f.key}>
+                <strong>{f.label}</strong>: {f.description}
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
     </>
   );
 }

@@ -1,12 +1,17 @@
 // End-to-end tests: a real browser against `next start`, backed by a fresh test database.
 // Needs MOSS_TEST_DATABASE_URL (the suite uses <db>_web_e2e). Build first: `pnpm build`.
 import { defineConfig, devices } from "@playwright/test";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /** Settings → HTTPS writes here; global-setup stands in for Caddy's admin socket. */
 export const E2E_TLS_DIR = join(tmpdir(), "moss-e2e-tls");
 export const E2E_CADDY_ADMIN = process.platform === "win32" ? "\\\\.\\pipe\\moss-e2e-caddy" : join(E2E_TLS_DIR, "admin.sock");
+
+/** A throwaway licence signing key (packages/core/src/fixtures/licence), accepted only because the web is told to. */
+export const E2E_LICENCE_DIR = fileURLToPath(new URL("../../packages/core/src/fixtures/licence", import.meta.url));
 
 const base = process.env.MOSS_TEST_DATABASE_URL;
 if (!base) throw new Error("Set MOSS_TEST_DATABASE_URL to run the e2e tests");
@@ -45,6 +50,7 @@ export default defineConfig({
       MOSS_LIBRARY_DIR: "../../library",
       // A development build after v0.9.0, as deploy/upgrade.sh records it.
       MOSS_RELEASE: "v0.9.0-12-gabc1234",
+      MOSS_LICENCE_EXTRA_PUBLIC_KEY: readFileSync(join(E2E_LICENCE_DIR, "test.pub"), "utf8").trim(),
       // HTTPS with MOSS's own CA, as a default install has (the CA itself isn't reachable here).
       MOSS_TLS: "internal",
       MOSS_CA_URL: "http://127.0.0.1:9/moss-ca.crt",

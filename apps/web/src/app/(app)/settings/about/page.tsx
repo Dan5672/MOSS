@@ -11,6 +11,7 @@ import { requireUser } from "@/server/auth";
 import { config } from "@/server/config";
 import { db } from "@/server/db";
 import { checkForUpdatesAction } from "./actions";
+import { LicenceCard } from "./licence-card";
 
 export const metadata = { title: "About MOSS" };
 
@@ -52,7 +53,7 @@ export default async function AboutPage() {
 
   return (
     <>
-      <PageHeader title="About MOSS" description="The version running here, and whether there's a newer one." />
+      <PageHeader title="About MOSS" description="The version running here, whether there's a newer one, and your licence." />
       <div className="grid gap-6 lg:grid-cols-2">
         <Card id="version">
           <CardHeader>
@@ -113,6 +114,7 @@ export default async function AboutPage() {
             )}
           </CardContent>
         </Card>
+        <LicenceCard orgId={user.orgId} canManage={user.permissions.has("settings.manage")} />
         {news && (
           <Card id="whats-new">
             <CardHeader>

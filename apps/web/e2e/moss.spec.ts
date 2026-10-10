@@ -1,12 +1,12 @@
 // One story through the UI, in order: a new owner sets MOSS up and runs their IT department.
-import { createChangeRequest, dispatchEvents, encryptSecret, handleIncoming, handleMonitorDown, handleMonitorUp, parseMasterKey, totpCode } from "@moss/core";
+import { createChangeRequest, dispatchEvents, encryptSecret, handleIncoming, handleMonitorDown, handleMonitorUp, parseMasterKey, signLicence, totpCode } from "@moss/core";
 import { agentRuns, agents, configBackups, createDb, modules, monitors, secrets, users, type Database } from "@moss/db";
 import { expect, test, type Page } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { E2E_DATABASE_URL, E2E_MASTER_KEY_HEX, E2E_TLS_DIR } from "../playwright.config";
+import { E2E_DATABASE_URL, E2E_LICENCE_DIR, E2E_MASTER_KEY_HEX, E2E_TLS_DIR } from "../playwright.config";
 
 test.describe.configure({ mode: "serial" });
 
@@ -1368,6 +1368,37 @@ test("about: the running version, what's new, and checking for updates", async (
   await expect(card.getByText("Update available")).toBeVisible();
   await expect(card.getByRole("link", { name: "v0.10.0" })).toHaveAttribute("href", "https://github.com/Dan5672/MOSS/releases/tag/v0.10.0");
   await expect(card.getByText("sh deploy/upgrade.sh v0.10.0")).toBeVisible();
+});
+
+test("licence: add a business licence (checked first), see what it covers, and remove it", async () => {
+  const licence = (over: Record<string, unknown> = {}) =>
+    signLicence(
+      { v: 1, kid: "test", id: "e2e-1", licensee: "Acme Ltd", plan: "business", features: ["*"], issued: new Date().toISOString(), expires: "2099-12-31T23:59:59.000Z", ...over },
+      readFileSync(join(E2E_LICENCE_DIR, "test.key"), "utf8"),
+    );
+  await page.goto("/settings/about");
+  const card = page.locator("#licence");
+  await expect(card).toContainText("Business licenceNone");
+  await card.getByRole("button", { name: "Add a licence" }).click();
+  const add = page.getByRole("dialog", { name: "Add a business licence" });
+  await add.getByLabel("Licence key").fill(licence().replace(/.{6}$/, "AAAAAA"));
+  await add.getByRole("button", { name: "Check and add" }).click();
+  await expect(add.getByRole("alert")).toContainText("That licence key isn't genuine");
+  await add.getByLabel("Licence key").fill(licence({ expires: "2020-01-01T00:00:00.000Z" }));
+  await add.getByRole("button", { name: "Check and add" }).click();
+  await expect(add.getByRole("alert")).toContainText("That licence expired on");
+  await add.getByLabel("Licence key").fill(licence({ features: ["m365", "slack"], maxUsers: 25 }));
+  await add.getByRole("button", { name: "Check and add" }).click();
+  await expect(page.getByText(/^Licence added for Acme Ltd, until/)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(card).toContainText("Active");
+  await expect(card).toContainText("Licensed toAcme Ltd");
+  await expect(card).toContainText("Peopleup to 25");
+
+  page.once("dialog", (d) => d.accept());
+  await card.getByRole("button", { name: "Remove licence" }).click();
+  await expect(page.getByText("Licence removed. Business integrations have stopped; their settings are kept.")).toBeVisible();
+  await expect(card).toContainText("Business licenceNone");
 });
 
 test("https: upload your own certificate (checked first), then go back to MOSS's own", async () => {

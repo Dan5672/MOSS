@@ -1,6 +1,6 @@
 // The Policy Gate: the only path from an agent's tool call to the toolbox, and the
 // only component that can decrypt secrets. Every decision is written to the audit log.
-import { decryptSecret, getSetting, isModuleEnabled, moduleForTool, redactSecrets, writeAudit } from "@moss/core";
+import { businessIntegrationForTool, decryptSecret, getSetting, integrationLicensed, isModuleEnabled, moduleForTool, redactSecrets, writeAudit } from "@moss/core";
 import type { Database } from "@moss/db";
 import { checkSecrets, contains, evaluate, extractSecretHandles, parseRange, type DenyCode, type IpRange } from "@moss/policy";
 import {
@@ -86,6 +86,10 @@ export function createGate(deps: GateDeps) {
     const module = moduleForTool(req.tool);
     if (module && !(await isModuleEnabled(deps.db, agent.orgId, module))) {
       return deny("module_disabled", `${req.tool} belongs to the ${module.replace("_", " ")} module, which is switched off`);
+    }
+    const business = businessIntegrationForTool(req.tool);
+    if (business && !(await integrationLicensed(deps.db, agent.orgId, business))) {
+      return deny("licence_required", `${req.tool} belongs to the ${business.name} integration, which needs a business licence (Settings → About)`);
     }
     const parsed = parseToolArgs(def, req.args);
     if (!parsed.ok) return deny("invalid_args", parsed.error);

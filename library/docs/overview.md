@@ -30,7 +30,7 @@ The sidebar: Dashboard, Basement, Chat, Agents, Assets, Wiki, Monitoring, Incide
   Webhook sources.
 - Activity, with tabs Agent activity (every run, step by step) and Audit log.
 - Settings, with tabs General, Security, Secrets, Backups, Integrations, Networks, Users, About (the version running,
-  what's new, and Check for updates).
+  what's new, Check for updates, and the business licence).
 
 ## Runs
 Every piece of agent work is a run: a task, from a person (a task or a chat message), a recurring task,

@@ -17,6 +17,10 @@ export const SETTING_DEFAULTS = {
   "homeassistant.allow_resume": false,
   /** The newest changelog version Moss has announced in #general. */
   "moss.announced_version": "" as string,
+  /** The business licence key (signed, checked on every use; see licensing/licence.ts). Empty: none. */
+  "licence.key": "" as string,
+  /** Which licence expiry reminders have been sent, for which licence. */
+  "licence.reminded": {} as Record<string, unknown>,
   /** The last "Check for updates" (Settings → About): when, the newest release and how this install compares. */
   "moss.update_check": {} as Record<string, unknown>,
   /** The password policy (see auth/password-policy.ts); empty means the defaults. */
@@ -63,6 +67,9 @@ export const SETTING_DESCRIPTIONS = {
   "monitoring.quiet_until": "Maintenance mode: until this time, monitors keep checking but raise no incidents. Set from Home Assistant.",
   "homeassistant.allow_resume": "Whether the Home Assistant integration may resume paused agents (pausing is always allowed).",
   "moss.announced_version": "The newest version Moss has announced in #general (What's new, from library/docs/changelog.md).",
+  "licence.key":
+    "The business licence (Settings → About): a signed key, checked offline. Business integrations work only while it's valid, or for 14 days after it expires.",
+  "licence.reminded": "Which reminders about the business licence's expiry have been sent (30 and 7 days before, on expiry, and when it stops).",
   "moss.update_check": "The last check for MOSS updates (Settings → About): when it ran, the newest release on GitHub, and whether this install is up to date.",
   "auth.password_policy":
     "The password policy (Settings → Security): minimum length (12 by default), required kinds of character, how many old passwords can't be reused, maximum age, who must use two-factor sign-in, and an optional check against known-breached passwords.",

@@ -56,8 +56,8 @@ export interface IntegrationDef {
   name: string;
   /** For the Integrations page. */
   description: string;
-  /** Free now; some will be on a paid plan later. */
-  plan: "free" | "paid";
+  /** Free, or business: usable only with a business licence that covers it (licensing/service.ts). */
+  plan: "free" | "business";
   /** How MOSS reaches it (fields shown on its settings page). */
   connection: {
     defaultPort: number;

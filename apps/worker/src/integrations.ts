@@ -1,6 +1,6 @@
 // The integrations' background features (health checks, inventory syncs), each on its own schedule. The calls
 // themselves go through the gate, which reads the config and holds the credentials.
-import { applyFeatureRun, featureDue, INTEGRATIONS, integrationConfigured, loadIntegration, orgsWithModule, upsShutdownTick, type IntegrationState, type OpResult } from "@moss/core";
+import { applyFeatureRun, featureDue, INTEGRATIONS, integrationConfigured, integrationLicensed, loadIntegration, orgsWithModule, upsShutdownTick, type IntegrationState, type OpResult } from "@moss/core";
 import type { Database } from "@moss/db";
 
 export type IntegrationCaller = (orgId: string, key: string, op: string) => Promise<OpResult>;
@@ -29,6 +29,8 @@ export async function runIntegrationsTick(db: Database, call: IntegrationCaller,
   const now = opts.now ?? new Date();
   for (const def of INTEGRATIONS) {
     for (const orgId of await orgsWithModule(db, def.key)) {
+      // A business integration stops (its settings kept) while there's no licence covering it.
+      if (!(await integrationLicensed(db, orgId, def, now))) continue;
       const { config, state } = await loadIntegration(db, orgId, def);
       if (!integrationConfigured(def, config)) continue;
       let current: IntegrationState = state;

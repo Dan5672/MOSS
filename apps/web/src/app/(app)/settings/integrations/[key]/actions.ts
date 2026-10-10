@@ -2,7 +2,7 @@
 
 import {
   applyFeatureRun,
-  getIntegration,
+  getIntegration, integrationLicensed,
   integrationConfigSchema,
   loadIntegration,
   pauseIntegrationSource,
@@ -25,9 +25,11 @@ import { storeSecret } from "@/server/services";
 const on = (v: FormDataEntryValue | null) => v === "on" || v === "true";
 const actor = (u: CurrentUser) => ({ type: "user" as const, id: u.id });
 
-function definition(key: string): IntegrationDef {
+/** The integration, if this org may use it (a business one needs a licence that covers it). */
+async function definition(key: string, orgId: string): Promise<IntegrationDef> {
   const def = getIntegration(key);
   if (!def) throw new Error("Unknown integration");
+  if (!(await integrationLicensed(db(), orgId, def))) throw new Error(`${def.name} needs a business licence: add one in Settings → About.`);
   return def;
 }
 
@@ -53,7 +55,7 @@ async function connectionReady(orgId: string, def: IntegrationDef, config: Integ
 export async function setIntegrationEnabledAction(key: string, enabled: boolean): Promise<ActionState> {
   return act(async () => {
     const user = await requirePermission("integrations.manage");
-    const def = definition(key);
+    const def = await definition(key, user.orgId);
     const { config, state } = await loadIntegration(db(), user.orgId, def);
     if (enabled && !(await connectionReady(user.orgId, def, config))) throw new Error("Set up the connection first.");
     await save(user, def, config, enabled);
@@ -69,7 +71,7 @@ export async function saveIntegrationConnectionAction(key: string, _: ActionStat
     const user = await requirePermission("integrations.manage");
     // The credential is a secret: storing it, or pointing it at another address, takes the secrets permission too.
     if (!user.permissions.has("secrets.manage")) throw new Error("Changing the connection also needs permission to manage secrets.");
-    const def = definition(key);
+    const def = await definition(key, user.orgId);
     const f = formObject(form);
     const { config } = await loadIntegration(db(), user.orgId, def);
     const port = z.coerce.number().int().min(1).max(65535).parse(f.port ?? def.connection.defaultPort);
@@ -135,7 +137,7 @@ export async function saveIntegrationConnectionAction(key: string, _: ActionStat
 export async function testIntegrationAction(key: string, _: ActionState): Promise<ActionState> {
   return act(async () => {
     const user = await requirePermission("integrations.manage");
-    const def = definition(key);
+    const def = await definition(key, user.orgId);
     const res = await integrationCall(user.id, key, "test");
     if (!res.ok) throw new Error(res.error);
     return def.test.describe(res.result);
@@ -145,7 +147,7 @@ export async function testIntegrationAction(key: string, _: ActionState): Promis
 export async function saveIntegrationFeaturesAction(key: string, _: ActionState, form: FormData): Promise<ActionState> {
   return act(async () => {
     const user = await requirePermission("integrations.manage");
-    const def = definition(key);
+    const def = await definition(key, user.orgId);
     const { config } = await loadIntegration(db(), user.orgId, def);
     const f = formObject(form);
     const responder = f.responderAgentId || undefined;
@@ -178,7 +180,7 @@ export async function saveIntegrationFeaturesAction(key: string, _: ActionState,
 export async function syncIntegrationFeatureAction(key: string, featureKey: string, _: ActionState): Promise<ActionState> {
   return act(async () => {
     const user = await requirePermission("integrations.manage");
-    const def = definition(key);
+    const def = await definition(key, user.orgId);
     const feature = def.features.find((f) => f.key === featureKey);
     if (!feature) throw new Error("Unknown feature.");
     const { config, state } = await loadIntegration(db(), user.orgId, def);

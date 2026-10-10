@@ -2,7 +2,7 @@
 // and Test connection / Sync now from its settings page. The caller only names the org, the integration and the
 // operation; the gate reads the integration's config, checks it's on (and the feature for that operation), builds
 // the arguments, and makes the call under the same rules as agents' calls.
-import { getIntegration, integrationArgs, integrationConfigured, loadIntegration, writeAudit } from "@moss/core";
+import { getIntegration, integrationArgs, integrationConfigured, integrationLicensed, loadIntegration, writeAudit } from "@moss/core";
 import { systemToolCall, type SystemCallDeps } from "./system-call.js";
 
 export type IntegrationOpResult = { ok: true; result: unknown } | { ok: false; error: string };
@@ -14,6 +14,7 @@ export async function runIntegrationOp(
 ): Promise<IntegrationOpResult> {
   const def = getIntegration(req.key);
   if (!def) return { ok: false, error: "Unknown integration" };
+  if (!(await integrationLicensed(deps.db, req.orgId, def))) return { ok: false, error: `${def.name} needs a business licence (Settings → About)` };
   const manual = req.op.startsWith("sync:");
   // The worker names the feature (several features may share one operation); an operation's name works too.
   const feature = manual ? def.features.find((f) => f.key === req.op.slice(5)) : (def.features.find((f) => f.key === req.op) ?? def.features.find((f) => f.op === req.op));

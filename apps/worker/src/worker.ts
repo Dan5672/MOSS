@@ -33,6 +33,7 @@ import {
   getSetting,
   incidentRef,
   parseBackupSchedule,
+  remindLicenceExpiry,
   rollUpMonitorResults,
   setSetting,
   type StoredEvent,
@@ -330,6 +331,9 @@ export async function startWorker(cfg: WorkerConfig) {
         // An uploaded HTTPS certificate: reminders 30 and 7 days before it runs out.
         const due = await remindCertificateExpiry(db, org.id);
         if (due) log("Moss reminded about the HTTPS certificate", { orgId: org.id, daysAhead: due });
+        // The business licence: reminders 30 and 7 days before it expires, on expiry, and when it stops.
+        const licence = await remindLicenceExpiry(db, org.id);
+        if (licence) log("reminded about the business licence", { orgId: org.id, reminder: licence });
         // Scheduled MOSS backups. The slot is marked first, so a failing service isn't asked every minute.
         if (cfg.startBackup) {
           const schedule = parseBackupSchedule(await getSetting(db, org.id, "backups.schedule"));
