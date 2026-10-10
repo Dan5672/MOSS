@@ -1,3 +1,4 @@
+import { anySsoAvailable } from "@moss/core";
 import { roles, userRoles, users } from "@moss/db";
 import { and, eq, ne } from "drizzle-orm";
 import { ActionForm } from "@/components/action-form";
@@ -23,6 +24,7 @@ const ROLE_HELP: Record<string, string> = {
 export default async function UsersPage() {
   const me = await requireUser();
   if (!me.permissions.has("users.manage")) return <NoPermission />;
+  const sso = await anySsoAvailable(db(), me.orgId);
   const [userRows, roleRows] = await Promise.all([
     db()
       .select({ user: users, roleKey: roles.key, roleName: roles.name })
@@ -45,7 +47,15 @@ export default async function UsersPage() {
               <TextField label="Name" name="displayName" required />
               <TextField label="Email" name="email" type="email" required />
               <SelectField label="Role" name="role" defaultValue="viewer" options={roleOptions} />
-              <TextField label="Initial password" name="password" type="password" autoComplete="new-password" minLength={12} required />
+              <TextField
+                label={sso ? "Initial password (optional)" : "Initial password"}
+                name="password"
+                type="password"
+                autoComplete="new-password"
+                minLength={12}
+                required={!sso}
+                hint={sso ? "Leave empty for someone who signs in with Microsoft or Google: they'll have no MOSS password." : undefined}
+              />
             </ActionForm>
           </FormDialog>
         }

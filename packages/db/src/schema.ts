@@ -131,6 +131,8 @@ export const sessions = pgTable("sessions", {
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   ip: inet("ip"),
   userAgent: text("user_agent"),
+  /** How they signed in: a password (and MOSS's two-factor), or single sign-on (the provider checks MFA). */
+  authMethod: text("auth_method", { enum: ["password", "microsoft", "google"] }).notNull().default("password"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

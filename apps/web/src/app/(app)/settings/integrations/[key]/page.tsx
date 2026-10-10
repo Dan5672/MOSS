@@ -11,6 +11,7 @@ import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { integrationOrNull, integrationPage } from "@/server/integrations";
 import { CloudflareExposureCard } from "./cloudflare-exposure";
+import { SsoCard } from "./sso-card";
 import { UpsPlanCard } from "./ups-plan";
 import { saveIntegrationConnectionAction, saveIntegrationFeaturesAction, setIntegrationEnabledAction, syncIntegrationFeatureAction, testIntegrationAction } from "./actions";
 
@@ -26,7 +27,7 @@ export default async function IntegrationSettingsPage({ params }: PageProps<"/se
   const cred = def.credential;
   const multi = def.connection.multipleHosts;
   const cloud = !!def.connection.cloud;
-  const connected = (cloud || (multi ? c.hosts.length > 0 : !!c.host)) && (!cred || !!cred.optional || !!p.credential);
+  const connected = (cloud ? (def.connection.fields ?? []).every((fd) => !!c.fields[fd.key]) : multi ? c.hosts.length > 0 : !!c.host) && (!cred || !!cred.optional || !!p.credential);
   const canSecrets = user.permissions.has("secrets.manage");
 
   return (
@@ -98,6 +99,10 @@ export default async function IntegrationSettingsPage({ params }: PageProps<"/se
                   required
                 />
               )}
+              {cloud &&
+                (def.connection.fields ?? []).map((fd) => (
+                  <TextField key={fd.key} label={fd.label} name={`field:${fd.key}`} defaultValue={c.fields[fd.key] ?? ""} hint={fd.hint} required />
+                ))}
               {cred && (
                 <TextField
                   label={cred.optional ? `${cred.label} (if it has one)` : cred.label}
@@ -198,6 +203,15 @@ export default async function IntegrationSettingsPage({ params }: PageProps<"/se
           </CardContent>
         </Card>
 
+        {(def.key === "m365" || def.key === "google_workspace") && (
+          <SsoCard
+            orgId={user.orgId}
+            provider={def.key === "m365" ? "microsoft" : "google"}
+            config={c}
+            enabled={p.enabled}
+            canManage={user.permissions.has("settings.manage") && canSecrets}
+          />
+        )}
         {def.key === "cloudflare" && <CloudflareExposureCard orgId={user.orgId} canManage={user.permissions.has("integrations.manage")} />}
         {def.key === "nut" && <UpsPlanCard orgId={user.orgId} agents={p.agents} canApprove={user.permissions.has("changes.approve")} />}
 

@@ -2,7 +2,8 @@
 // permissions) happen in every page and server action, never only here.
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/setup"];
+// Signing in with Microsoft or Google happens before there is a session.
+const PUBLIC_PATHS = ["/login", "/setup", "/api/auth/sso"];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

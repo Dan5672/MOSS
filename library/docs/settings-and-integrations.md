@@ -206,6 +206,43 @@ password has expired is sent to Settings > Security. Requiring two-factor needs 
 policy first, so they can't lock themselves out, and it can't then be turned off by someone it applies to.
 People who sign in with SSO have no MOSS password and are left out.
 
+## Signing in with Microsoft or Google (single sign-on)
+Business (needs a licence covering the Microsoft 365 or Google Workspace integration). On the integration's
+page, Sign in with Microsoft / Google (settings.manage and secrets.manage): it shows the redirect URI to
+register (the address you opened MOSS with; people must sign in through the same address). Microsoft: uses
+the integration's app registration (add a Web platform with the redirect URI). Google: its own OAuth client
+(client ID, client secret stored as secret:google-oauth-secret, usable only for signing in) and the
+Workspace domains allowed; Google only accepts a real domain name in the redirect URI (open MOSS by its Let's
+Encrypt or Tailscale ts.net name, not an IP or .lan). Then "Let people sign in with ...". The sign-in page
+shows the button while the integration is licensed, on and set up. Only people already in Users can sign in:
+matched by email the first time (Microsoft: in your tenant only; Google: a verified email in an allowed
+domain), then by their account id. Nobody new is created; anyone else is refused (audited). The provider
+checks MFA, so MOSS doesn't ask for its own two-factor code, and there's no MOSS password to expire. Adding a
+person in Users: the password is optional while single sign-on is on. Single sign-on only (on the same
+card): only owners can sign in with a password; everyone else with Microsoft or Google. It applies only
+while a sign-in method works: if the licence lapses or the integration is switched off, passwords work again.
+
+## The Microsoft 365 integration
+Business, read-only. Settings > Integrations > Microsoft 365. Connection: an app registration in the Entra
+admin centre (single tenant): directory (tenant) ID, application (client) ID and a client secret
+(secret:m365-client-secret). Grant these Microsoft Graph application permissions, with admin consent:
+User.Read.All, DeviceManagementManagedDevices.Read.All, ServiceHealth.Read.All; optional:
+IdentityRiskyUser.Read.All (Entra ID P2), Application.Read.All (to warn before the client secret expires).
+Features: Intune devices in the inventory (every 6 hours, with user, serial and compliance; added even
+without an address on your network); service health and security (every 15 minutes: one monitor each for
+Microsoft 365 service incidents (down) and advisories (degraded), device compliance, risky users, and the app
+secret expiring within 30 days). Anything the app may not read is skipped. Agent tools: m365_users,
+m365_devices, m365_service_health (skill: Workplace Directory).
+
+## The Google Workspace integration
+Business, read-only. Settings > Integrations > Google Workspace. Connection: a service account's JSON key
+(secret:google-service-account) with domain-wide delegation in the Admin console (Security > API controls)
+for admin.directory.user.readonly, admin.directory.device.mobile.readonly,
+admin.directory.device.chromeos.readonly and apps.alerts, and an admin's email for it to act as. Features:
+managed phones, tablets and Chromebooks in the inventory (every 6 hours); security alerts (every 15
+minutes: Alert Center alerts from the last 7 days that aren't closed, as one monitor, down for high
+severity). Agent tools: gworkspace_users, gworkspace_devices, gworkspace_alerts.
+
 ## The business licence
 Business integrations (listed under Business in Settings > Integrations) need a business licence; everything
 else in MOSS is free. Without one they're greyed out: their pages say what they do, and nothing can be set up,

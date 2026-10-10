@@ -8,6 +8,7 @@ Stored per install; most are switched on the Settings page.
 | --- | --- | --- |
 | agents.kill_switch | false | Stops every agent at once: no tool calls run until it's switched off (the kill switch at the bottom of the menu). |
 | auth.password_policy | {} | The password policy (Settings → Security): minimum length (12 by default), required kinds of character, how many old passwords can't be reused, maximum age, who must use two-factor sign-in, and an optional check against known-breached passwords. |
+| auth.sso_only | false | Single sign-on only: everyone but owners must sign in with Microsoft or Google (owners keep their password and two-factor, in case sign-in breaks). |
 | backups.last_scheduled | "" | When the last scheduled MOSS backup started (or the schedule was saved), so each slot runs once. |
 | backups.schedule | {} | Scheduled MOSS backups (Settings → Backups): off, daily or weekly at an hour in the install's time zone, and how many archives to keep (10 by default). Archives go to deploy/backups on the host, the same as deploy/backup.sh makes. |
 | changes.allow_emergency | false | Lets agents raise emergency changes that run straight away and are reviewed afterwards. Off by default. |
@@ -82,6 +83,18 @@ Granted by: Home Lab Integrations.
 A network tool (read), run by the toolbox through the policy gate. List the Docker containers on a server over SSH: name, image, state and status. The account must be allowed to use Docker.
 Granted by: Server Actions, Server Checks.
 
+## Tool gworkspace_alerts
+A network tool (read), run by the toolbox through the policy gate. List Google Workspace Alert Center alerts from the last 7 days that aren't closed (suspicious sign-ins, phishing, leaked passwords and the like). Calls Google's Alert Center API.
+Granted by: Workplace Directory.
+
+## Tool gworkspace_devices
+A network tool (read), run by the toolbox through the policy gate. List the phones, tablets and Chromebooks Google Workspace manages: model, OS, serial, user, status and last sync. Calls Google's Admin SDK.
+Granted by: Workplace Directory.
+
+## Tool gworkspace_users
+A network tool (read), run by the toolbox through the policy gate. List the people in Google Workspace: email, name, suspended, admin, 2-step verification and last sign-in. Calls Google's Admin SDK.
+Granted by: Workplace Directory.
+
 ## Tool homeassistant_devices
 A network tool (read), run by the toolbox through the policy gate. List the devices Home Assistant knows: name, room (area), manufacturer and model, and any MAC and IP addresses it has for them.
 Granted by: Home Assistant.
@@ -121,6 +134,18 @@ Granted by: Server Actions.
 ## Tool http_probe
 A network tool (read), run by the toolbox through the policy gate. Make one HTTP(S) request to a host and report the status code, latency and whether an optional keyword appears in the first 256 KB of the body. Does not follow redirects. Use hostHeader for virtual hosts (also used as TLS SNI).
 Granted by: Monitoring Response, Service Health Checks.
+
+## Tool m365_devices
+A network tool (read), run by the toolbox through the policy gate. List the laptops and phones managed in Intune: name, OS, serial, user, compliance and last check-in. Calls Microsoft Graph.
+Granted by: Workplace Directory.
+
+## Tool m365_service_health
+A network tool (read), run by the toolbox through the policy gate. Microsoft 365's open service incidents and advisories, devices out of compliance, users Entra ID flags as at risk, and when MOSS's app secret expires. Calls Microsoft Graph.
+Granted by: Workplace Directory.
+
+## Tool m365_users
+A network tool (read), run by the toolbox through the policy gate. List the people in Microsoft 365 / Entra ID: name, sign-in name, email, whether enabled, job title and department. Calls Microsoft Graph.
+Granted by: Workplace Directory.
 
 ## Tool moss_releases
 A network tool (read), run by the toolbox through the policy gate. List MOSS's own release tags from its public repository on GitHub (to tell whether MOSS is up to date). Calls api.github.com.
@@ -332,7 +357,7 @@ Granted by: Asset Inventory.
 
 ## Tool inventory_search
 A MOSS tool (works on MOSS itself; needs the assets.read permission). Search the asset inventory by free text (name, hostname, vendor, MAC, IP, notes), IP/CIDR, or kind.
-Granted by: Asset Inventory, Firewall Actions, Home Lab Integrations, Network Insight, Network Wiki, Security Baseline Review, Server Checks, Service Desk, Service Health Checks, Vulnerability Scanning.
+Granted by: Asset Inventory, Firewall Actions, Home Lab Integrations, Network Insight, Network Wiki, Security Baseline Review, Server Checks, Service Desk, Service Health Checks, Vulnerability Scanning, Workplace Directory.
 
 ## Tool inventory_update
 A MOSS tool (works on MOSS itself; needs the assets.manage permission). Update an asset's classification and notes. Locked assets cannot be changed.
@@ -481,6 +506,10 @@ Tools: unifi_client_block, unifi_dhcp_reservation, unifi_wlan_enable, unifi_clie
 ## Skill Vulnerability Scanning
 Added per agent. Key vulnerability-scanning. Check devices for known vulnerabilities and weak configurations with nmap, Nuclei and testssl.sh, and report what matters.
 Tools: vuln_scan, nuclei_scan, tls_audit, inventory_search, incident_create, incident_list, incident_comment.
+
+## Skill Workplace Directory
+Added per agent. Key workplace-directory. Read Microsoft 365 / Entra ID and Google Workspace (people, managed laptops and phones, service health and security alerts).
+Tools: m365_users, m365_devices, m365_service_health, gworkspace_users, gworkspace_devices, gworkspace_alerts, inventory_search.
 
 ## Agent templates
 

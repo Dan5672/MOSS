@@ -135,7 +135,7 @@ function IntegrationCard({ def, it, locked = false }: { def: IntegrationDef; it:
   const on = def.features.filter((f) => it.config.features[f.key]).map((f) => f.label.toLowerCase());
   if (locked) {
     return (
-      <Card aria-disabled="true" className="opacity-60">
+      <Card className="opacity-60">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             {def.name} <Badge variant="outline">Business licence</Badge>

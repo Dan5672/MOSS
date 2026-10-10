@@ -1,12 +1,12 @@
 // Fresh database for every e2e run: migrate and truncate everything. Also starts a stand-in for the
 // gate's write-only secrets API that runs the gate's own writeSecret, so secrets are really encrypted.
-import { parseMasterKey } from "@moss/core";
+import { parseMasterKey, ssoAvailable } from "@moss/core";
 import { createDb } from "@moss/db";
 import { createTestDb } from "@moss/db/testing";
 import { createServer } from "node:http";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { E2E_BACKUP_PORT, E2E_BACKUP_TOKEN, E2E_CADDY_ADMIN, E2E_DATABASE_URL, E2E_GATE_PORT, E2E_MASTER_KEY_HEX, E2E_TLS_DIR, E2E_WEB_TOKEN } from "../playwright.config";
+import { E2E_BACKUP_PORT, E2E_BACKUP_TOKEN, E2E_CADDY_ADMIN, E2E_DATABASE_URL, E2E_GATE_PORT, E2E_LICENCE_DIR, E2E_MASTER_KEY_HEX, E2E_TLS_DIR, E2E_WEB_TOKEN } from "../playwright.config";
 
 interface GateBackupsApi {
   readBackup(db: ReturnType<typeof createDb>, masterKey: Buffer, id: string, userId: string): Promise<{ filename: string; contentType: string; content: Buffer } | null>;
@@ -58,6 +58,8 @@ interface GateSecretsApi {
 }
 
 export default async function globalSetup() {
+  // The stand-in gate checks licences like the real one: it trusts the test signing key too.
+  process.env.MOSS_LICENCE_EXTRA_PUBLIC_KEY = readFileSync(join(E2E_LICENCE_DIR, "test.pub"), "utf8").trim();
   const { close } = await createTestDb("web_e2e");
   await close();
 
@@ -73,12 +75,38 @@ export default async function globalSetup() {
   const { moduleManagerOrg, runHomeAssistantOp } = (await import(gateHomeAssistantApi)) as GateHomeAssistantApi;
   const db = createDb(E2E_DATABASE_URL);
   const masterKey = parseMasterKey(Buffer.from(E2E_MASTER_KEY_HEX));
+  let ssoNext = "";
   const server = createServer((req, res) => {
     let body = "";
     req.on("data", (c) => (body += c));
     req.on("end", async () => {
       const reply = (status: number, json: unknown) => res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(json));
+      // A stand-in Microsoft and Google for signing in (MOSS_SSO_STANDIN_URL points the browser here): it signs in
+      // whoever the test named last, and sends the browser back with a code saying who, and the nonce.
+      if (req.method === "POST" && req.url === "/sso-next") {
+        ssoNext = (JSON.parse(body) as { email: string }).email;
+        return reply(200, { ok: true });
+      }
+      if (req.method === "GET" && req.url?.startsWith("/sso/")) {
+        const u = new URL(req.url, "http://stand-in");
+        const q = u.searchParams;
+        const code = Buffer.from(JSON.stringify({ email: ssoNext, nonce: q.get("nonce") })).toString("base64url");
+        const back = new URL(q.get("redirect_uri")!);
+        back.searchParams.set("code", code);
+        back.searchParams.set("state", q.get("state")!);
+        return res.writeHead(303, { location: back.toString() }).end();
+      }
       if (req.headers.authorization !== `Bearer ${E2E_WEB_TOKEN}`) return reply(401, { error: "unauthorized" });
+      // The gate's sign-in exchange: switched on (licensed, set up) as the real one checks, then the stand-in's claims.
+      const sso = req.method === "POST" ? /^\/v1\/web\/sso\/(microsoft|google)\/exchange$/.exec(req.url ?? "") : null;
+      if (sso) {
+        const { orgId, code } = JSON.parse(body) as { orgId: string; code: string };
+        const provider = sso[1] as "microsoft" | "google";
+        const setup = await ssoAvailable(db, orgId, provider);
+        if (!setup) return reply(200, { ok: false, error: `Signing in with ${provider} isn't switched on` });
+        const who = JSON.parse(Buffer.from(code, "base64url").toString()) as { email: string; nonce: string };
+        return reply(200, { ok: true, claims: { provider, id: `id-${who.email}`, email: who.email, nonce: who.nonce, tenantId: setup.client.tenantId } });
+      }
       const download = req.method === "GET" ? /^\/v1\/backups\/([0-9a-f-]{36})\?userId=([0-9a-f-]{36})$/.exec(req.url ?? "") : null;
       if (download) {
         const backup = await readBackup(db, masterKey, download[1]!, download[2]!);

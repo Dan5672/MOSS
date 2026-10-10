@@ -97,6 +97,15 @@ export function buildGateServer(gate: Gate, opts: GateServerOptions) {
       return gate.homeAssistant({ orgId, op, userId });
     });
 
+    // Someone signing in with Microsoft or Google (not signed in yet, so no user: the web app names the org).
+    app.post<{ Params: { provider: string }; Body: { orgId?: string; code?: string; redirectUri?: string; codeVerifier?: string } }>("/v1/web/sso/:provider/exchange", async (req, reply) => {
+      const provider = req.params.provider;
+      if (provider !== "microsoft" && provider !== "google") return reply.code(404).send({ error: "unknown provider" });
+      const { orgId, code, redirectUri, codeVerifier } = req.body ?? {};
+      if (!orgId || !UUID.test(orgId) || !code || !redirectUri || !codeVerifier) return reply.code(400).send({ error: "orgId, code, redirectUri and codeVerifier are required" });
+      return gate.sso({ orgId, provider, code, redirectUri, codeVerifier });
+    });
+
     // A person checking for MOSS updates (Settings → About): the newest release tags, fetched through the toolbox.
     app.post<{ Body: { userId?: string } }>("/v1/web/releases", async (req, reply) => {
       const userId = req.body?.userId;

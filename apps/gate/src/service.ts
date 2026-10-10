@@ -17,6 +17,7 @@ import { storeBackup } from "./backups.js";
 import { loadAgent, loadContext, loadCustomTool, loadCustomTools, loadToolGrants } from "./context.js";
 import { runHomeAssistantOp, type HaOp } from "./home-assistant.js";
 import { runIntegrationOp } from "./integrations.js";
+import { ssoExchange } from "./sso.js";
 import { runMonitorCheck } from "./monitor-check.js";
 import type { ToolboxClient } from "./toolbox-client.js";
 
@@ -216,7 +217,10 @@ export function createGate(deps: GateDeps) {
     return res.ok ? { ok: true, tags: (res.result as { tags: string[] }).tags } : { ok: false, error: res.error ?? "The toolbox couldn't reach GitHub" };
   };
 
-  return { handleToolCall, listAgentTools, checkMonitor, homeAssistant, integration, releases };
+  /** A person signing in with Microsoft or Google: the code exchanged and the token checked. */
+  const sso = (req: Parameters<typeof ssoExchange>[1]) => ssoExchange({ db: deps.db, masterKey: deps.masterKey, toolbox: deps.toolbox }, req, deps.now?.());
+
+  return { handleToolCall, listAgentTools, checkMonitor, homeAssistant, integration, releases, sso };
 }
 
 export type Gate = ReturnType<typeof createGate>;

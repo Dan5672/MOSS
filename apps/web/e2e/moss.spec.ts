@@ -1,12 +1,12 @@
 // One story through the UI, in order: a new owner sets MOSS up and runs their IT department.
-import { createChangeRequest, dispatchEvents, encryptSecret, handleIncoming, handleMonitorDown, handleMonitorUp, parseMasterKey, signLicence, totpCode } from "@moss/core";
+import { createChangeRequest, dispatchEvents, encryptSecret, handleIncoming, handleMonitorDown, handleMonitorUp, parseMasterKey, removeLicence, saveLicence, signLicence, totpCode } from "@moss/core";
 import { agentRuns, agents, configBackups, createDb, modules, monitors, secrets, users, type Database } from "@moss/db";
 import { expect, test, type Page } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { E2E_DATABASE_URL, E2E_LICENCE_DIR, E2E_MASTER_KEY_HEX, E2E_TLS_DIR } from "../playwright.config";
+import { E2E_DATABASE_URL, E2E_GATE_PORT, E2E_LICENCE_DIR, E2E_MASTER_KEY_HEX, E2E_TLS_DIR } from "../playwright.config";
 
 test.describe.configure({ mode: "serial" });
 
@@ -1399,6 +1399,90 @@ test("licence: add a business licence (checked first), see what it covers, and r
   await card.getByRole("button", { name: "Remove licence" }).click();
   await expect(page.getByText("Licence removed. Business integrations have stopped; their settings are kept.")).toBeVisible();
   await expect(card).toContainText("Business licenceNone");
+});
+
+test("business: Microsoft 365 locked without a licence; with one, people in MOSS sign in with Microsoft", async () => {
+  const TENANT = "11111111-2222-3333-4444-555555555555";
+  const CLIENT = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+  const ssoAs = (email: string) => page.request.post(`http://127.0.0.1:${E2E_GATE_PORT}/sso-next`, { data: { email } });
+
+  // No licence: greyed out, and its page only says what it does.
+  await page.goto("/settings/integrations");
+  const business = page.getByRole("region", { name: /Business/ });
+  await expect(business).toContainText("Needs a licence");
+  const m365 = business.locator(".opacity-60").filter({ hasText: "Microsoft 365" });
+  await expect(m365).toContainText("Business licence");
+  await m365.getByRole("link", { name: "What it does" }).click();
+  await expect(page.getByText("Needs a business licence")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save connection" })).toHaveCount(0);
+
+  // With a licence: set it up, switch it on, and let people sign in with Microsoft.
+  process.env.MOSS_LICENCE_EXTRA_PUBLIC_KEY = readFileSync(join(E2E_LICENCE_DIR, "test.pub"), "utf8").trim();
+  const db = createDb(E2E_DATABASE_URL);
+  const [owner] = await db.select().from(users).where(eq(users.email, OWNER.email));
+  const key = signLicence(
+    { v: 1, kid: "test", id: "e2e-sso", licensee: "Home", plan: "business", features: ["*"], issued: new Date().toISOString(), expires: "2099-12-31T23:59:59.000Z" },
+    readFileSync(join(E2E_LICENCE_DIR, "test.key"), "utf8"),
+  );
+  await saveLicence(db, owner!.orgId, key, { type: "user", id: owner!.id });
+  await page.goto("/settings/integrations/m365");
+  await page.getByLabel("Directory (tenant) ID").fill("not-a-guid");
+  await page.getByLabel("Application (client) ID").fill(CLIENT);
+  await page.getByLabel("Client secret").fill("the-client-secret");
+  await page.getByRole("button", { name: "Save connection" }).click();
+  await expect(page.getByText(/^Directory \(tenant\) ID: The directory \(tenant\) ID/)).toBeVisible();
+  await page.getByLabel("Directory (tenant) ID").fill(TENANT);
+  await page.getByRole("button", { name: "Save connection" }).click();
+  await expect(page.getByText("Saved the connection and the credential.")).toBeVisible();
+  await page.getByRole("button", { name: "Switch integration on" }).click();
+  const sso = page.locator("#sso");
+  await expect(sso.getByLabel("Redirect URI")).toHaveText("http://127.0.0.1:3107/api/auth/sso/microsoft/callback");
+  await sso.getByLabel("Let people sign in with Microsoft").check();
+  await sso.getByRole("button", { name: "Save sign-in" }).click();
+  await expect(page.getByText("People in MOSS can now sign in with Microsoft.")).toBeVisible();
+
+  // Someone with no MOSS password, who signs in with Microsoft.
+  await page.goto("/users");
+  await page.getByRole("button", { name: "Add a person" }).click();
+  const add = page.getByRole("dialog", { name: "Add a person" });
+  await add.getByLabel("Name").fill("Sam Sso");
+  await add.getByLabel("Email").fill("sam@home.test");
+  await add.getByRole("button", { name: "Add person" }).click();
+  await expect(page.getByText("Added Sam Sso. They sign in with Microsoft or Google, as sam@home.test.")).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  await signOut();
+  await ssoAs("stranger@home.test");
+  await page.getByRole("link", { name: "Sign in with Microsoft" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "isn't in MOSS" })).toContainText("stranger@home.test isn't in MOSS. Ask an admin to add you in Users");
+  await ssoAs("SAM@home.test");
+  await page.getByRole("link", { name: "Sign in with Microsoft" }).click();
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  const [sam] = await db.select().from(users).where(eq(users.email, "sam@home.test"));
+  expect(sam!.oidcSubject).toBe(`microsoft:${TENANT}:id-SAM@home.test`);
+  await signOut();
+
+  // Single sign-on only: a viewer's password is refused; the owner's still works.
+  await signIn(OWNER.email, OWNER.password, totpCode(ownerTotpSecret));
+  await page.goto("/settings/integrations/m365");
+  page.once("dialog", (d) => d.accept());
+  await page.locator("#sso").getByRole("button", { name: "Switch on single sign-on only" }).click();
+  await expect(page.getByText(/^Only owners can sign in with a password now/)).toBeVisible();
+  await signOut();
+  await page.getByLabel("Email").fill(VIEWER.email);
+  await page.getByLabel("Password").fill(VIEWER.password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByText("Sign in with Microsoft or Google: your organisation doesn't use MOSS passwords.")).toBeVisible();
+  await signIn(OWNER.email, OWNER.password, totpCode(ownerTotpSecret));
+
+  // Leave things as they were for the tests after this one.
+  await page.goto("/settings/integrations/m365");
+  await page.locator("#sso").getByRole("button", { name: "Allow passwords again" }).click();
+  await expect(page.getByText("Everyone can sign in with their MOSS password again.")).toBeVisible();
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Switch integration off" }).click();
+  await expect(page.getByRole("button", { name: "Switch integration on" })).toBeVisible();
+  await removeLicence(db, owner!.orgId, { type: "user", id: owner!.id });
 });
 
 test("https: upload your own certificate (checked first), then go back to MOSS's own", async () => {

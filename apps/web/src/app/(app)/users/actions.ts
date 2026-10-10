@@ -1,6 +1,6 @@
 "use server";
 
-import { checkNewPassword, getPasswordPolicy, hashPassword, MIN_PASSWORD_LENGTH, writeAudit } from "@moss/core";
+import { anySsoAvailable, checkNewPassword, getPasswordPolicy, hashPassword, MIN_PASSWORD_LENGTH, writeAudit } from "@moss/core";
 import { roles, sessions, userRoles, users } from "@moss/db";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -39,21 +39,27 @@ export async function addUserAction(_: ActionState, form: FormData): Promise<Act
         displayName: z.string().min(1).max(100),
         email: z.email(),
         role: z.string(),
-        password: z.string().min(MIN_PASSWORD_LENGTH, `Use at least ${MIN_PASSWORD_LENGTH} characters`).max(200),
+        password: z.string().max(200).optional(),
       })
       .parse(formObject(form));
+    // No password: only for someone who signs in with Microsoft or Google.
+    const password = input.password || null;
+    if (!password && !(await anySsoAvailable(db(), actor.orgId))) throw new Error("Set an initial password (signing in with Microsoft or Google isn't on).");
+    if (password && password.length < MIN_PASSWORD_LENGTH) throw new Error(`Use at least ${MIN_PASSWORD_LENGTH} characters`);
     if (input.role === "owner" && !(await roleKeysOf(actor.id)).includes("owner")) throw new Error("Only an owner can create owners.");
-    await checkNewPassword(db(), await getPasswordPolicy(db(), actor.orgId), input.password);
+    if (password) await checkNewPassword(db(), await getPasswordPolicy(db(), actor.orgId), password);
     const rid = await roleId(actor.orgId, input.role);
     const [user] = await db()
       .insert(users)
-      .values({ orgId: actor.orgId, email: input.email.toLowerCase(), displayName: input.displayName, passwordHash: await hashPassword(input.password) })
+      .values({ orgId: actor.orgId, email: input.email.toLowerCase(), displayName: input.displayName, passwordHash: password ? await hashPassword(password) : null })
       .onConflictDoNothing()
       .returning();
     if (!user) throw new Error("Someone with that email already exists.");
     await db().insert(userRoles).values({ userId: user.id, roleId: rid });
     await writeAudit(db(), { orgId: actor.orgId, actorType: "user", actorId: actor.id, action: "user.add", targetType: "user", targetId: user.id, details: { email: user.email, role: input.role } });
-    return `Added ${input.displayName}. Share their password with them securely; they can turn on two-factor in Settings.`;
+    return password
+      ? `Added ${input.displayName}. Share their password with them securely; they can turn on two-factor in Settings.`
+      : `Added ${input.displayName}. They sign in with Microsoft or Google, as ${user.email}.`;
   });
 }
 

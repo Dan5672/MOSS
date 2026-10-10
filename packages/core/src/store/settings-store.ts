@@ -17,6 +17,8 @@ export const SETTING_DEFAULTS = {
   "homeassistant.allow_resume": false,
   /** The newest changelog version Moss has announced in #general. */
   "moss.announced_version": "" as string,
+  /** Only owners may sign in with a password; everyone else signs in with Microsoft or Google. */
+  "auth.sso_only": false,
   /** The business licence key (signed, checked on every use; see licensing/licence.ts). Empty: none. */
   "licence.key": "" as string,
   /** Which licence expiry reminders have been sent, for which licence. */
@@ -67,6 +69,7 @@ export const SETTING_DESCRIPTIONS = {
   "monitoring.quiet_until": "Maintenance mode: until this time, monitors keep checking but raise no incidents. Set from Home Assistant.",
   "homeassistant.allow_resume": "Whether the Home Assistant integration may resume paused agents (pausing is always allowed).",
   "moss.announced_version": "The newest version Moss has announced in #general (What's new, from library/docs/changelog.md).",
+  "auth.sso_only": "Single sign-on only: everyone but owners must sign in with Microsoft or Google (owners keep their password and two-factor, in case sign-in breaks).",
   "licence.key":
     "The business licence (Settings → About): a signed key, checked offline. Business integrations work only while it's valid, or for 14 days after it expires.",
   "licence.reminded": "Which reminders about the business licence's expiry have been sent (30 and 7 days before, on expiry, and when it stops).",

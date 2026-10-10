@@ -2,7 +2,9 @@ import "server-only";
 import {
   decryptSecret,
   encryptSecret,
+  anySsoAvailable,
   getPasswordPolicy,
+  getSetting,
   mustEnrolTotp,
   passwordExpired,
   generateToken,
@@ -54,7 +56,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
   const [row] = await db()
-    .select({ user: users })
+    .select({ user: users, authMethod: sessions.authMethod })
     .from(sessions)
     .innerJoin(users, eq(sessions.userId, users.id))
     .where(and(eq(sessions.tokenHash, hashToken(token)), gt(sessions.expiresAt, new Date())));
@@ -64,7 +66,8 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     db().select({ key: roles.key }).from(userRoles).innerJoin(roles, eq(roles.id, userRoles.roleId)).where(eq(userRoles.userId, row.user.id)),
   ]);
   const hasPassword = !!row.user.passwordHash;
-  const blocker = mustEnrolTotp(policy, { totpEnabled: !!row.user.totpSecretRef, hasPassword, roles: roleRows.map((r) => r.key) })
+  // Signed in with Microsoft or Google: the provider checked MFA, and there's no MOSS password to expire.
+  const blocker = row.authMethod !== "password" ? null : mustEnrolTotp(policy, { totpEnabled: !!row.user.totpSecretRef, hasPassword, roles: roleRows.map((r) => r.key) })
     ? "enrol_totp"
     : hasPassword && passwordExpired(policy, row.user.passwordChangedAt)
       ? "change_password"
@@ -112,7 +115,7 @@ async function clientIp(): Promise<string | null> {
   return h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || null;
 }
 
-export async function startSession(userId: string) {
+export async function startSession(userId: string, method: "password" | "microsoft" | "google" = "password") {
   const token = generateToken("mss");
   const h = await headers();
   await db()
@@ -123,6 +126,7 @@ export async function startSession(userId: string) {
       expiresAt: new Date(Date.now() + SESSION_TTL_MS),
       ip: await clientIp(),
       userAgent: h.get("user-agent")?.slice(0, 300) ?? null,
+      authMethod: method,
     });
   await db().update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, userId));
   (await cookies()).set(SESSION_COOKIE, token, {
@@ -173,6 +177,12 @@ export async function login(email: string, password: string, totpCode?: string):
   const valid = await verifyPassword(password, user?.passwordHash ?? "scrypt$32768$8$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
   if (!user || !valid || user.status !== "active") return fail(user?.orgId ?? null, user?.id ?? null, "password");
 
+  // Single sign-on only: owners keep their password (and two-factor) in case sign-in breaks.
+  // Only while signing in with Microsoft or Google works: a lapsed licence or a switched-off integration can't lock people out.
+  if ((await getSetting(db(), user.orgId, "auth.sso_only")) && !(await isOwner(user.id)) && (await anySsoAvailable(db(), user.orgId))) {
+    return { ok: false, error: "Sign in with Microsoft or Google: your organisation doesn't use MOSS passwords." };
+  }
+
   if (user.totpSecretRef) {
     if (!totpCode) return { ok: false, error: "Enter the code from your authenticator app.", needTotp: true };
     const secret = decryptSecret(config.appKey(), user.id, JSON.parse(user.totpSecretRef));
@@ -186,6 +196,11 @@ export async function login(email: string, password: string, totpCode?: string):
   await startSession(user.id);
   await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "auth.login", details: { ip } });
   return { ok: true };
+}
+
+async function isOwner(userId: string): Promise<boolean> {
+  const rows = await db().select({ key: roles.key }).from(userRoles).innerJoin(roles, eq(roles.id, userRoles.roleId)).where(eq(userRoles.userId, userId));
+  return rows.some((r) => r.key === "owner");
 }
 
 /** Checks a code from someone's authenticator app (for steps that need a fresh one, like downloading a MOSS backup). */

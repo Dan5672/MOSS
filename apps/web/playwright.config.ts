@@ -50,6 +50,8 @@ export default defineConfig({
       MOSS_LIBRARY_DIR: "../../library",
       // A development build after v0.9.0, as deploy/upgrade.sh records it.
       MOSS_RELEASE: "v0.9.0-12-gabc1234",
+      // Signing in with Microsoft or Google goes to the stand-in in global-setup.
+      MOSS_SSO_STANDIN_URL: `http://127.0.0.1:${E2E_GATE_PORT}/sso`,
       MOSS_LICENCE_EXTRA_PUBLIC_KEY: readFileSync(join(E2E_LICENCE_DIR, "test.pub"), "utf8").trim(),
       // HTTPS with MOSS's own CA, as a default install has (the CA itself isn't reachable here).
       MOSS_TLS: "internal",
