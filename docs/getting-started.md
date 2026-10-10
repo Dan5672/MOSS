@@ -87,7 +87,7 @@ authenticator app. The **Getting started** checklist on the dashboard walks thro
      ISP's equipment.
    - Set the network's **DNS server** (usually your router), so devices are found by name rather
      than just their address.
-2. **Add a model.** Go to **Models** and add an AI provider and a model. You can use:
+2. **Add a model.** Go to **Agents → Models** and add an AI provider and a model. You can use:
    - an API key (Anthropic, OpenAI and others);
    - a model on your own machine (Ollama, LM Studio);
    - a Claude subscription (see the README).

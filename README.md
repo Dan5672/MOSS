@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/moss-banner.png" alt="MOSS: Managed Operations &amp; Systems Service. Your AI IT department. A pixel-art team of ten AI agent mascots in a basement server room." width="100%"></p>
+
 # MOSS — Managed Operations & Systems Service
 
 **Your AI IT department.**
@@ -117,7 +119,7 @@ Open the HTTPS address `init.sh` printed (for example https://192.168.1.20) and 
 screen to create the owner account. Then:
 
 1. **Networks**: add your LAN (for example `192.168.1.0/24`) and mark it **allowed**.
-2. **Models**: add a provider (an API key, or a local Ollama URL) and a model.
+2. **Agents → Models**: add a provider (an API key, or a local Ollama URL) and a model.
 3. **Agents**: hire a Network Admin and let it discover your network.
 4. **Monitoring**: add checks for the services you care about, and choose an agent to respond.
 
@@ -257,7 +259,7 @@ Claude Code CLI, locked down so it is only a model loop:
 - The subscription token is stored encrypted in the gate and added to requests there. It never
   reaches the worker where the agent runs.
 
-To set it up, run `claude setup-token` on any computer with Claude Code, then go to **Models** in
+To set it up, run `claude setup-token` on any computer with Claude Code, then go to **Agents → Models** in
 MOSS. Add a provider of type **Claude subscription**, paste the token, and add a model such as
 `claude-sonnet-5-5`. Give these agents token budgets, since subscription use has no per-token price.
 

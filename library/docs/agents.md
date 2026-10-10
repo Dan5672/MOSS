@@ -15,7 +15,7 @@ flags a tool that is granted but blocked by the role.
 
 ## Budgets and models
 Each agent has daily or monthly budgets (soft: a warning; hard: the agent pauses). Token use is metered
-exactly and priced per model (Models page; prices are editable). Agents can run on API keys, a local
+exactly and priced per model (Agents → Models; prices are editable). Agents can run on API keys, a local
 Ollama, OpenRouter, any OpenAI-compatible endpoint, or a Claude Pro/Max subscription.
 
 ## Recurring tasks

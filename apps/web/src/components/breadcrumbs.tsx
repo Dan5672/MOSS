@@ -20,7 +20,7 @@ const LABELS: Record<string, string> = {
   "/changes": "Changes",
   "/chat": "Chat",
   "/incidents": "Incidents",
-  "/models": "Models",
+  "/agents/models": "Models",
   "/monitoring": "Monitoring",
   "/monitoring/sources": "Webhook sources",
   "/notifications": "Notifications",

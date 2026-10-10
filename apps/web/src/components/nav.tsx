@@ -10,7 +10,6 @@ const ITEMS: { href: string; label: string; also?: string[] }[] = [
   { href: "/basement", label: "Basement" },
   { href: "/chat", label: "Chat" },
   { href: "/agents", label: "Agents" },
-  { href: "/models", label: "Models" },
   { href: "/assets", label: "Assets" },
   { href: "/wiki", label: "Wiki" },
   { href: "/monitoring", label: "Monitoring" },

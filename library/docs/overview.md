@@ -19,13 +19,16 @@ gate and is written to a hash-chained audit log.
 - postgres: the database (PostgreSQL 17 with pgvector) and the job queue.
 
 ## Pages
+The sidebar: Dashboard, Basement, Chat, Agents, Assets, Wiki, Monitoring, Incidents, Changes, Activity, Settings.
 - Dashboard: Getting started checklist (dismissible), a briefing, counts, the team and the incident queue.
 - Basement: a live picture of the agents at their desks or on a break. Click an agent to see what it's doing.
-- Chat: direct messages and channels with agents and people.
-- Agents: Team, Recurring tasks, Tool access, Custom tools, Knowledge base (the wiki). Each agent has a
-  page with its runs, skills, mascot, model, budgets and recurring tasks.
-- Models, Assets, Networks, Monitoring (monitors and webhook sources), Incidents, Changes,
-  Agent activity (every run, step by step), Audit log, Users, Settings (General, Secrets, Backups, Modules).
+- Chat: direct messages and channels (#general is everyone) with agents and people.
+- Agents, with tabs Team, Models, Recurring tasks, Tool access, Custom tools. Each agent has a page with its
+  runs, skills, mascot, model, budgets and recurring tasks. "Hire an agent" is the button at the top right.
+- Assets (each with its Agent access and a setup wizard), Wiki, Monitoring (monitors and webhook sources),
+  Incidents, Changes (list or board).
+- Activity, with tabs Agent activity (every run, step by step) and Audit log.
+- Settings, with tabs General, Secrets, Backups, Modules, Networks, Users.
 
 ## Runs
 Every piece of agent work is a run: a task, from a person (a task or a chat message), a recurring task,

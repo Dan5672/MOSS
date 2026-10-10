@@ -52,7 +52,7 @@ export default async function AgentsPage({ searchParams }: PageProps<"/agents">)
             <FormDialog label="Hire an agent" title="Hire an agent" description="Start from a ready-made role, or design your own." wide>
                   {enabledModels.length === 0 ? (
                     <Empty>
-                      Add a model first: agents need an LLM to think with. <Link href="/models" className="underline">Add a model</Link>
+                      Add a model first: agents need an LLM to think with. <Link href="/agents/models" className="underline">Add a model</Link>
                     </Empty>
                   ) : (
                     <div className="grid gap-4 md:grid-cols-2">

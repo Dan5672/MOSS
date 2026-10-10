@@ -76,7 +76,11 @@ test("networks: allow a subnet", async () => {
 });
 
 test("models: add a local provider and a model", async () => {
+  // Models live under Agents now; the old address still works.
   await page.goto("/models");
+  await expect(page).toHaveURL(/\/agents\/models$/);
+  await expect(page.getByRole("navigation", { name: "Agents" }).getByRole("link", { name: "Models" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("navigation", { name: "Agents" }).getByRole("link", { name: "Wiki" })).toHaveCount(0);
   await page.getByLabel("Type").selectOption("ollama");
   await page.getByLabel("Name", { exact: true }).fill("Local Ollama");
   await page.getByLabel("Base URL (optional for hosted providers)").fill("http://127.0.0.1:11434/v1");
@@ -246,7 +250,7 @@ test("agents: tool access shows who can use each tool, and the knowledge base ca
   await expect(nmap.getByRole("link", { name: /Nina/ })).toBeVisible();
 
   // The wiki (it grew out of the knowledge base): pages in a tree, Markdown, links, history.
-  await page.getByRole("navigation", { name: "Agents" }).getByRole("link", { name: "Wiki" }).click();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Wiki" }).click(); // the sidebar; it left the Agents tabs
   await expect(page.getByText("No pages yet.")).toBeVisible();
   await page.getByRole("link", { name: "New page" }).click();
   await page.getByLabel("Title", { exact: true }).fill("Network");
