@@ -230,3 +230,10 @@ export async function deleteScheduleAction(agentId: string, scheduleId: string, 
     return "Recurring task deleted.";
   });
 }
+
+/** "New recurring task" on the Recurring tasks page, where the agent is chosen in the form. */
+export async function addRecurringTaskAction(prev: ActionState, form: FormData): Promise<ActionState> {
+  const agentId = String(form.get("agentId") ?? "");
+  if (!/^[0-9a-f-]{36}$/.test(agentId)) return { error: "Choose an agent" };
+  return addScheduleAction(agentId, prev, form);
+}

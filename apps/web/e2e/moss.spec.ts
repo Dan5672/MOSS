@@ -108,6 +108,9 @@ test("models: add a local provider and a model", async () => {
 
 test("agents: hire, budget, pause and resume", async () => {
   await page.goto("/agents");
+  // Hiring lives behind a button at the top right.
+  await expect(page.getByRole("button", { name: "Hire Nina" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Hire an agent" }).click();
   await page.getByRole("button", { name: "Hire Nina" }).click();
   await expect(page.getByRole("heading", { name: "Nina" })).toBeVisible();
   await expect(page.getByText("Network Discovery")).toBeVisible();
@@ -195,10 +198,25 @@ test("agents: recurring tasks read as words and can be edited, turned off, added
   await add.getByRole("button", { name: "Add recurring task" }).click();
   await expect(add.getByRole("alert")).toContainText("more than every 5 minutes");
 
-  // Everyone's recurring tasks, in one place.
+  // Everyone's recurring tasks, in one list: added from the top, filtered and sorted.
   await page.goto("/agents/recurring");
   await expect(page.getByText("Check the backup NAS has space left.").first()).toBeVisible();
   await expect(page.getByText("Saturdays at 07:30", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "New recurring task" }).click();
+  const fresh = page.getByRole("dialog", { name: "New recurring task" });
+  await fresh.getByLabel("Agent").selectOption({ label: "Nina (Network Admin)" });
+  await fresh.getByLabel("Task").fill("Check the printer has toner.");
+  await fresh.getByRole("button", { name: "Add recurring task" }).click();
+  await expect(page.getByText(/^Recurring task added/)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("cell", { name: "Check the printer has toner." })).toBeVisible();
+  await page.getByLabel("Search tasks").fill("toner");
+  await page.getByRole("button", { name: "Filter" }).click();
+  await expect(page.getByRole("row")).toHaveCount(2); // the header and the match
+  await page.goto("/agents/recurring?status=off");
+  await expect(page.getByText("No recurring tasks match.").or(page.getByRole("cell", { name: "off" }).first())).toBeVisible();
+  await page.goto("/agents/recurring?sort=agent&dir=desc");
+  await expect(page.getByRole("columnheader", { name: /^Agent/ })).toHaveAttribute("aria-sort", "descending");
   page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "Delete" }).first().click();
   await expect(page.getByText("Recurring task deleted.")).toBeVisible();
@@ -264,6 +282,8 @@ test("settings: secrets are scoped to hosts and tools, granted to agents, and ne
   await page.goto("/settings");
   await page.getByRole("link", { name: "Secrets" }).click();
   await expect(page.getByText("No secrets yet.")).toBeVisible();
+  // The form lives behind a button at the top right.
+  await page.getByRole("button", { name: "Add a secret" }).click();
   const add = page.locator("form", { has: page.getByRole("button", { name: "Save secret" }) });
   await add.getByLabel("Name", { exact: true }).fill("unifi-api");
   await add.getByRole("textbox", { name: "Value" }).fill("super-secret-key-value");
@@ -288,6 +308,7 @@ test("settings: secrets are scoped to hosts and tools, granted to agents, and ne
   await add.getByRole("textbox", { name: "Value" }).fill("super-secret-key-value");
   await add.getByRole("button", { name: "Save secret" }).click();
   await expect(page.getByText("Saved secret:unifi-api (22 characters).")).toBeVisible();
+  await page.keyboard.press("Escape");
 
   const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: "secret:unifi-api" }) });
   await expect(card).toContainText("192.168.50.1");
@@ -417,6 +438,7 @@ test("settings: the Motion setting can override the device's reduced-motion pref
 
 test("agents: hire a custom agent with chosen skills", async () => {
   await page.goto("/agents");
+  await page.getByRole("button", { name: "Hire an agent" }).click();
   const form = page.locator("form", { has: page.getByRole("button", { name: "Hire custom agent" }) });
   await form.getByLabel("Name").fill("Wren");
   await form.getByLabel("Job title").fill("Backup Admin");
@@ -865,10 +887,13 @@ test("two-factor: enrol, then sign in with a code", async () => {
 
 test("users: a viewer can look but not approve or manage", async () => {
   await page.goto("/users");
+  await page.getByRole("button", { name: "Add a person" }).click();
   await page.getByLabel("Name").fill(VIEWER.name);
   await page.getByLabel("Email").fill(VIEWER.email);
   await page.getByLabel("Initial password").fill(VIEWER.password);
   await page.getByRole("button", { name: "Add person" }).click();
+  await expect(page.getByText(/^Added Vic Viewer\./)).toBeVisible();
+  await page.keyboard.press("Escape");
   await expect(page.getByRole("cell", { name: /Vic Viewer/ })).toBeVisible();
 
   await signOut();
