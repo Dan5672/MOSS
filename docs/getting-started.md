@@ -334,10 +334,13 @@ network.
 
 ## 8. Backups, upgrades and getting help
 
-- **Back up:** `sh deploy/backup.sh` saves the database, your secrets and settings, and MOSS's HTTPS
-  certificate authority. Keep copies off the machine.
+- **Back up:** in **Settings → Backups**, back up now or set a daily or weekly schedule. A backup
+  holds the database, your secrets (including the master key) and settings, and MOSS's HTTPS
+  certificates, in `deploy/backups`. `sh deploy/backup.sh` on the machine does the same.
+  Keep copies off the machine: downloading one asks for a two-factor code and a passphrase, and the
+  file is encrypted with that passphrase. Don't lose it: without it, the backup can't be opened.
 - **Upgrade:** `sh deploy/upgrade.sh` backs up first, builds the new version while the old one
   keeps running, then switches over. `sh deploy/upgrade.sh --rollback` goes back one version.
-- **Restore:** `sh deploy/restore.sh <backup>`.
+- **Restore:** `sh deploy/restore.sh <backup>` (it asks for the passphrase of a downloaded one).
 - **Help:** ask **Moss** in Chat first. It knows MOSS's documentation and can read how your install
   is set up. For bugs and ideas, open an issue on GitHub.

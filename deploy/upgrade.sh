@@ -203,6 +203,8 @@ save_images
 info "Building $new_version (MOSS keeps running meanwhile)"
 # The version the web image reports (to Home Assistant's update entity).
 export MOSS_RELEASE="$new_version"
+# The commit, which the backup service writes into each backup (restore.sh --checkout uses it).
+export MOSS_COMMIT="$new"
 if ! dc build >&2; then
   switch_back
   restore_images || true

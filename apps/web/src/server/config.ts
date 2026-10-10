@@ -30,6 +30,9 @@ export const config = {
       return cached;
     };
   })(),
+  /** The backup service (MOSS backups), and its token. Absent on installs without it. */
+  backupUrl: () => process.env.BACKUP_URL ?? null,
+  backupToken: () => secretFromEnv("BACKUP_TOKEN") ?? "",
   libraryDir: () => process.env.MOSS_LIBRARY_DIR ?? resolve(process.cwd(), "../../library"),
   /** Secure cookies need HTTPS. Behind a TLS proxy set MOSS_SECURE_COOKIES=true. */
   secureCookies: () => process.env.MOSS_SECURE_COOKIES === "true",

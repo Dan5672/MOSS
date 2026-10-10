@@ -187,6 +187,13 @@ export async function login(email: string, password: string, totpCode?: string):
   return { ok: true };
 }
 
+/** Checks a code from someone's authenticator app (for steps that need a fresh one, like downloading a MOSS backup). */
+export async function verifyUserTotp(userId: string, code: string): Promise<boolean> {
+  const [row] = await db().select({ ref: users.totpSecretRef }).from(users).where(eq(users.id, userId));
+  if (!row?.ref) return false;
+  return verifyTotp(decryptSecret(config.appKey(), userId, JSON.parse(row.ref)), code.replace(/\s/g, ""));
+}
+
 export function sealTotpSecret(userId: string, secret: string): string {
   return JSON.stringify(encryptSecret(config.appKey(), userId, secret));
 }

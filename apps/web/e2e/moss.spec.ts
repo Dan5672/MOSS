@@ -1093,6 +1093,7 @@ test("security: change your password; the policy refuses weak ones and can requi
   await change.getByLabel("New password again").fill("a-brand-new-owner-password");
   await change.getByRole("button", { name: "Change password" }).click();
   await expect(page.getByText("Password changed.")).toBeVisible();
+  await page.reload(); // so the next toast is the second change's, not this one's
   await change.getByLabel("Current password").fill("a-brand-new-owner-password");
   await change.getByLabel("New password", { exact: true }).fill(OWNER.password);
   await change.getByLabel("New password again").fill(OWNER.password);
@@ -1165,6 +1166,52 @@ test("https: upload your own certificate (checked first), then go back to MOSS's
   await expect(card.getByRole("button", { name: "Upload a certificate" })).toBeVisible();
   expect(readFileSync(join(E2E_TLS_DIR, "tls.caddy"), "utf8")).toBe("tls internal\n");
   expect(existsSync(join(E2E_TLS_DIR, "uploaded-key.pem"))).toBe(false);
+});
+
+test("backups: back MOSS up, schedule it, and download one encrypted with a fresh code", async () => {
+  await page.goto("/settings/backups");
+  const section = page.locator("section").filter({ has: page.getByRole("heading", { name: "MOSS backups" }) });
+  await expect(section.getByText("No MOSS backups yet")).toBeVisible();
+  await section.getByRole("button", { name: "Back up now" }).click();
+  await expect(page.getByText(/^Backing up\./)).toBeVisible();
+  await page.reload();
+  const table = page.getByRole("table", { name: "MOSS backups" });
+  await expect(table.getByRole("row")).toHaveCount(2);
+  const name = "moss-backup-20300101T030000Z.tar.gz";
+  await expect(table).toContainText(name);
+  await expect(table).toContainText("2.3 MB");
+
+  await section.getByRole("button", { name: "Schedule" }).click();
+  const schedule = page.getByRole("dialog", { name: "Scheduled backups" });
+  await schedule.getByLabel("Back up").selectOption("daily");
+  await schedule.locator('select[name="hour"]').selectOption("2");
+  await schedule.getByLabel("Keep").fill("5");
+  await schedule.getByRole("button", { name: "Save schedule" }).click();
+  await expect(page.getByText("Schedule saved: every day at 02:00, keeping 5 backups.")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(section).toContainText("Schedule: Every day at 02:00, keeping 5 backups.");
+
+  await table.getByRole("button", { name: "Download" }).click();
+  const dl = page.getByRole("dialog", { name: `Download ${name}` });
+  await dl.getByLabel("Passphrase", { exact: true }).fill("a long backup passphrase");
+  await dl.getByLabel("Passphrase again").fill("a different passphrase");
+  await dl.getByLabel("Authenticator code").fill("000000");
+  await dl.getByRole("button", { name: "Download encrypted" }).click();
+  await expect(dl.getByRole("alert")).toHaveText("The passphrases don't match.");
+  await dl.getByLabel("Passphrase again").fill("a long backup passphrase");
+  await dl.getByRole("button", { name: "Download encrypted" }).click();
+  await expect(dl.getByRole("alert")).toHaveText("That code didn't match.");
+  await dl.getByLabel("Authenticator code").fill(totpCode(ownerTotpSecret));
+  const download = page.waitForEvent("download");
+  await dl.getByRole("button", { name: "Download encrypted" }).click();
+  const file = await download;
+  expect(file.suggestedFilename()).toBe(`${name}.enc`);
+  expect(readFileSync(await file.path(), "utf8")).toBe(`Salted__${name}`);
+
+  page.once("dialog", (d) => d.accept());
+  await table.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByText("Backup deleted.")).toBeVisible();
+  await expect(section.getByText("No MOSS backups yet")).toBeVisible();
 });
 
 test("audit: the log is intact after all of that", async () => {

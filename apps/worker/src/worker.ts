@@ -24,7 +24,18 @@ import {
   type RunInput,
   unansweredConversations,
 } from "@moss/agent";
-import { actorName, changeRef, dispatchEvents, ensureBuiltInRoles, incidentRef, type StoredEvent } from "@moss/core";
+import {
+  actorName,
+  backupDue,
+  changeRef,
+  dispatchEvents,
+  ensureBuiltInRoles,
+  getSetting,
+  incidentRef,
+  parseBackupSchedule,
+  setSetting,
+  type StoredEvent,
+} from "@moss/core";
 import { agentRuns, agents, agentSchedules, changeNotes, changeRequests, incidentComments, incidents, orgs, type Database } from "@moss/db";
 import { createProvider } from "@moss/llm";
 import { and, desc, eq, gt, inArray, notInArray } from "drizzle-orm";
@@ -47,6 +58,8 @@ export interface WorkerConfig {
   /** Makes the Home Assistant module's calls through the gate. The module does nothing without it. */
   homeAssistant?: HaCaller;
   homeAssistantIntervalMs?: number;
+  /** Asks the backup service for a MOSS backup (scheduled in Settings → Backups). Scheduled backups are off without it. */
+  startBackup?: (keep: number) => Promise<void>;
   eventIntervalMs?: number;
   monitorIntervalMs?: number;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
@@ -312,6 +325,18 @@ export async function startWorker(cfg: WorkerConfig) {
         // An uploaded HTTPS certificate: reminders 30 and 7 days before it runs out.
         const due = await remindCertificateExpiry(db, org.id);
         if (due) log("Moss reminded about the HTTPS certificate", { orgId: org.id, daysAhead: due });
+        // Scheduled MOSS backups. The slot is marked first, so a failing service isn't asked every minute.
+        if (cfg.startBackup) {
+          const schedule = parseBackupSchedule(await getSetting(db, org.id, "backups.schedule"));
+          const last = await getSetting(db, org.id, "backups.last_scheduled");
+          if (backupDue(schedule, last ? new Date(last) : null)) {
+            await setSetting(db, org.id, "backups.last_scheduled", new Date().toISOString());
+            await cfg.startBackup(schedule.keep).then(
+              () => log("scheduled backup started", { orgId: org.id }),
+              (err) => log("scheduled backup failed to start", { orgId: org.id, error: (err as Error).message }),
+            );
+          }
+        }
       }
       const res = await syncSchedules(db, boss);
       if (res.added || res.removed) log("schedules synced", res);

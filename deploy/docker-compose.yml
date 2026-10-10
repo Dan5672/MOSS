@@ -66,8 +66,11 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-moss}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-moss}
       GATE_URL: http://gate:7080
       GATE_TOKEN_FILE: /run/secrets/gate_token
+      # Starts scheduled MOSS backups (Settings → Backups) on the backup service.
+      BACKUP_URL: http://backup:7090
+      BACKUP_TOKEN_FILE: /run/secrets/backup_token
       TZ: ${TZ:-UTC}
-    secrets: [gate_token]
+    secrets: [gate_token, backup_token]
     networks: [backend]
     read_only: true
     tmpfs: [/tmp] # scratch home for Claude Code runs
@@ -88,13 +91,16 @@ services:
       GATE_URL: http://gate:7080
       WEB_TOKEN_FILE: /run/secrets/web_token
       MOSS_APP_KEY_FILE: /run/secrets/app_key
+      # MOSS backups (Settings → Backups): start, list, delete, and download encrypted.
+      BACKUP_URL: http://backup:7090
+      BACKUP_TOKEN_FILE: /run/secrets/backup_token
       MOSS_SECURE_COOKIES: ${MOSS_SECURE_COOKIES:-false}
       # HTTPS mode (empty when off), so Settings can show how to trust MOSS's certificate or upload one.
       MOSS_TLS: ${MOSS_TLS:-}
       MOSS_HTTPS_HOSTS: ${MOSS_HTTPS_HOSTS:-}
       # Same zone as the worker, which runs agent schedules in it, so times on screen match.
       TZ: ${TZ:-UTC}
-    secrets: [web_token, app_key]
+    secrets: [web_token, app_key, backup_token]
     volumes:
       # Settings → HTTPS writes an uploaded certificate here for the https service, and reloads it through
       # the admin socket there with the HTTPS config (read-only).
@@ -125,6 +131,37 @@ services:
     tmpfs: [/tmp]
     cap_drop: [ALL]
     cap_add: [NET_RAW, NET_ADMIN]
+
+  # MOSS backups from the web: the same archives as deploy/backup.sh, into deploy/backups. It reads the
+  # secrets and .env (to put them in the archive) and hands archives out only encrypted with a passphrase.
+  # Root inside the container, with just the capabilities to read those files and give archives to the
+  # backups folder's owner; reachable only by the web app and worker, with the backup token.
+  backup:
+    image: moss-backup:${MOSS_VERSION:-dev}
+    build:
+      context: ..
+      dockerfile: deploy/docker/backup.Dockerfile
+      args: { MOSS_RELEASE: "${MOSS_RELEASE:-dev}", MOSS_COMMIT: "${MOSS_COMMIT:-unknown}" }
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-moss}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-moss}
+      BACKUP_TOKEN_FILE: /run/secrets/backup_token
+      TZ: ${TZ:-UTC}
+    secrets: [backup_token]
+    volumes:
+      - ./secrets:/moss/secrets:ro
+      - ./.env:/moss/env:ro
+      - ./backups:/backups
+      - caddy_data:/caddy-data:ro
+      - tls:/tls:ro
+    networks: [backend]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    cap_add: [DAC_OVERRIDE, CHOWN, FOWNER]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
 
   # HTTPS in front of the web UI, for every device on your network. MOSS_TLS chooses the certificate:
   #   internal  MOSS's own certificate authority (default): works offline; each device trusts it once by
@@ -175,6 +212,7 @@ secrets:
   toolbox_token: { file: ./secrets/toolbox.token }
   web_token: { file: ./secrets/web.token }
   app_key: { file: ./secrets/app.key }
+  backup_token: { file: ./secrets/backup.token }
 
 volumes:
   pgdata:

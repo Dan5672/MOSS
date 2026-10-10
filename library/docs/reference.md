@@ -8,6 +8,8 @@ Stored per install; most are switched on the Settings page.
 | --- | --- | --- |
 | agents.kill_switch | false | Stops every agent at once: no tool calls run until it's switched off (the kill switch at the bottom of the menu). |
 | auth.password_policy | {} | The password policy (Settings → Security): minimum length (12 by default), required kinds of character, how many old passwords can't be reused, maximum age, who must use two-factor sign-in, and an optional check against known-breached passwords. |
+| backups.last_scheduled | "" | When the last scheduled MOSS backup started (or the schedule was saved), so each slot runs once. |
+| backups.schedule | {} | Scheduled MOSS backups (Settings → Backups): off, daily or weekly at an hour in the install's time zone, and how many archives to keep (10 by default). Archives go to deploy/backups on the host, the same as deploy/backup.sh makes. |
 | changes.allow_emergency | false | Lets agents raise emergency changes that run straight away and are reviewed afterwards. Off by default. |
 | changes.require_separate_approver | false | Requires a change to be approved by someone other than the person who asked for it. |
 | homeassistant.allow_resume | false | Whether the Home Assistant integration may resume paused agents (pausing is always allowed). |

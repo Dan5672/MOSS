@@ -6,7 +6,7 @@ import { createTestDb } from "@moss/db/testing";
 import { createServer } from "node:http";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { E2E_CADDY_ADMIN, E2E_DATABASE_URL, E2E_GATE_PORT, E2E_MASTER_KEY_HEX, E2E_TLS_DIR, E2E_WEB_TOKEN } from "../playwright.config";
+import { E2E_BACKUP_PORT, E2E_BACKUP_TOKEN, E2E_CADDY_ADMIN, E2E_DATABASE_URL, E2E_GATE_PORT, E2E_MASTER_KEY_HEX, E2E_TLS_DIR, E2E_WEB_TOKEN } from "../playwright.config";
 
 interface GateBackupsApi {
   readBackup(db: ReturnType<typeof createDb>, masterKey: Buffer, id: string, userId: string): Promise<{ filename: string; contentType: string; content: Buffer } | null>;
@@ -93,7 +93,33 @@ export default async function globalSetup() {
     req.on("end", () => res.writeHead(req.method === "POST" && req.url === "/load" ? 200 : 404).end());
   });
   await new Promise<void>((resolve) => caddy.listen(E2E_CADDY_ADMIN, resolve));
+  // Stand-in for the backup service (the real one is tested against Postgres in Docker): backups made at
+  // once, kept in memory; downloads are "encrypted" bytes that start like openssl's.
+  const backups: { name: string; bytes: number; created: string }[] = [];
+  const backup = createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      const json = (status: number, data: unknown) => res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(data));
+      if (req.headers.authorization !== `Bearer ${E2E_BACKUP_TOKEN}`) return json(401, { error: "unauthorised" });
+      const m = /^\/backups\/([^/]+)(\/download)?$/.exec(req.url ?? "");
+      if (req.method === "GET" && req.url === "/backups") return json(200, { backups, running: null, last: null });
+      if (req.method === "POST" && req.url === "/run") {
+        const n = backups.length + 1;
+        backups.unshift({ name: `moss-backup-2030010${n}T030000Z.tar.gz`, bytes: 2_400_000, created: new Date().toISOString() });
+        return json(202, { started: true });
+      }
+      if (m && req.method === "DELETE") {
+        backups.splice(backups.findIndex((b) => b.name === m[1]), 1);
+        return json(200, { deleted: m[1] });
+      }
+      if (m && req.method === "POST") return res.writeHead(200, { "content-type": "application/octet-stream" }).end(`Salted__${m[1]}`);
+      json(404, { error: "not found" });
+    });
+  });
+  await new Promise<void>((resolve) => backup.listen(E2E_BACKUP_PORT, "127.0.0.1", resolve));
   return async () => {
+    backup.close();
     caddy.close();
     server.close();
     await db.$client.end();

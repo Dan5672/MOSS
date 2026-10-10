@@ -9,9 +9,17 @@
 - Two-factor authentication (TOTP) for your own sign-in.
 
 ## Backups
-Settings > Backups lists device configuration backups agents took (encrypted; downloading one is audited).
-Backing up MOSS itself is done on the host: sh deploy/backup.sh, and sh deploy/upgrade.sh takes a backup
-before every upgrade. Keep deploy/secrets/master.key safe: without it secrets can't be decrypted.
+Settings > Backups has two parts.
+MOSS backups (needs settings.manage and secrets.manage): back up now, or a schedule (daily or weekly at an
+hour in the install's time zone, keeping the newest N, 10 by default). The backup service writes the same
+archives as sh deploy/backup.sh into deploy/backups on the host: database, secrets including the master
+key, .env, and the HTTPS certificates. Downloading one needs a fresh two-factor code (so two-factor must be
+on) and a passphrase of 12+ characters; the file (.enc) is encrypted with it (openssl, AES-256, PBKDF2).
+sh deploy/restore.sh <file> asks for the passphrase. Downloads and deletes are audited. If the backup
+service isn't reachable, the page says so; sh deploy/backup.sh on the host still works, and
+sh deploy/upgrade.sh takes a backup before every upgrade. Keep copies on another machine.
+Device config backups: configurations agents took with config_backup (encrypted by the gate; downloading
+one is audited).
 
 ## Integrations
 Settings > Integrations (once called Modules): connections to other systems. An integration that is off does nothing and its tools refuse to run.

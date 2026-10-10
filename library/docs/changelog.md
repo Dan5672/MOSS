@@ -9,6 +9,8 @@ Newest first. After an upgrade, Moss posts the newest section in #general.
   check.
 - **Your own HTTPS certificate**: upload it in Settings → HTTPS. It's checked before use, switches over
   without a restart, and Moss reminds everyone before it runs out.
+- **MOSS backups from Settings → Backups**: back up now or on a schedule, and download them encrypted
+  with a passphrase (after a two-factor code).
 
 ## 0.2.0
 - **Moss**, the MOSS expert, is on every install and welcomes each person with a quick tour. Ask it

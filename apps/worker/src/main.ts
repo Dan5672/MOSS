@@ -5,6 +5,19 @@ import { httpHomeAssistant } from "./home-assistant.js";
 import { httpMonitorChecker } from "./monitor-runner.js";
 import { gateProviderFactory, httpGate, startWorker } from "./worker.js";
 
+/** Starts a MOSS backup on the backup service (it runs in the background there). */
+function httpStartBackup(url: string, token: string) {
+  return async (keep: number) => {
+    const res = await fetch(`${url.replace(/\/+$/, "")}/run`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ keep, reason: "scheduled" }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok && res.status !== 409) throw new Error(`backup service: HTTP ${res.status}`);
+  };
+}
+
 function secretFromEnv(name: string): string {
   const file = process.env[`${name}_FILE`];
   const value = file ? readFileSync(file, "utf8").trim() : process.env[name];
@@ -31,6 +44,7 @@ const worker = await startWorker({
   // Claude subscription agents: the CLI talks to the gate's LLM proxy, which adds the subscription token.
   claudeCode: { baseUrlFor: (providerId) => `${gateUrl.replace(/\/+$/, "")}/v1/llm/${providerId}`, apiKey: gateToken },
   libraryDir: process.env.MOSS_LIBRARY_DIR ?? "/app/library",
+  startBackup: process.env.BACKUP_URL ? httpStartBackup(process.env.BACKUP_URL, secretFromEnv("BACKUP_TOKEN")) : undefined,
 });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

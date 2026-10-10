@@ -19,6 +19,7 @@ export * from "./services/incidents.js";
 export * from "./services/changes.js";
 export * from "./services/monitors.js";
 export * from "./services/certificates.js";
+export * from "./services/moss-backups.js";
 export * from "./services/knowledge.js";
 export * from "./services/tool-grants.js";
 export * from "./services/modules.js";

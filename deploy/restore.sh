@@ -8,6 +8,8 @@
 #                      master key differs from this install's). deploy/.env is never overwritten:
 #                      its database password must match the one this install's database was created with.
 #   --yes              don't ask for confirmation
+# An encrypted backup (downloaded from Settings → Backups, ending .enc) asks for its passphrase, or reads
+# MOSS_BACKUP_PASSPHRASE.
 #
 # Restoring onto a new machine: clone MOSS, then run this before init.sh. With no secrets or
 # .env present, the backup's copies are used.
@@ -36,6 +38,22 @@ $checkout && require_clean_tree
 umask 077
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT INT TERM
+# Backups downloaded from Settings → Backups are encrypted with a passphrase (openssl enc).
+if [ "$(head -c 8 "$archive")" = "Salted__" ]; then
+  command -v openssl >/dev/null 2>&1 || die "this backup is encrypted, and decrypting it needs openssl"
+  if [ -z "${MOSS_BACKUP_PASSPHRASE:-}" ]; then
+    printf 'This backup is encrypted. Passphrase: ' >&2
+    stty -echo 2>/dev/null || true
+    read -r MOSS_BACKUP_PASSPHRASE
+    stty echo 2>/dev/null || true
+    printf '\n' >&2
+  fi
+  export MOSS_BACKUP_PASSPHRASE
+  openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -pass env:MOSS_BACKUP_PASSPHRASE -in "$archive" -out "$work/archive.tar.gz" 2>/dev/null ||
+    die "could not decrypt $archive: wrong passphrase?"
+  unset MOSS_BACKUP_PASSPHRASE
+  archive="$work/archive.tar.gz"
+fi
 tar -xzf "$archive" -C "$work" || die "cannot read $archive"
 [ -f "$work/db.dump" ] && [ -f "$work/manifest" ] && [ -f "$work/secrets/master.key" ] || die "$archive is not a MOSS backup"
 manifest() { sed -n "s/^$1=//p" "$work/manifest"; }

@@ -14,6 +14,9 @@ const dbUrl = new URL(base);
 dbUrl.pathname = `${dbUrl.pathname}_web_e2e`;
 const PORT = 3107;
 export const E2E_GATE_PORT = 3108;
+/** A stand-in for the backup service, started by global-setup. */
+export const E2E_BACKUP_PORT = 3109;
+export const E2E_BACKUP_TOKEN = "e2e-backup-token-0000";
 export const E2E_WEB_TOKEN = "e2e-web-token-for-the-stand-in-gate-0000";
 /** The stand-in gate's master key (hex), so tests can seed encrypted rows it can open. */
 export const E2E_MASTER_KEY_HEX = "22".repeat(32);
@@ -47,6 +50,8 @@ export default defineConfig({
       MOSS_TLS_DIR: E2E_TLS_DIR,
       MOSS_CADDY_ADMIN: E2E_CADDY_ADMIN,
       MOSS_CADDY_CONFIG: "../../deploy/https/internal.Caddyfile",
+      BACKUP_URL: `http://127.0.0.1:${E2E_BACKUP_PORT}`,
+      BACKUP_TOKEN: E2E_BACKUP_TOKEN,
       NEXT_TELEMETRY_DISABLED: "1",
     },
   },

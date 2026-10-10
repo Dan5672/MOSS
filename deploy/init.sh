@@ -34,7 +34,7 @@ if [ ! -f .env ]; then
   } >> .env
   echo "HTTPS is on. MOSS will answer at: $hosts"
 fi
-mkdir -p certs
+mkdir -p certs backups
 
 mkdir -p secrets
 umask 077
@@ -43,7 +43,7 @@ if [ ! -f secrets/master.key ]; then
   echo "Generated deploy/secrets/master.key."
   echo "BACK THIS FILE UP. Without it, stored secrets cannot be recovered or restored."
 fi
-for token in gate toolbox web; do
+for token in gate toolbox web backup; do
   if [ ! -f "secrets/$token.token" ]; then
     openssl rand -hex 32 > "secrets/$token.token"
     echo "Generated deploy/secrets/$token.token."

@@ -21,6 +21,10 @@ export const SETTING_DEFAULTS = {
   "auth.password_policy": {} as Record<string, unknown>,
   /** The certificate uploaded in Settings → HTTPS (subject, expiry, fingerprint, reminders sent); empty when MOSS's own CA is in use. */
   "https.certificate": {} as Record<string, unknown>,
+  /** Scheduled MOSS backups (see services/moss-backups.ts); empty means off. */
+  "backups.schedule": {} as Record<string, unknown>,
+  /** When the last scheduled MOSS backup was started (ISO time), or when the schedule was saved. */
+  "backups.last_scheduled": "" as string,
 } satisfies Record<string, unknown>;
 
 export type SettingKey = keyof typeof SETTING_DEFAULTS;
@@ -57,4 +61,7 @@ export const SETTING_DESCRIPTIONS = {
     "The password policy (Settings → Security): minimum length (12 by default), required kinds of character, how many old passwords can't be reused, maximum age, who must use two-factor sign-in, and an optional check against known-breached passwords.",
   "https.certificate":
     "The certificate uploaded in Settings → HTTPS, if any: who it's for, when it expires and its fingerprint. Moss reminds everyone in #general 30 and 7 days before it runs out. Empty when MOSS uses its own certificate authority.",
+  "backups.schedule":
+    "Scheduled MOSS backups (Settings → Backups): off, daily or weekly at an hour in the install's time zone, and how many archives to keep (10 by default). Archives go to deploy/backups on the host, the same as deploy/backup.sh makes.",
+  "backups.last_scheduled": "When the last scheduled MOSS backup started (or the schedule was saved), so each slot runs once.",
 } satisfies Record<SettingKey, string>;
