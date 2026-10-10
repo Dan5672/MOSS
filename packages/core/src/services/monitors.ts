@@ -709,7 +709,21 @@ export async function ingestAlerts(db: Database, source: MonitorSource, alerts: 
       .from(monitors)
       .where(and(eq(monitors.sourceId, source.id), eq(monitors.externalKey, a.key)));
     if (!m) continue;
-    const res = await recordMonitorResult(db, m.id, { ok: a.status !== "down", degraded: a.status === "degraded", latencyMs: a.latencyMs ?? null, message: a.message }, now);
+    const values = a.values ? Object.fromEntries(Object.entries(a.values).filter(([, v]) => Number.isFinite(v))) : undefined;
+    const res = await recordMonitorResult(
+      db,
+      m.id,
+      {
+        ok: a.status !== "down",
+        degraded: a.status === "degraded",
+        latencyMs: a.latencyMs ?? null,
+        message: a.message,
+        ...(a.value !== undefined && Number.isFinite(a.value) ? { value: a.value } : {}),
+        ...(values && Object.keys(values).length ? { values } : {}),
+        ...(a.unit ? { unit: a.unit } : {}),
+      },
+      now,
+    );
     if (res) applied++;
   }
   await db.update(monitorSources).set({ lastReceivedAt: now }).where(eq(monitorSources.id, source.id));

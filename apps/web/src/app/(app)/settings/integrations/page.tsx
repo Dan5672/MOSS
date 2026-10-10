@@ -1,4 +1,4 @@
-import { loadHomeAssistant } from "@moss/core";
+import { INTEGRATIONS, loadHomeAssistant, loadIntegration } from "@moss/core";
 import Link from "next/link";
 import { NoPermission, PageHeader } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +11,10 @@ export const metadata = { title: "Integrations" };
 export default async function ModulesPage() {
   const user = await requireUser();
   if (!user.permissions.has("integrations.manage")) return <NoPermission />;
-  const ha = await loadHomeAssistant(db(), user.orgId);
+  const [ha, others] = await Promise.all([
+    loadHomeAssistant(db(), user.orgId),
+    Promise.all(INTEGRATIONS.map(async (def) => ({ def, it: await loadIntegration(db(), user.orgId, def) }))),
+  ]);
   const c = ha.config;
   const features = [
     c.alerts.enabled && "alerts",
@@ -50,6 +53,36 @@ export default async function ModulesPage() {
             </Link>
           </CardContent>
         </Card>
+        {others.map(({ def, it }) => {
+          const on = def.features.filter((f) => it.config.features[f.key]).map((f) => f.label.toLowerCase());
+          return (
+            <Card key={def.key}>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Link href={`/settings/integrations/${def.key}`} className="underline-offset-2 hover:underline">
+                    {def.name}
+                  </Link>
+                  <Badge variant={it.enabled ? "default" : "outline"}>{it.enabled ? "On" : "Off"}</Badge>
+                </CardTitle>
+                <CardDescription>{def.description}</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3 text-sm">
+                <p>
+                  {it.enabled && on.length
+                    ? `Using: ${on.join(", ")}.`
+                    : it.enabled
+                      ? "On, but no features are switched on yet."
+                      : it.config.host
+                        ? `Set up for ${it.config.host}, switched off.`
+                        : "Not set up."}
+                </p>
+                <Link href={`/settings/integrations/${def.key}`} className="w-fit border-2 px-3 py-2 font-mono text-sm hover:bg-muted">
+                  {it.config.host ? "Configure" : "Set up"}
+                </Link>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
     </>
   );

@@ -2,11 +2,10 @@
 // notifications, its own sensors). There is no agent: the caller only names an org and an operation.
 // The gate reads the module's config itself, checks the operation's feature is on, applies the same
 // network scope as agent calls and the token secret's own host and tool scope, then decrypts the token.
-import { decryptSecret, HA_TOKEN_SECRET, userPermissions, haConnectionArgs, loadHomeAssistant, redactSecrets, writeAudit, type HaConfig } from "@moss/core";
-import { networks, secrets, users, type Database } from "@moss/db";
-import { checkScope, contains, parseRange, type IpRange } from "@moss/policy";
-import { BUILT_IN_TOOLS, parseToolArgs, SYSTEM_TOOLS } from "@moss/tools";
-import { and, eq } from "drizzle-orm";
+import { HA_TOKEN_SECRET, userPermissions, haConnectionArgs, loadHomeAssistant, writeAudit, type HaConfig } from "@moss/core";
+import { users, type Database } from "@moss/db";
+import { eq } from "drizzle-orm";
+import { systemToolCall } from "./system-call.js";
 import type { ToolboxClient } from "./toolbox-client.js";
 
 export const HA_OPS = ["test", "health", "devices", "notify", "publish", "state"] as const;
@@ -74,34 +73,14 @@ export async function runHomeAssistantOp(
   if (refused) return fail(refused);
   if (!ha.config.host) return fail("Set Home Assistant's address first");
 
-  const def = BUILT_IN_TOOLS.get(tool) ?? SYSTEM_TOOLS.get(tool)!;
-  const parsed = parseToolArgs(def, { ...haConnectionArgs(ha.config), ...opArgs });
-  if (!parsed.ok) return fail(`Invalid arguments: ${parsed.error}`);
-  const args = parsed.args;
-
-  // Same network scope as an agent's call: Home Assistant must be inside an allowed network.
-  const rules = await deps.db.select({ cidr: networks.cidr, status: networks.status }).from(networks).where(eq(networks.orgId, req.orgId));
-  const scope = checkScope(def.manifest, args, rules);
-  if (!scope.allow) return fail(`Blocked by policy: ${scope.reason}`);
-
-  // The token's own scope still applies: the hosts and tools its owner allowed.
-  const [secret] = await deps.db.select().from(secrets).where(and(eq(secrets.orgId, req.orgId), eq(secrets.name, HA_TOKEN_SECRET)));
-  if (!secret) return fail("Add Home Assistant's access token first");
-  if (secret.allowedTools.length > 0 && !secret.allowedTools.includes(tool)) return fail(`The ${HA_TOKEN_SECRET} secret may not be used with ${tool}`);
-  if (secret.allowedHosts.length > 0) {
-    const hosts = secret.allowedHosts.map(parseRange).filter((r): r is IpRange => r !== null);
-    if (!scope.ranges.every((t) => hosts.some((h) => contains(h, t)))) return fail(`The ${HA_TOKEN_SECRET} secret may not be used against ${ha.config.host}`);
-  }
-  const token = decryptSecret(deps.masterKey, secret.id, secret);
-
-  let response: { ok: boolean; result?: unknown; error?: string };
-  try {
-    response = await deps.toolbox.call(tool, { ...args, token });
-  } catch (err) {
-    response = { ok: false, error: `Toolbox unavailable: ${(err as Error).message}` };
-  }
-  if (!response.ok) return fail(redactSecrets(response.error ?? "Home Assistant call failed", [token]));
-  const result = response.result === undefined ? undefined : JSON.parse(redactSecrets(JSON.stringify(response.result), [token]));
-  if (!QUIET_WHEN_OK.has(req.op)) await audit(true, { args: { ...args, token: `secret:${HA_TOKEN_SECRET}` } });
-  return { ok: true, result };
+  const res = await systemToolCall(deps, {
+    orgId: req.orgId,
+    tool,
+    args: { ...haConnectionArgs(ha.config), ...opArgs },
+    secret: { name: HA_TOKEN_SECRET, arg: "token" },
+    label: "Home Assistant",
+  });
+  if (!res.ok) return fail(res.error.replace("Add Home Assistant's credential first", "Add Home Assistant's access token first"));
+  if (!QUIET_WHEN_OK.has(req.op)) await audit(true, { args: res.args });
+  return { ok: true, result: res.result };
 }

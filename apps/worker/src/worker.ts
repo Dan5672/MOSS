@@ -42,6 +42,7 @@ import { createProvider } from "@moss/llm";
 import { and, desc, eq, gt, inArray, notInArray } from "drizzle-orm";
 import { PgBoss } from "pg-boss";
 import { notifyIncident, runHomeAssistantTick, type HaCaller } from "./home-assistant.js";
+import { runIntegrationsTick, type IntegrationCaller } from "./integrations.js";
 import { handleMonitorEvent, pruneAllMonitorResults, runDueChecks, type MonitorChecker } from "./monitor-runner.js";
 
 export { enqueueRun, RUN_QUEUE, SCHEDULE_QUEUE };
@@ -59,6 +60,9 @@ export interface WorkerConfig {
   /** Makes the Home Assistant module's calls through the gate. The module does nothing without it. */
   homeAssistant?: HaCaller;
   homeAssistantIntervalMs?: number;
+  /** Makes the other integrations' calls through the gate. They do nothing without it. */
+  integrations?: IntegrationCaller;
+  integrationsIntervalMs?: number;
   /** Asks the backup service for a MOSS backup (scheduled in Settings → Backups). Scheduled backups are off without it. */
   startBackup?: (keep: number) => Promise<void>;
   eventIntervalMs?: number;
@@ -403,6 +407,21 @@ export async function startWorker(cfg: WorkerConfig) {
     }
   };
   const haTimer = setInterval(homeAssistantTick, cfg.homeAssistantIntervalMs ?? 60_000);
+
+  // The other integrations' health checks and inventory syncs, each on its own schedule.
+  let integrationsRunning = false;
+  const integrationsTick = async () => {
+    if (integrationsRunning || !cfg.integrations) return;
+    integrationsRunning = true;
+    try {
+      await runIntegrationsTick(db, cfg.integrations, { log });
+    } catch (err) {
+      log("integrations failed", { error: (err as Error).message });
+    } finally {
+      integrationsRunning = false;
+    }
+  };
+  const integrationsTimer = setInterval(integrationsTick, cfg.integrationsIntervalMs ?? 60_000);
   return {
     stop: async () => {
       clearInterval(timer);
@@ -411,6 +430,7 @@ export async function startWorker(cfg: WorkerConfig) {
       clearInterval(pruneTimer);
       clearInterval(rollupTimer);
       clearInterval(haTimer);
+      clearInterval(integrationsTimer);
       await boss.stop({ graceful: true });
     },
   };

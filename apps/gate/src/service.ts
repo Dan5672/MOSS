@@ -16,6 +16,7 @@ import {
 import { storeBackup } from "./backups.js";
 import { loadAgent, loadContext, loadCustomTool, loadCustomTools, loadToolGrants } from "./context.js";
 import { runHomeAssistantOp, type HaOp } from "./home-assistant.js";
+import { runIntegrationOp } from "./integrations.js";
 import { runMonitorCheck } from "./monitor-check.js";
 import type { ToolboxClient } from "./toolbox-client.js";
 
@@ -201,7 +202,11 @@ export function createGate(deps: GateDeps) {
   const homeAssistant = (req: { orgId: string; op: HaOp; args?: Record<string, unknown>; userId?: string }) =>
     runHomeAssistantOp({ db: deps.db, masterKey: deps.masterKey, toolbox: deps.toolbox }, req);
 
-  return { handleToolCall, listAgentTools, checkMonitor, homeAssistant };
+  /** A call MOSS makes for an integration (health checks, inventory, Test connection). */
+  const integration = (req: { orgId: string; key: string; op: string; args?: Record<string, unknown>; userId?: string }) =>
+    runIntegrationOp({ db: deps.db, masterKey: deps.masterKey, toolbox: deps.toolbox }, req);
+
+  return { handleToolCall, listAgentTools, checkMonitor, homeAssistant, integration };
 }
 
 export type Gate = ReturnType<typeof createGate>;

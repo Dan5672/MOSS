@@ -23,6 +23,16 @@ one is audited).
 
 ## Integrations
 Settings > Integrations (once called Modules): connections to other systems. An integration that is off does nothing and its tools refuse to run.
+Apart from Home Assistant, every integration's page has the same parts. Connection: the product's IPv4
+address (in an allowed network), port, and its credential, stored as a secret usable only against that
+address and that integration's tools (changing it needs secrets.manage); Test connection works before
+it's on. Features: what it runs in the background (health checks, inventory sync), the priority of its
+incidents and who responds. Last runs: what each feature found, with Sync now. Health checks become
+monitors under the integration's own source, with readings you can graph on dashboards; when the product
+can't be reached, its "<name>" monitor goes down. Inventory syncs match devices by the product's own id,
+MAC, then IP; they rename only automatically named assets, never touch locked ones, link VMs and
+containers to what they run on, and mark ones the product no longer reports as missing. Agents can still
+use the product's tools without the integration, with a granted secret.
 
 ## The Home Assistant integration
 Connection: Home Assistant's IP (in an allowed network), port, protocol and a long-lived access token

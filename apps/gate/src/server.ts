@@ -89,9 +89,29 @@ export function buildGateServer(gate: Gate, opts: GateServerOptions) {
       if (!orgId) return reply.code(403).send({ error: "unknown or inactive user" });
       return gate.homeAssistant({ orgId, op, userId });
     });
+
+    // A person's integration calls from its settings page: Test connection, and Sync now (sync:<feature>).
+    app.post<{ Params: { key: string; op: string }; Body: { userId?: string } }>("/v1/web/integrations/:key/:op", async (req, reply) => {
+      const { key, op } = req.params;
+      if (op !== "test" && !op.startsWith("sync:")) return reply.code(404).send({ error: "unknown operation" });
+      const userId = req.body?.userId;
+      if (!userId || !UUID.test(userId)) return reply.code(400).send({ error: "userId (uuid) is required" });
+      const orgId = await userOrg(userId);
+      if (!orgId) return reply.code(403).send({ error: "unknown or inactive user" });
+      return gate.integration({ orgId, key, op, userId });
+    });
   }
 
   app.get("/v1/health", async () => ({ ok: true }));
+
+  // The worker's integration calls: health checks and inventory syncs.
+  app.post<{ Params: { key: string; op: string }; Body: { orgId?: string; args?: Record<string, unknown> } }>("/v1/integrations/:key/:op", async (req, reply) => {
+    const { key, op } = req.params;
+    if (op === "test" || op.startsWith("sync:")) return reply.code(404).send({ error: "unknown operation" });
+    const orgId = req.body?.orgId;
+    if (!orgId || !UUID.test(orgId)) return reply.code(400).send({ error: "orgId (uuid) is required" });
+    return gate.integration({ orgId, key, op });
+  });
 
   // The worker's Home Assistant calls: health checks, inventory sync, notifications, MOSS's sensors.
   app.post<{ Params: { op: string }; Body: { orgId?: string; args?: Record<string, unknown> } }>("/v1/modules/home-assistant/:op", async (req, reply) => {

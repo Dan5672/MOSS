@@ -1,0 +1,14 @@
+// Every integration MOSS has, besides Home Assistant (which has its own pages and features). Adding one here gives
+// it a settings page, background features, gate operations and a place in Moss's docs check.
+import type { IntegrationDef } from "./types.js";
+
+export const INTEGRATIONS: IntegrationDef[] = [];
+
+export function getIntegration(key: string): IntegrationDef | null {
+  return INTEGRATIONS.find((d) => d.key === key) ?? null;
+}
+
+/** The integration a built-in tool comes with, if any (its tools still work for agents without it). */
+export function integrationForTool(tool: string): IntegrationDef | null {
+  return INTEGRATIONS.find((d) => d.credential.tools.includes(tool)) ?? null;
+}

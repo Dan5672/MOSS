@@ -2,6 +2,7 @@ import { createDb } from "@moss/db";
 import { readFileSync } from "node:fs";
 import { PgBoss } from "pg-boss";
 import { httpHomeAssistant } from "./home-assistant.js";
+import { httpIntegrations } from "./integrations.js";
 import { httpMonitorChecker } from "./monitor-runner.js";
 import { gateProviderFactory, httpGate, startWorker } from "./worker.js";
 
@@ -41,6 +42,7 @@ const worker = await startWorker({
   providerFor: gateProviderFactory(gateUrl, gateToken),
   checkMonitor: httpMonitorChecker(gateUrl, gateToken),
   homeAssistant: httpHomeAssistant(gateUrl, gateToken),
+  integrations: httpIntegrations(gateUrl, gateToken),
   // Claude subscription agents: the CLI talks to the gate's LLM proxy, which adds the subscription token.
   claudeCode: { baseUrlFor: (providerId) => `${gateUrl.replace(/\/+$/, "")}/v1/llm/${providerId}`, apiKey: gateToken },
   libraryDir: process.env.MOSS_LIBRARY_DIR ?? "/app/library",
