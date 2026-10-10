@@ -94,6 +94,14 @@ describe("home lab integrations", () => {
     expect(res).toEqual({ total: 1, entities: [{ entity: "sensor.ups_battery", name: "UPS battery", state: "100", unit: "%", changed: "2026-10-06T00:00:00Z" }] });
   });
 
+  it("homeassistant_states: reads one entity from its own endpoint", async () => {
+    const { send } = device({
+      "GET /api/states/sensor.ups_load": { entity_id: "sensor.ups_load", state: "23.5", attributes: { friendly_name: "UPS load", unit_of_measurement: "%" } },
+    });
+    const res = await run("homeassistant_states", { target: "10.0.0.13", token: "llat", entity: "sensor.ups_load" }, send);
+    expect(res).toMatchObject({ total: 1, entities: [{ entity: "sensor.ups_load", state: "23.5", unit: "%" }] });
+  });
+
   it("pihole_summary: authenticates, reads stats, and ends the session", async () => {
     const { send, seen } = device({
       "POST /api/auth": (r: RenderedRequest) => (JSON.parse(r.body!).password === "app-pw" ? { session: { valid: true, sid: "S1" } } : { session: { valid: false } }),

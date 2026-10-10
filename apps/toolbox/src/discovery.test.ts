@@ -60,6 +60,15 @@ describe("snmp_query", () => {
     expect(res.values).toEqual({ description: "Linux nas 6.1", uptime: "864000000", uptimeDays: "100.0", name: "nas" });
   });
 
+  it("gets specific OIDs, keyed as asked for", async () => {
+    let args: string[] = [];
+    const exec: Exec = async (_f, a) => ((args = a), { code: 0, stderr: "", stdout: ".1.3.6.1.2.1.31.1.1.1.6.3 123456789\n.1.3.6.1.2.1.2.2.1.8.3 1\n" });
+    const res = await snmpQuery({ target: "10.0.0.5", community: "c", preset: "get", oids: [".1.3.6.1.2.1.31.1.1.1.6.3", "1.3.6.1.2.1.2.2.1.8.3", "1.3.6.1.2.1.2.2.1.14.3"], timeoutMs: 5000 }, exec);
+    expect(args.slice(-3)).toEqual(["1.3.6.1.2.1.31.1.1.1.6.3", "1.3.6.1.2.1.2.2.1.8.3", "1.3.6.1.2.1.2.2.1.14.3"]);
+    expect(res.values).toEqual({ "1.3.6.1.2.1.31.1.1.1.6.3": "123456789", "1.3.6.1.2.1.2.2.1.8.3": "1" });
+    await expect(snmpQuery({ target: "10.0.0.5", community: "c", preset: "get", oids: ["1.3; rm -rf /"], timeoutMs: 5000 }, exec)).rejects.toThrow(/numeric OIDs/);
+  });
+
   it("joins walked columns into rows and never echoes the community", async () => {
     const exec: Exec = async (_f, a) => {
       const oid = a.at(-1)!;

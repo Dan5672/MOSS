@@ -134,7 +134,7 @@ A network tool (read), run by the toolbox through the policy gate. Report a syst
 Granted by: Server Actions, Server Checks.
 
 ## Tool snmp_query
-A network tool (read), run by the toolbox through the policy gate. Read standard SNMP (v2c) data from a device. Presets: 'system' (description, name, uptime, location), 'interfaces' (names, status, speed, traffic counters), 'lldp_neighbors' (what each port is plugged into), 'storage' (disks and memory). The community string must be a stored secret.
+A network tool (read), run by the toolbox through the policy gate. Read standard SNMP (v2c) data from a device. Presets: 'system' (description, name, uptime, location), 'interfaces' (names, status, speed, traffic counters), 'lldp_neighbors' (what each port is plugged into), 'storage' (disks and memory), or 'get' to read specific numeric OIDs (pass oids). The community string must be a stored secret.
 Granted by: Network Insight.
 
 ## Tool synology_status

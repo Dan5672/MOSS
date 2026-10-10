@@ -1,4 +1,4 @@
-import { getMonitor, incidentRef, monitorTargetWarning } from "@moss/core";
+import { formatMetric, getMonitor, incidentRef, monitorTargetWarning } from "@moss/core";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
@@ -23,9 +23,11 @@ export default async function MonitorPage({ params }: PageProps<"/monitoring/[id
   const external = m.kind === "external";
   const [options, scopeWarning] = await Promise.all([
     canManage ? monitorFormOptions(user.orgId) : null,
-    external ? null : monitorTargetWarning(db(), user.orgId, m.target),
+    external ? null : monitorTargetWarning(db(), user.orgId, m.target, m.kind),
   ]);
   const latency = latencyStats(m.results);
+  const metric = m.kind === "snmp" || m.kind === "host" || m.kind === "ha_sensor";
+  const last = m.lastResult;
   const responder = m.responderAgentId ? `agent:${m.responderAgentId}` : m.responderUserId ? `user:${m.responderUserId}` : "";
 
   return (
@@ -82,12 +84,27 @@ export default async function MonitorPage({ params }: PageProps<"/monitoring/[id
                 <div className="text-2xl font-semibold tabular-nums">{formatUptime(m.uptime24h)}</div>
               </CardContent>
             </Card>
-            <Card className="py-4">
-              <CardContent>
-                <div className="text-sm text-muted-foreground">Latency (avg / p95)</div>
-                <div className="text-2xl font-semibold tabular-nums">{latency ? `${latency.avg} / ${latency.p95} ms` : "—"}</div>
-              </CardContent>
-            </Card>
+            {metric ? (
+              <Card className="py-4">
+                <CardContent>
+                  <div className="text-sm text-muted-foreground">Latest{m.config.metric ? ` ${m.config.metric}` : ""}</div>
+                  <div className="text-2xl font-semibold tabular-nums">
+                    {m.config.metric
+                      ? formatMetric(last?.values?.[m.config.metric], m.config.unit)
+                      : last?.value !== undefined
+                        ? formatMetric(last.value, last.unit)
+                        : "—"}
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card className="py-4">
+                <CardContent>
+                  <div className="text-sm text-muted-foreground">Latency (avg / p95)</div>
+                  <div className="text-2xl font-semibold tabular-nums">{latency ? `${latency.avg} / ${latency.p95} ms` : "—"}</div>
+                </CardContent>
+              </Card>
+            )}
             <Card className="py-4">
               <CardContent>
                 <div className="text-sm text-muted-foreground">Open incident</div>
@@ -103,6 +120,19 @@ export default async function MonitorPage({ params }: PageProps<"/monitoring/[id
               </CardContent>
             </Card>
           </div>
+
+          {metric && last?.values && Object.keys(last.values).length > 0 && (
+            <Section title="Values">
+              <dl className="grid gap-2 px-frame p-3 text-sm sm:grid-cols-2" aria-label="Latest values">
+                {Object.entries(last.values).map(([k, v]) => (
+                  <div key={k} className="flex justify-between gap-3">
+                    <dt className="font-mono text-muted-foreground">{k}</dt>
+                    <dd className="tabular-nums">{formatMetric(v, k.endsWith("Bps") ? "bps" : k.endsWith("Percent") ? "%" : k === "value" ? last.unit : "")}</dd>
+                  </div>
+                ))}
+              </dl>
+            </Section>
+          )}
 
           {!external && (
             <Section title="Last 24 hours">
@@ -209,6 +239,7 @@ export default async function MonitorPage({ params }: PageProps<"/monitoring/[id
                       compact
                       assets={options.assets}
                       responders={options.responders}
+                      secrets={options.secrets}
                       defaults={{ ...m.config, name: m.name, kind: m.kind as "http", target: m.target, assetId: m.assetId, intervalSeconds: m.intervalSeconds, failureThreshold: m.failureThreshold, recoveryThreshold: m.recoveryThreshold, priority: m.priority, responder, autoResolve: m.autoResolve }}
                     />
                   )}

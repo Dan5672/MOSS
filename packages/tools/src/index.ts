@@ -115,6 +115,11 @@ export const tlsInspect = tool(
 );
 
 // --- Discovery and diagnostics ------------------------------------------------------------
+/** A numeric SNMP OID (net-snmp gets it with -On, so no MIB names). */
+export const SNMP_OID = /^\.?1(\.\d+){3,40}$/;
+/** A Home Assistant entity id, e.g. sensor.ups_load. */
+export const HA_ENTITY_ID = /^[a-z_]+\.[a-z0-9_]+$/;
+
 // Credentials are passed as secret:<name> handles. The gate checks the agent's grant and the secret's
 // host/tool scope, substitutes the value for the toolbox, and scrubs it from the result.
 const secretHandle = z
@@ -163,11 +168,17 @@ export const snmpQuery = tool(
   { name: "snmp_query", class: "read", targetArgs: ["target"], secretArgs: ["community"] },
   "Read standard SNMP (v2c) data from a device. Presets: 'system' (description, name, uptime, location), 'interfaces' " +
     "(names, status, speed, traffic counters), 'lldp_neighbors' (what each port is plugged into), 'storage' (disks and " +
-    "memory). The community string must be a stored secret.",
+    "memory), or 'get' to read specific numeric OIDs (pass oids). The community string must be a stored secret.",
   z.object({
     target: hostIp,
     community: secretHandle,
-    preset: z.enum(["system", "interfaces", "lldp_neighbors", "storage"]),
+    preset: z.enum(["system", "interfaces", "lldp_neighbors", "storage", "get"]),
+    oids: z
+      .array(z.string().regex(SNMP_OID, "A numeric OID such as 1.3.6.1.2.1.1.3.0"))
+      .min(1)
+      .max(16)
+      .optional()
+      .describe("For preset 'get': the numeric OIDs to read"),
     timeoutMs,
   }),
 );
@@ -285,6 +296,11 @@ export const homeassistantStates = tool(
       .regex(/^[a-z_]{1,32}$/)
       .optional()
       .describe("Only this domain, e.g. sensor, switch, binary_sensor"),
+    entity: z
+      .string()
+      .regex(HA_ENTITY_ID)
+      .optional()
+      .describe("Just this entity, e.g. sensor.ups_load"),
     limit: z.number().int().min(1).max(500).default(200),
   }),
 );

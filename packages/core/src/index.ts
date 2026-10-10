@@ -18,6 +18,7 @@ export * from "./services/notifications.js";
 export * from "./services/incidents.js";
 export * from "./services/changes.js";
 export * from "./services/monitors.js";
+export * from "./monitoring/metrics.js";
 export * from "./services/certificates.js";
 export * from "./services/moss-backups.js";
 export * from "./services/knowledge.js";

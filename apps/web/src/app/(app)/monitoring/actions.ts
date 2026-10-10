@@ -18,6 +18,7 @@ import { requirePermission } from "@/server/auth";
 import { db } from "@/server/db";
 
 const int = (v: string | undefined) => (v === undefined ? undefined : Number(v));
+const decimal = (v: string | undefined) => (v === undefined || v.trim() === "" ? undefined : Number(v));
 const list = (v: string | undefined) =>
   v
     ?.split(/[\s,]+/)
@@ -35,7 +36,7 @@ function parseResponder(value: string | undefined) {
 /** Form fields -> monitor input. Only the fields that apply to the kind are sent; core validates the rest. */
 function monitorFromForm(form: FormData) {
   const f = formObject(form);
-  const kind = f.kind as "ping" | "tcp" | "http" | "tls" | "dns";
+  const kind = f.kind as "ping" | "tcp" | "http" | "tls" | "dns" | "snmp" | "host" | "ha_sensor";
   const config: Record<string, unknown> = {};
   if (kind === "tcp" || kind === "http" || kind === "tls") config.port = int(f.port);
   if (kind === "http") {
@@ -50,7 +51,24 @@ function monitorFromForm(form: FormData) {
     config.recordType = f.recordType ?? "A";
     config.expectAnswer = f.expectAnswer;
   }
-  config.degradedMs = int(f.degradedMs);
+  if (kind === "snmp" || kind === "host") config.secret = f.secret;
+  if (kind === "snmp") {
+    if (f.snmpMode === "oid") {
+      config.oid = f.oid;
+      config.counter = f.counter === "on";
+    } else config.ifIndex = int(f.ifIndex);
+  }
+  if (kind === "host") {
+    config.user = f.user;
+    config.port = int(f.port);
+    config.hostKeySha256 = f.hostKeySha256;
+  }
+  const metricKind = kind === "snmp" || kind === "host" || kind === "ha_sensor";
+  if (metricKind) {
+    config.metric = f.metric;
+    config.unit = f.unit;
+    for (const k of ["warnAbove", "critAbove", "warnBelow", "critBelow"]) config[k] = decimal(f[k]);
+  } else config.degradedMs = int(f.degradedMs);
   config.incidentOnDegraded = f.incidentOnDegraded === "on";
   for (const k of Object.keys(config)) if (config[k] === undefined || (Array.isArray(config[k]) && !(config[k] as unknown[]).length)) delete config[k];
   return {
@@ -87,7 +105,7 @@ export async function updateMonitorAction(monitorId: string, external: boolean, 
         })()
       : monitorFromForm(form);
     const m = await updateMonitor(db(), user.orgId, monitorId, input, { type: "user", id: user.id });
-    const warning = await monitorTargetWarning(db(), user.orgId, m.target);
+    const warning = await monitorTargetWarning(db(), user.orgId, m.target, m.kind);
     return warning ? `Saved. Warning: ${warning}, so checks will be refused until it is allowed.` : "Monitor saved.";
   });
 }

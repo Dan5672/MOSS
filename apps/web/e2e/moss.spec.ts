@@ -1,6 +1,6 @@
 // One story through the UI, in order: a new owner sets MOSS up and runs their IT department.
 import { createChangeRequest, dispatchEvents, encryptSecret, handleMonitorDown, handleMonitorUp, parseMasterKey, totpCode } from "@moss/core";
-import { agentRuns, agents, configBackups, createDb, type Database } from "@moss/db";
+import { agentRuns, agents, configBackups, createDb, monitors, secrets, type Database } from "@moss/db";
 import { expect, test, type Page } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -707,6 +707,32 @@ test("monitoring: add checks, and warn about targets outside allowed networks", 
   await expect(page.getByText(/not inside an allowed network/)).toBeVisible();
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   await expect(page.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
+
+  // A metric monitor: an interface's traffic over SNMP, with a stored secret and a threshold.
+  const secretId = randomUUID();
+  await db.insert(secrets).values({ id: secretId, orgId: nina!.orgId, name: "router-snmp", type: "password", ...encryptSecret(parseMasterKey(Buffer.from(E2E_MASTER_KEY_HEX)), secretId, "c0mmunity") });
+  await page.goto("/monitoring");
+  await page.getByRole("button", { name: "Add a monitor" }).click();
+  await page.getByLabel("Name", { exact: true }).fill("Uplink");
+  await page.getByRole("combobox", { name: /^Check type/ }).selectOption("snmp");
+  await page.getByLabel("Target", { exact: true }).fill("192.168.50.1");
+  await page.locator('select[name="secret"]').selectOption("router-snmp");
+  await page.getByLabel("Interface number (ifIndex)").fill("3");
+  await page.locator('select[name="metric"]').selectOption("inBps");
+  await page.getByLabel("Degraded above").fill("50000000");
+  await page.getByRole("button", { name: "Add monitor" }).click();
+  await expect(page.getByRole("heading", { name: "Uplink" })).toBeVisible();
+  await expect(page.getByText("192.168.50.1 interface 3")).toBeVisible();
+  // What a check records, as the worker would store it.
+  const [uplink] = await db.select().from(monitors).where(eq(monitors.name, "Uplink"));
+  expect(uplink!.config).toMatchObject({ secret: "router-snmp", ifIndex: 3, metric: "inBps", warnAbove: 50_000_000 });
+  await db
+    .update(monitors)
+    .set({ lastResult: { ok: true, message: "eth3 up", at: new Date().toISOString(), value: 2_000_000, unit: "bps", values: { inBps: 2_000_000, outBps: 640_000 } } })
+    .where(eq(monitors.id, uplink!.id));
+  await page.reload();
+  await expect(page.getByText("Latest inBps")).toBeVisible();
+  await expect(page.getByLabel("Latest values")).toContainText("outBps640 kbps");
 });
 
 test("monitoring: an Uptime Kuma alert raises an incident for the responder agent", async () => {

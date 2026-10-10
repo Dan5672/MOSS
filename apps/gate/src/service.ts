@@ -195,7 +195,7 @@ export function createGate(deps: GateDeps) {
   }
 
   /** Runs one monitor's check; the gate reads the monitor itself, the caller only names it. */
-  const checkMonitor = (monitorId: string) => runMonitorCheck({ db: deps.db, toolbox: deps.toolbox, tools }, monitorId);
+  const checkMonitor = (monitorId: string) => runMonitorCheck({ db: deps.db, toolbox: deps.toolbox, tools, masterKey: deps.masterKey, now: deps.now }, monitorId);
 
   /** A call MOSS makes for the Home Assistant module; the gate reads the module's config itself. */
   const homeAssistant = (req: { orgId: string; op: HaOp; args?: Record<string, unknown>; userId?: string }) =>

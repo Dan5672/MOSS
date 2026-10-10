@@ -106,7 +106,9 @@ authenticator app. The **Getting started** checklist on the dashboard walks thro
    **Assets**, each with an **Agent access** badge saying what agents can do with it.
 5. **Add monitors.** Go to **Monitoring → Add a monitor** for the services you care about (your NAS,
    your router, Home Assistant). Choose an agent as the responder. When something goes down, MOSS
-   raises an incident and the responder starts investigating.
+   raises an incident and the responder starts investigating. Monitors can also track numbers:
+   interface traffic over SNMP, a server's load, memory and disk, or any Home Assistant sensor,
+   with thresholds for when they count as degraded or down.
 
 You'll also meet **Moss**, an agent that knows MOSS itself. Ask it in **Chat** how to set
 something up, or why something isn't working.

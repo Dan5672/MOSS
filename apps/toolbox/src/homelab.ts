@@ -147,9 +147,11 @@ export async function synologyStatus(a: Base & { user: string; password: string 
 
 // --- Home Assistant -----------------------------------------------------------------------------
 
-export async function homeassistantStates(a: Base & { token: string; domain?: string; limit: number }, send: RawRequest = sendRequest) {
-  const { json } = await call(send, "Home Assistant", a, "GET", "/api/states", { Authorization: `Bearer ${a.token}` });
-  const states = arr(json).filter((s) => typeof s.entity_id === "string" && (!a.domain || (s.entity_id as string).startsWith(`${a.domain}.`)));
+export async function homeassistantStates(a: Base & { token: string; domain?: string; entity?: string; limit: number }, send: RawRequest = sendRequest) {
+  // One entity (a monitor reading a sensor): its own endpoint. The id was checked by the argument schema.
+  const path = a.entity ? `/api/states/${a.entity}` : "/api/states";
+  const { json } = await call(send, "Home Assistant", a, "GET", path, { Authorization: `Bearer ${a.token}` });
+  const states = (a.entity ? [obj(json)] : arr(json)).filter((s) => typeof s.entity_id === "string" && (!a.domain || (s.entity_id as string).startsWith(`${a.domain}.`)));
   return {
     total: states.length,
     entities: states.slice(0, a.limit).map((s) => {

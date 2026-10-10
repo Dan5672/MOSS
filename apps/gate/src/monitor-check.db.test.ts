@@ -1,6 +1,7 @@
 // Monitor checks through the gate, against Postgres with a fake toolbox.
-import { bootstrapOrg, createMonitor, generateMasterKey } from "@moss/core";
-import { auditLog, monitors, networks, type Database } from "@moss/db";
+import { bootstrapOrg, createMonitor, encryptSecret, generateMasterKey } from "@moss/core";
+import { auditLog, monitors, networks, secrets, type Database } from "@moss/db";
+import { randomUUID } from "node:crypto";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -27,15 +28,26 @@ describe.skipIf(!TEST_DATABASE_URL)("monitor checks (postgres)", () => {
   };
 
   const monitor = (input: Parameters<typeof createMonitor>[2]) => createMonitor(db, orgId, input, owner);
+  let person: { type: "user"; id: string };
+  const masterKey = generateMasterKey();
+  let clock = new Date("2030-01-01T00:00:00Z");
 
   beforeAll(async () => {
     ({ db, close } = await createTestDb("gate_monitors"));
-    orgId = (await bootstrapOrg(db, { orgName: "Home", ownerEmail: "o@h.test", ownerName: "O", ownerPassword: "a-long-test-password" })).org.id;
+    const boot = await bootstrapOrg(db, { orgName: "Home", ownerEmail: "o@h.test", ownerName: "O", ownerPassword: "a-long-test-password" });
+    orgId = boot.org.id;
+    person = { type: "user", id: boot.owner.id };
+    const secret = async (name: string, value: string, scope: { allowedHosts?: string[]; allowedTools?: string[] } = {}) => {
+      const id = randomUUID();
+      await db.insert(secrets).values({ id, orgId, name, type: "password", ...scope, ...encryptSecret(masterKey, id, value) });
+    };
+    await secret("router-snmp", "c0mmunity");
+    await secret("nas-ssh", "-----BEGIN KEY-----", { allowedHosts: ["192.168.1.10/32"] });
     await db.insert(networks).values([
       { orgId, cidr: "192.168.1.0/24", status: "allowed", source: "user" },
       { orgId, cidr: "192.168.66.0/24", status: "off_limits", source: "user" },
     ]);
-    gate = createGate({ db, masterKey: generateMasterKey(), toolbox });
+    gate = createGate({ db, masterKey, toolbox, now: () => clock });
   });
   afterAll(async () => close?.());
   beforeEach(async () => {
@@ -109,5 +121,60 @@ describe.skipIf(!TEST_DATABASE_URL)("monitor checks (postgres)", () => {
     expect(ok.statusCode).toBe(200);
     expect(ok.json()).toMatchObject({ ok: true, message: "3/3 replies, 2 ms" });
     await app.close();
+  });
+
+  describe("metric monitors", () => {
+    it("works out an interface's traffic from two checks, and never shows the community", async () => {
+      let octets = 1_000_000;
+      reply = (tool, args) => {
+        expect(args.community).toBe("c0mmunity"); // decrypted for the toolbox only
+        const oids = args.oids as string[];
+        const v: Record<string, string> = {};
+        for (const o of oids) {
+          if (o.startsWith("1.3.6.1.2.1.31.1.1.1.6.")) v[o] = String(octets);
+          else if (o.startsWith("1.3.6.1.2.1.31.1.1.1.10.")) v[o] = String(octets / 2);
+          else if (o.startsWith("1.3.6.1.2.1.2.2.1.8.")) v[o] = "1";
+          else if (o.startsWith("1.3.6.1.2.1.31.1.1.1.1.")) v[o] = "eth3";
+          else v[o] = "0";
+        }
+        return { target: args.target, preset: "get", values: v };
+      };
+      const m = await createMonitor(db, orgId, { name: "Uplink", kind: "snmp", target: "192.168.1.1", config: { secret: "router-snmp", ifIndex: 3, metric: "inBps", warnAbove: 1_000_000 } }, person);
+      clock = new Date("2030-01-01T00:00:00Z");
+      const first = await gate.checkMonitor(m.id);
+      expect(first).toMatchObject({ ok: true, value: null, message: "eth3 up, measuring traffic (needs two checks)", counters: { inOctets: 1_000_000 } });
+      await db.update(monitors).set({ lastResult: { ...first!, at: clock.toISOString() } as never }).where(eq(monitors.id, m.id));
+      octets += 15_000_000; // 15 MB in a minute: 2 Mbps in
+      clock = new Date("2030-01-01T00:01:00Z");
+      const second = await gate.checkMonitor(m.id);
+      expect(second).toMatchObject({ ok: true, degraded: true, values: { inBps: 2_000_000, outBps: 1_000_000 }, message: "inBps 2000000 is above 1000000" });
+      expect(JSON.stringify(second)).not.toContain("c0mmunity");
+    });
+
+    it("needs secrets.manage to use a secret, and the secret's own host scope", async () => {
+      await expect(monitor({ name: "x", kind: "snmp", target: "192.168.1.1", config: { secret: "router-snmp", oid: "1.3.6.1.2.1.1.3.0" } })).rejects.toThrow(/secrets.manage/);
+      await expect(createMonitor(db, orgId, { name: "x", kind: "snmp", target: "192.168.1.1", config: { secret: "nope", oid: "1.3.6.1.2.1.1.3.0" } }, person)).rejects.toThrow(/no stored secret/);
+      // nas-ssh may only be used against 192.168.1.10.
+      const m = await createMonitor(db, orgId, { name: "Pi", kind: "host", target: "192.168.1.20", config: { secret: "nas-ssh", user: "moss" } }, person);
+      expect(await gate.checkMonitor(m.id)).toMatchObject({ ok: false, policyDenied: true, message: expect.stringMatching(/nas-ssh may not be used against 192\.168\.1\.20/) });
+      expect(calls).toEqual([]);
+    });
+
+    it("reads host load, memory and the fullest disk", async () => {
+      reply = (tool) =>
+        tool === "host_facts"
+          ? { cpus: 4, memoryGb: { total: 8, available: 2 }, load: { "1m": 0.5, "5m": 0.4, "15m": 0.3 } }
+          : { fullest: { mount: "/srv", usedPercent: 91 } };
+      const m = await createMonitor(db, orgId, { name: "NAS", kind: "host", target: "192.168.1.10", config: { secret: "nas-ssh", user: "moss", metric: "diskUsedPercent", critAbove: 90 } }, person);
+      expect(await gate.checkMonitor(m.id)).toMatchObject({
+        ok: false,
+        values: { load1: 0.5, cpus: 4, memUsedPercent: 75, diskUsedPercent: 91 },
+        message: "diskUsedPercent 91 is above 90",
+      });
+      expect(calls.map((c) => [c.tool, c.args.user, c.args.key])).toEqual([
+        ["host_facts", "moss", "-----BEGIN KEY-----"],
+        ["disk_usage", "moss", "-----BEGIN KEY-----"],
+      ]);
+    });
   });
 });

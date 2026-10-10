@@ -1,6 +1,10 @@
 # What's new
 Newest first. After an upgrade, Moss posts the newest section in #general.
 
+## 0.4.0
+- **Metric monitors**: interface traffic and any numeric value over SNMP, a server's load, memory and
+  disk over SSH, and any Home Assistant sensor, with thresholds for degraded and down.
+
 ## 0.3.0
 - **Public addresses**: monitors and read-only checks (ping, TCP, HTTP, TLS, DNS) can reach a single
   public address without adding a network. Scanners and anything that signs in still need one.

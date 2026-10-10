@@ -11,6 +11,7 @@ import {
   monitorSources,
   monitorStateChanges,
   networks,
+  secrets,
   settings,
   users,
   type Database,
@@ -27,7 +28,7 @@ import { writeAudit } from "../store/audit-store.js";
 import type { Actor } from "./assets.js";
 import { emitEvent } from "./events.js";
 import { addIncidentComment, createIncident, incidentRef, updateIncident } from "./incidents.js";
-import { notifyPermission } from "./notifications.js";
+import { notifyPermission, userPermissions } from "./notifications.js";
 
 export type Monitor = typeof monitors.$inferSelect;
 export type MonitorKind = Monitor["kind"];
@@ -43,12 +44,10 @@ export function isHostIp(value: string): boolean {
   return r !== null && r.start === r.end;
 }
 
-const target = z
-  .string()
-  .trim()
-  .min(1, "Target is required")
-  .max(253)
-  .refine((v) => isHostIp(v) || HOSTNAME.test(v), "Must be an IP address or hostname");
+// An IP address or hostname; for a Home Assistant sensor, the entity (checked per kind below).
+const target = z.string().trim().min(1, "Target is required").max(253);
+const HA_ENTITY = /^[a-z_]+\.[a-z0-9_]+$/;
+const threshold = z.number().finite().optional();
 
 const configSchema = z
   .object({
@@ -68,6 +67,33 @@ const configSchema = z
     expectAnswer: z.string().min(1).max(253).optional(),
     degradedMs: z.number().int().min(1).max(60_000).optional(),
     incidentOnDegraded: z.boolean().optional(),
+    secret: z
+      .string()
+      .regex(/^[A-Za-z0-9_.-]{1,100}$/, "A stored secret's name")
+      .optional(),
+    user: z
+      .string()
+      .regex(/^[A-Za-z_][A-Za-z0-9_.-]{0,31}$/, "Must be a Unix user name")
+      .optional(),
+    hostKeySha256: z
+      .string()
+      .regex(/^(SHA256:)?[A-Za-z0-9+/]{43}=?$/, "An SSH SHA256 fingerprint")
+      .optional(),
+    ifIndex: z.number().int().min(1).max(2_147_483_647).optional(),
+    oid: z
+      .string()
+      .regex(/^\.?1(\.\d+){3,40}$/, "A numeric OID such as 1.3.6.1.2.1.1.3.0")
+      .optional(),
+    counter: z.boolean().optional(),
+    metric: z
+      .string()
+      .regex(/^[A-Za-z][A-Za-z0-9_]{0,40}$/)
+      .optional(),
+    warnAbove: threshold,
+    critAbove: threshold,
+    warnBelow: threshold,
+    critBelow: threshold,
+    unit: z.string().max(12).optional(),
   })
   .strict();
 
@@ -77,7 +103,7 @@ const optionalId = z.string().uuid().nullish();
 export const monitorInputSchema = z
   .object({
     name: z.string().trim().min(1).max(100),
-    kind: z.enum(["ping", "tcp", "http", "tls", "dns"]),
+    kind: z.enum(["ping", "tcp", "http", "tls", "dns", "snmp", "host", "ha_sensor"]),
     target,
     config: configSchema.default({}),
     assetId: optionalId,
@@ -91,6 +117,24 @@ export const monitorInputSchema = z
     autoResolve: z.boolean().default(false),
   })
   .superRefine((m, ctx) => {
+    const issue = (path: string[], message: string) => ctx.addIssue({ code: "custom", path, message });
+    if (m.kind === "ha_sensor") {
+      if (!HA_ENTITY.test(m.target)) issue(["target"], "A Home Assistant entity, such as sensor.ups_load");
+    } else if (!isHostIp(m.target) && !HOSTNAME.test(m.target)) {
+      issue(["target"], "Must be an IP address or hostname");
+    }
+    if (m.kind === "snmp") {
+      if (!m.config.secret) issue(["config", "secret"], "An SNMP monitor needs the stored secret with the community string");
+      if (!m.config.ifIndex === !m.config.oid) issue(["config", "oid"], "Choose an interface (ifIndex) or an OID, not both");
+    }
+    if (m.kind === "host") {
+      if (!m.config.secret) issue(["config", "secret"], "A host monitor needs the stored secret with the SSH key");
+      if (!m.config.user) issue(["config", "user"], "A host monitor needs the account to sign in as");
+    }
+    if (m.config.secret && m.kind !== "snmp" && m.kind !== "host") issue(["config", "secret"], "Only SNMP and host monitors use a secret");
+    const c = m.config;
+    if (c.warnAbove !== undefined && c.critAbove !== undefined && c.warnAbove > c.critAbove) issue(["config", "warnAbove"], "The warning level should be below the critical one");
+    if (c.warnBelow !== undefined && c.critBelow !== undefined && c.warnBelow < c.critBelow) issue(["config", "warnBelow"], "The warning level should be above the critical one");
     if (m.kind === "tcp" && !m.config.port) ctx.addIssue({ code: "custom", path: ["config", "port"], message: "A TCP monitor needs a port" });
     if (m.kind === "dns" && isHostIp(m.target) && m.config.recordType !== "PTR") {
       ctx.addIssue({ code: "custom", path: ["target"], message: "A DNS monitor resolves a hostname (or use record type PTR for an IP)" });
@@ -121,6 +165,22 @@ function formatZod(err: z.ZodError) {
 
 export class MonitorValidationError extends Error {}
 
+/**
+ * A monitor that uses a stored credential sends it to its target (an SNMP community travels in the clear), so
+ * pointing one at a device needs the secrets.manage permission, like granting the secret to an agent. Checked
+ * when it's created, and when its secret, kind or target changes.
+ */
+async function assertSecretUse(db: Database, orgId: string, m: { kind: string; target: string; config: { secret?: string } }, actor: Actor, before?: { kind: string; target: string; config: { secret?: string } }) {
+  const name = m.config.secret;
+  if (!name) return;
+  if (before && before.config.secret === name && before.target === m.target && before.kind === m.kind) return;
+  const [row] = await db.select({ id: secrets.id }).from(secrets).where(and(eq(secrets.orgId, orgId), eq(secrets.name, name)));
+  if (!row) throw new MonitorValidationError(`There's no stored secret called ${name}`);
+  if (actor.type !== "user" || !actor.id || !(await userPermissions(db, actor.id)).has("secrets.manage")) {
+    throw new MonitorValidationError("Using a stored secret in a monitor needs the secrets.manage permission");
+  }
+}
+
 async function assertRefs(db: Database, orgId: string, refs: { assetId?: string | null; responderAgentId?: string | null; responderUserId?: string | null }) {
   if (refs.assetId) {
     const [a] = await db.select({ id: assets.id }).from(assets).where(and(eq(assets.id, refs.assetId), eq(assets.orgId, orgId)));
@@ -146,16 +206,19 @@ function parseInput(input: unknown) {
  * Why the gate would refuse to check this target, if it would (IP targets only; hostnames are
  * resolved at check time). Lets the UI warn before the first check fails.
  */
-export async function monitorTargetWarning(db: Database, orgId: string, target: string): Promise<string | null> {
+export async function monitorTargetWarning(db: Database, orgId: string, target: string, kind?: string): Promise<string | null> {
   if (!isHostIp(target)) return null;
   const rules = await db.select({ cidr: networks.cidr, status: networks.status }).from(networks).where(eq(networks.orgId, orgId));
-  const decision = evaluateMonitorCheck({ tool: "ping", args: { target } }, { name: "ping", class: "read", targetArgs: ["target"], publicTargets: true }, rules);
+  // SNMP and host checks sign in, so they need an allowed network even for a public address.
+  const publicTargets = kind !== "snmp" && kind !== "host";
+  const decision = evaluateMonitorCheck({ tool: "ping", args: { target } }, { name: "ping", class: "read", targetArgs: ["target"], publicTargets }, rules);
   return decision.allow ? null : decision.reason;
 }
 
 export async function createMonitor(db: Database, orgId: string, input: MonitorInput, actor: Actor) {
   const m = parseInput(input);
   await assertRefs(db, orgId, m);
+  await assertSecretUse(db, orgId, m, actor);
   const [row] = await db
     .insert(monitors)
     .values({ orgId, ...m, config: m.config as MonitorConfig, assetId: m.assetId ?? null, responderAgentId: m.responderAgentId ?? null, responderUserId: m.responderUserId ?? null })
@@ -173,6 +236,7 @@ export async function updateMonitor(db: Database, orgId: string, monitorId: stri
     set = parsed.data;
   } else {
     const m = parseInput(input);
+    await assertSecretUse(db, orgId, m, actor, existing);
     set = { ...m, config: m.config as MonitorConfig, assetId: m.assetId ?? null, responderAgentId: m.responderAgentId ?? null, responderUserId: m.responderUserId ?? null };
     // A changed check starts fresh.
     if (m.kind !== existing.kind || m.target !== existing.target) {
@@ -338,7 +402,16 @@ export async function recordMonitorResult(db: Database, monitorId: string, resul
     // Quiet during an approved change on its asset, or while maintenance mode is on (from Home Assistant).
     const suppressed = (m.assetId ? await inMaintenance(tx, m.assetId) : false) || (await quietNow(tx, m.orgId, now));
 
-    await tx.insert(monitorResults).values({ monitorId, at: now, ok: result.ok, degraded: !!result.degraded, latencyMs: result.latencyMs ?? null, message });
+    await tx.insert(monitorResults).values({
+      monitorId,
+      at: now,
+      ok: result.ok,
+      degraded: !!result.degraded,
+      latencyMs: result.latencyMs ?? null,
+      message,
+      value: result.value ?? null,
+      values: result.values && Object.keys(result.values).length ? result.values : null,
+    });
 
     let flapping = m.lastResult?.flapping ?? false;
     if (t.changed) {
@@ -361,6 +434,10 @@ export async function recordMonitorResult(db: Database, monitorId: string, resul
       ...(flapping ? { flapping } : {}),
       ...(suppressed ? { suppressed } : {}),
       ...(result.policyDenied ? { policyDenied: true } : {}),
+      ...(result.value !== undefined ? { value: result.value } : {}),
+      ...(result.values ? { values: result.values } : {}),
+      ...(result.unit ? { unit: result.unit } : {}),
+      ...(result.counters ? { counters: result.counters } : {}),
     };
     const [updated] = await tx
       .update(monitors)

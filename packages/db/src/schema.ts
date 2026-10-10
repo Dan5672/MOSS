@@ -6,6 +6,7 @@ import {
   bigint,
   boolean,
   cidr,
+  doublePrecision,
   index,
   inet,
   integer,
@@ -664,7 +665,7 @@ export const standardChangeTemplates = pgTable(
 // ---------------------------------------------------------------------------
 // Monitoring: built-in checks (run by the gate) and external monitors fed by webhooks.
 // ---------------------------------------------------------------------------
-export const monitorKind = pgEnum("monitor_kind", ["ping", "tcp", "http", "tls", "dns", "external"]);
+export const monitorKind = pgEnum("monitor_kind", ["ping", "tcp", "http", "tls", "dns", "external", "snmp", "host", "ha_sensor"]);
 export const monitorState = pgEnum("monitor_state", ["pending", "up", "degraded", "down", "paused"]);
 
 /** Kind-specific check settings. Validated by the core service; the gate builds tool args from it. */
@@ -685,6 +686,24 @@ export interface MonitorConfig {
   degradedMs?: number;
   /** Raise a (P4) incident when degraded, not only a notification. */
   incidentOnDegraded?: boolean;
+  /** SNMP and host monitors: the stored secret with the community string or SSH key (a name, not a value). */
+  secret?: string;
+  /** Host: the SSH account and port, and the pinned host key. */
+  user?: string;
+  hostKeySha256?: string;
+  /** SNMP: one interface's traffic, errors and status (by ifIndex), or a numeric OID. */
+  ifIndex?: number;
+  oid?: string;
+  /** SNMP OID: the value counts up (octets, packets), so graph its rate per second. */
+  counter?: boolean;
+  /** Metric monitors: which value the thresholds apply to (default: the main value), and the thresholds. */
+  metric?: string;
+  warnAbove?: number;
+  critAbove?: number;
+  warnBelow?: number;
+  critBelow?: number;
+  /** Shown after the value (%, bps, °C). */
+  unit?: string;
 }
 
 export interface MonitorResultSummary {
@@ -697,6 +716,12 @@ export interface MonitorResultSummary {
   suppressed?: boolean;
   /** The gate refused the check (target outside allowed networks). */
   policyDenied?: boolean;
+  /** Metric monitors: the main value, every value by name, and the unit. */
+  value?: number | null;
+  values?: Record<string, number>;
+  unit?: string;
+  /** Raw counters from this check, so the next one can work out rates. */
+  counters?: Record<string, number>;
 }
 
 export const monitorSources = pgTable("monitor_sources", {
@@ -763,6 +788,9 @@ export const monitorResults = pgTable(
     degraded: boolean("degraded").notNull().default(false),
     latencyMs: integer("latency_ms"),
     message: text("message").notNull().default(""),
+    /** Metric monitors: the main value, and every value by name (for graphs). */
+    value: doublePrecision("value"),
+    values: jsonb("values").$type<Record<string, number>>(),
   },
   (t) => [index("monitor_results_monitor_at_idx").on(t.monitorId, t.at)],
 );

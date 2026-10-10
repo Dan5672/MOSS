@@ -9,7 +9,7 @@ import { BUILT_IN_TOOLS, parseToolArgs, SYSTEM_TOOLS } from "@moss/tools";
 import { and, eq } from "drizzle-orm";
 import type { ToolboxClient } from "./toolbox-client.js";
 
-export const HA_OPS = ["test", "health", "devices", "notify", "publish"] as const;
+export const HA_OPS = ["test", "health", "devices", "notify", "publish", "state"] as const;
 export type HaOp = (typeof HA_OPS)[number];
 
 const TOOL_FOR: Record<HaOp, string> = {
@@ -18,10 +18,12 @@ const TOOL_FOR: Record<HaOp, string> = {
   devices: "homeassistant_devices",
   notify: "homeassistant_notify",
   publish: "homeassistant_publish",
+  // One entity's state, for Home Assistant sensor monitors.
+  state: "homeassistant_states",
 };
 
 /** Successful routine reads and sensor updates run every few minutes; only these aren't audited when they succeed. */
-const QUIET_WHEN_OK = new Set<HaOp>(["health", "publish", "devices"]);
+const QUIET_WHEN_OK = new Set<HaOp>(["health", "publish", "devices", "state"]);
 
 /** The org of an active user who may manage modules; null for anyone else. Guards a person's module calls. */
 export async function moduleManagerOrg(db: Database, userId: string): Promise<string | null> {

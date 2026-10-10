@@ -1,9 +1,9 @@
 // Monitor checks. The worker only names a monitor; everything else (target, tool, arguments) is
 // read from the database here, resolved to an IP, scope-checked with the same network rules as
 // agent calls, and only then sent to the toolbox. Hostnames never reach a probe as a target.
-import { isHostIp, writeAudit, type CheckResult } from "@moss/core";
-import { monitors, networks, type Database } from "@moss/db";
-import { evaluateMonitorCheck, type NetworkRule } from "@moss/policy";
+import { applyThresholds, decryptSecret, isHostIp, redactSecrets, writeAudit, type CheckResult } from "@moss/core";
+import { monitors, networks, secrets, type Database } from "@moss/db";
+import { contains, evaluateMonitorCheck, parseRange, type IpRange, type NetworkRule } from "@moss/policy";
 import {
   BUILT_IN_TOOLS,
   parseToolArgs,
@@ -14,17 +14,19 @@ import {
   type TlsInspectResult,
   type ToolDefinition,
 } from "@moss/tools";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { runHomeAssistantOp } from "./home-assistant.js";
+import { haSensorResult, hostCheck, snmpCheck, type Call, type Caller, type Monitor, type SecretArg } from "./metric-checks.js";
 import type { ToolboxClient } from "./toolbox-client.js";
 
 export interface MonitorCheckDeps {
   db: Database;
   toolbox: ToolboxClient;
   tools?: ReadonlyMap<string, ToolDefinition>;
+  /** Decrypts SNMP and host monitors' credentials, and Home Assistant's token. Without it, those monitors can't run. */
+  masterKey?: Buffer;
+  now?: () => Date;
 }
-
-type Monitor = typeof monitors.$inferSelect;
-type Call<T> = { ok: true; result: T } | { ok: false; result: CheckResult };
 
 const ms = (n: number | null | undefined) => (typeof n === "number" ? `${Math.round(n)} ms` : "");
 
@@ -35,10 +37,10 @@ export async function runMonitorCheck(deps: MonitorCheckDeps, monitorId: string)
   const rules: NetworkRule[] = await deps.db.select({ cidr: networks.cidr, status: networks.status }).from(networks).where(eq(networks.orgId, m.orgId));
   const timeoutMs = Math.min(30_000, Math.max(1_000, m.timeoutSeconds * 1000));
 
-  async function call<T>(tool: string, rawArgs: Record<string, unknown>): Promise<Call<T>> {
+  const call: Caller = async <T,>(tool: string, rawArgs: Record<string, unknown>, secret?: SecretArg): Promise<Call<T>> => {
     const def = tools.get(tool);
     if (!def) return { ok: false, result: { ok: false, message: `Tool ${tool} is not available` } };
-    const parsed = parseToolArgs(def, rawArgs);
+    const parsed = parseToolArgs(def, secret ? { ...rawArgs, [secret.arg]: `secret:${secret.name}` } : rawArgs);
     if (!parsed.ok) return { ok: false, result: { ok: false, message: `Invalid check settings: ${parsed.error}`.slice(0, 500) } };
     const decision = evaluateMonitorCheck({ tool, args: parsed.args }, def.manifest, rules);
     if (!decision.allow) {
@@ -56,13 +58,44 @@ export async function runMonitorCheck(deps: MonitorCheckDeps, monitorId: string)
       }
       return { ok: false, result: { ok: false, policyDenied: true, message: `Blocked by policy: ${decision.reason}` } };
     }
+    // A credential: the secret's own tool and host scope apply too, and it's decrypted only now.
+    let args = parsed.args;
+    let value: string | undefined;
+    if (secret) {
+      const scoped = await scopedSecret(secret.name, tool, decision.targets);
+      if (typeof scoped === "string") return { ok: false, result: { ok: false, policyDenied: true, message: `Blocked by policy: ${scoped}` } };
+      value = scoped.value;
+      args = { ...args, [secret.arg]: value };
+    }
+    const hide = (text: string) => (value ? redactSecrets(text, [value]) : text).slice(0, 500);
     try {
-      const res = await deps.toolbox.call(tool, parsed.args);
-      if (!res.ok) return { ok: false, result: { ok: false, message: (res.error ?? "check failed").slice(0, 500) } };
+      const res = await deps.toolbox.call(tool, args);
+      if (!res.ok) return { ok: false, result: { ok: false, message: hide(res.error ?? "check failed") } };
       return { ok: true, result: res.result as T };
     } catch (err) {
-      return { ok: false, result: { ok: false, message: `Toolbox unavailable: ${(err as Error).message}`.slice(0, 500) } };
+      return { ok: false, result: { ok: false, message: hide(`Toolbox unavailable: ${(err as Error).message}`) } };
     }
+  };
+
+  async function scopedSecret(name: string, tool: string, targets: string[]): Promise<{ value: string } | string> {
+    if (!deps.masterKey) return "this gate can't decrypt monitor credentials";
+    const [row] = await deps.db.select().from(secrets).where(and(eq(secrets.orgId, m!.orgId), eq(secrets.name, name)));
+    if (!row) return `there's no stored secret called ${name}`;
+    if (row.allowedTools.length > 0 && !row.allowedTools.includes(tool)) return `secret ${name} may not be used with ${tool}`;
+    if (row.allowedHosts.length > 0) {
+      const hosts = row.allowedHosts.map(parseRange).filter((r): r is IpRange => r !== null);
+      const ranges = targets.map(parseRange).filter((r): r is IpRange => r !== null);
+      if (!ranges.length || !ranges.every((t) => hosts.some((h) => contains(h, t)))) return `secret ${name} may not be used against ${targets.join(", ")}`;
+    }
+    return { value: decryptSecret(deps.masterKey, row.id, row) };
+  }
+
+  // A Home Assistant sensor is read through the Home Assistant integration (its address, token and network scope).
+  if (m.kind === "ha_sensor") {
+    if (!deps.masterKey) return { ok: false, message: "This gate can't read Home Assistant" };
+    const res = await runHomeAssistantOp({ db: deps.db, masterKey: deps.masterKey, toolbox: deps.toolbox }, { orgId: m.orgId, op: "state", args: { entity: m.target } });
+    if (!res.ok) return { ok: false, message: res.error.slice(0, 500) };
+    return applyThresholds(haSensorResult(m, (res.result as { entities?: { state?: string; unit?: string; name?: string }[] }).entities?.[0]), m.config);
   }
 
   // DNS monitors check the resolver itself; there is no target to scope-check.
@@ -93,6 +126,9 @@ export async function runMonitorCheck(deps: MonitorCheckDeps, monitorId: string)
     ip = resolved;
   }
 
+  if (m.kind === "snmp") return applyThresholds(await snmpCheck(m, ip, timeoutMs, deps.now?.() ?? new Date(), call), m.config);
+  if (m.kind === "host") return applyThresholds(await hostCheck(m, ip, timeoutMs, call), m.config);
+
   const result = await probe(m, ip, hostname, timeoutMs, call);
   if (result.ok && !result.degraded && m.config.degradedMs && (result.latencyMs ?? 0) > m.config.degradedMs) {
     return { ...result, degraded: true, message: `${result.message} (slower than ${m.config.degradedMs} ms)` };
@@ -100,13 +136,7 @@ export async function runMonitorCheck(deps: MonitorCheckDeps, monitorId: string)
   return result;
 }
 
-async function probe(
-  m: Monitor,
-  ip: string,
-  hostname: string | undefined,
-  timeoutMs: number,
-  call: <T>(tool: string, args: Record<string, unknown>) => Promise<Call<T>>,
-): Promise<CheckResult> {
+async function probe(m: Monitor, ip: string, hostname: string | undefined, timeoutMs: number, call: Caller): Promise<CheckResult> {
   const c = m.config;
   switch (m.kind) {
     case "ping": {

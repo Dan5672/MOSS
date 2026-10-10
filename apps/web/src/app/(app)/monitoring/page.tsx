@@ -18,7 +18,7 @@ import { describeTarget, formatUptime, monitorFormOptions } from "./shared";
 export const metadata = { title: "Monitoring" };
 
 const STATE_ORDER = { down: 0, degraded: 1, pending: 2, up: 3, paused: 4 } as const;
-const KINDS = new Set(["ping", "tcp", "http", "tls", "dns"]);
+const KINDS = new Set(["ping", "tcp", "http", "tls", "dns", "snmp", "host", "ha_sensor"]);
 
 /** ?new=1&kind=tcp&target=…&port=…&asset=… pre-fills the form (from an asset's "Monitor" button). */
 function prefill(sp: Record<string, string | string[] | undefined>): MonitorDefaults | null {
@@ -67,7 +67,7 @@ export default async function MonitoringPage({ searchParams }: PageProps<"/monit
                 defaultOpen={sp.new === "1"}
               >
                 <ActionForm action={createMonitorAction} submitLabel="Add monitor">
-                  <MonitorFields defaults={defaults ?? undefined} assets={options.assets} responders={options.responders} />
+                  <MonitorFields defaults={defaults ?? undefined} assets={options.assets} responders={options.responders} secrets={options.secrets} />
                 </ActionForm>
               </FormDialog>
             )}

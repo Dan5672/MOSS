@@ -148,7 +148,7 @@ export function parseSnmpLines(text: string): Map<string, string> {
   return out;
 }
 
-export async function snmpQuery(a: { target: string; community: string; preset: string; timeoutMs: number }, exec: Exec): Promise<SnmpResult> {
+export async function snmpQuery(a: { target: string; community: string; preset: string; oids?: string[]; timeoutMs: number }, exec: Exec): Promise<SnmpResult> {
   const common = ["-v2c", "-c", a.community, "-On", "-Oq", "-Ot", "-t", String(Math.max(1, Math.round(a.timeoutMs / 1000))), "-r", "1", a.target];
   const fail = (stderr: string) => {
     if (/Timeout/i.test(stderr)) throw new DiscoveryError(`No SNMP answer from ${a.target} (wrong community, SNMP off, or blocked)`);
@@ -161,6 +161,16 @@ export async function snmpQuery(a: { target: string; community: string; preset: 
     const values = Object.fromEntries(Object.entries(SYSTEM).flatMap(([oid, key]) => (got.has(oid) ? [[key, got.get(oid)!]] : [])));
     if (values.uptime && /^\d+$/.test(values.uptime)) values.uptimeDays = (Number(values.uptime) / 8_640_000).toFixed(1);
     return { target: a.target, preset: a.preset, values };
+  }
+  if (a.preset === "get") {
+    // Specific OIDs (monitors read one interface's counters, or a value someone chose). Values come back
+    // keyed by the OID as asked for, without a leading dot.
+    const oids = (a.oids ?? []).map((o) => o.replace(/^\./, ""));
+    if (!oids.length || oids.some((o) => !/^1(\.\d+){3,40}$/.test(o))) throw new DiscoveryError("Pass oids: numeric OIDs such as 1.3.6.1.2.1.1.3.0");
+    const res = await exec("snmpget", [...common, ...oids], a.timeoutMs + 5000);
+    if (res.code !== 0 && !res.stdout.trim()) fail(res.stderr);
+    const got = parseSnmpLines(res.stdout);
+    return { target: a.target, preset: a.preset, values: Object.fromEntries(oids.flatMap((o) => (got.has(o) ? [[o, got.get(o)!]] : []))) };
   }
   const columns = TABLES[a.preset];
   if (!columns) throw new DiscoveryError(`Unknown preset ${a.preset}`);
