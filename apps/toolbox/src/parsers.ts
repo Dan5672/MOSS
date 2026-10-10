@@ -38,6 +38,7 @@ export function parseNmapXml(text: string): NmapResult {
     hosts.push({
       ip,
       status: h.status?.state === "up" ? "up" : "down",
+      reason: clean(h.status?.reason),
       mac: clean(mac?.addr)?.toLowerCase(),
       vendor: clean(mac?.vendor),
       hostnames: ((h.hostnames?.hostname ?? []) as Attrs[]).flatMap((n) => clean(n.name) ?? []).slice(0, 10),

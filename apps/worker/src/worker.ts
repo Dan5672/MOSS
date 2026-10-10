@@ -1,22 +1,27 @@
 // The worker: runs agent jobs from the queue, turns agent schedules into jobs, and runs monitor checks.
 import {
+  chatSnapshot,
   enqueueRun,
   ensureQueues,
   HttpGateClient,
   loadLibrary,
+  recordChatReply,
   RUN_QUEUE,
   runAgent,
   SCHEDULE_QUEUE,
   syncBuiltInSkills,
+  type ClaudeCodeConfig,
   type GateClient,
   type ProviderFactory,
   type RunInput,
+  unansweredThreads,
 } from "@moss/agent";
 import { changeRef, dispatchEvents, ensureBuiltInRoles, incidentRef, type StoredEvent } from "@moss/core";
 import { agents, agentSchedules, changeRequests, incidents, orgs, type Database } from "@moss/db";
 import { createProvider } from "@moss/llm";
 import { and, eq } from "drizzle-orm";
 import { PgBoss } from "pg-boss";
+import { notifyIncident, runHomeAssistantTick, type HaCaller } from "./home-assistant.js";
 import { handleMonitorEvent, pruneAllMonitorResults, runDueChecks, type MonitorChecker } from "./monitor-runner.js";
 
 export { enqueueRun, RUN_QUEUE, SCHEDULE_QUEUE };
@@ -27,8 +32,13 @@ export interface WorkerConfig {
   gate: GateClient;
   providerFor: ProviderFactory;
   libraryDir?: string;
+  /** Runs agents whose model is on a Claude subscription (through the Claude Code CLI). */
+  claudeCode?: ClaudeCodeConfig;
   /** Runs monitor checks through the gate. Monitoring is off without it. */
   checkMonitor?: MonitorChecker;
+  /** Makes the Home Assistant module's calls through the gate. The module does nothing without it. */
+  homeAssistant?: HaCaller;
+  homeAssistantIntervalMs?: number;
   eventIntervalMs?: number;
   monitorIntervalMs?: number;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
@@ -67,9 +77,18 @@ export async function syncSchedules(db: Database, boss: PgBoss): Promise<{ added
 }
 
 /** Turns domain events into agent runs. Tasks reference tickets by id; the agent reads them with its tools. */
-export async function handleEvent(db: Database, boss: PgBoss, event: StoredEvent): Promise<void> {
+export async function handleEvent(db: Database, boss: PgBoss, event: StoredEvent, opts: { homeAssistant?: HaCaller; log?: (msg: string, extra?: Record<string, unknown>) => void } = {}): Promise<void> {
   const p = event.payload as Record<string, string | undefined>;
   switch (event.type) {
+    case "incident.created": {
+      // Phone notifications through Home Assistant. Not awaited: a slow phone push mustn't hold up
+      // other events, and a notification that arrives much later is worse than none, so it isn't retried.
+      if (opts.homeAssistant && p.incidentId) {
+        const call = opts.homeAssistant;
+        void notifyIncident(db, call, p.incidentId).catch((err) => opts.log?.("home assistant notification failed", { error: (err as Error).message }));
+      }
+      return;
+    }
     case "incident.assigned": {
       if (!p.agentId || !p.incidentId) return;
       const [inc] = await db.select().from(incidents).where(eq(incidents.id, p.incidentId));
@@ -126,9 +145,19 @@ export async function startWorker(cfg: WorkerConfig) {
 
   await boss.work<RunInput>(RUN_QUEUE, { localConcurrency: 4 }, async ([job]) => {
     if (!job) return;
-    log("run started", { agentId: job.data.agentId, trigger: job.data.trigger });
-    const outcome = await runAgent({ db, gate: cfg.gate, providerFor: cfg.providerFor }, job.data);
-    log("run finished", { agentId: job.data.agentId, runId: outcome.runId, status: outcome.status });
+    let input = job.data;
+    // A chat run answers the conversation as it stands when the run starts.
+    const chat = input.trigger === "chat" && input.triggerRef ? await chatSnapshot(db, input.triggerRef) : undefined;
+    if (chat === null) return; // already answered
+    if (chat) input = { ...input, task: chat.task };
+    log("run started", { agentId: input.agentId, trigger: input.trigger });
+    const outcome = await runAgent({ db, gate: cfg.gate, providerFor: cfg.providerFor, claudeCode: cfg.claudeCode }, input);
+    log("run finished", { agentId: input.agentId, runId: outcome.runId, status: outcome.status });
+    if (chat) await recordChatReply(db, input.triggerRef!, outcome, chat.cutoff);
+    // Messages sent while the agent was busy couldn't be queued (one run per agent); answer them now.
+    for (const threadId of await unansweredThreads(db, input.agentId)) {
+      await enqueueRun(boss, { agentId: input.agentId, trigger: "chat", triggerRef: threadId, task: "Reply in chat" });
+    }
     return outcome;
   });
 
@@ -155,7 +184,7 @@ export async function startWorker(cfg: WorkerConfig) {
     if (dispatching) return;
     dispatching = true;
     try {
-      await dispatchEvents(db, (e) => handleEvent(db, boss, e), 50);
+      await dispatchEvents(db, (e) => handleEvent(db, boss, e, { homeAssistant: cfg.homeAssistant, log }), 50);
     } catch (err) {
       log("event dispatch failed", { error: (err as Error).message });
     } finally {
@@ -183,12 +212,27 @@ export async function startWorker(cfg: WorkerConfig) {
       (err) => log("monitor prune failed", { error: (err as Error).message }),
     );
   const pruneTimer = setInterval(prune, 60 * 60_000);
+
+  let haRunning = false;
+  const homeAssistantTick = async () => {
+    if (haRunning || !cfg.homeAssistant) return;
+    haRunning = true;
+    try {
+      await runHomeAssistantTick(db, cfg.homeAssistant, { log });
+    } catch (err) {
+      log("home assistant module failed", { error: (err as Error).message });
+    } finally {
+      haRunning = false;
+    }
+  };
+  const haTimer = setInterval(homeAssistantTick, cfg.homeAssistantIntervalMs ?? 60_000);
   return {
     stop: async () => {
       clearInterval(timer);
       clearInterval(eventTimer);
       clearInterval(monitorTimer);
       clearInterval(pruneTimer);
+      clearInterval(haTimer);
       await boss.stop({ graceful: true });
     },
   };

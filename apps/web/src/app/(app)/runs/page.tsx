@@ -43,7 +43,7 @@ export default async function RunsPage({ searchParams }: PageProps<"/runs">) {
               <TableRow key={run.id}>
                 <TableCell className="whitespace-nowrap text-sm">
                   <Link href={`/runs/${run.id}`} className="hover:underline">
-                    {timeAgo(run.startedAt)}
+                    <span className="font-mono">{timeAgo(run.startedAt)}</span>
                   </Link>
                 </TableCell>
                 <TableCell className="text-sm">{agentName}</TableCell>

@@ -2,12 +2,13 @@ import { getSetting, totpUri, type SettingKey } from "@moss/core";
 import { cookies } from "next/headers";
 import QRCode from "qrcode";
 import { ActionForm } from "@/components/action-form";
-import { TextField } from "@/components/field";
+import { SelectField, TextField } from "@/components/field";
 import { PageHeader } from "@/components/page";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
-import { confirmTotpAction, disableTotpAction, startTotpAction, toggleSettingAction } from "./actions";
+import { confirmTotpAction, disableTotpAction, setMotionAction, startTotpAction, toggleSettingAction } from "./actions";
+import { SettingsTabs } from "./tabs";
 
 export const metadata = { title: "Settings" };
 
@@ -49,7 +50,28 @@ export default async function SettingsPage() {
   return (
     <>
       <PageHeader title="Settings" />
+      <SettingsTabs current="/settings" />
       <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Display</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ActionForm action={setMotionAction} submitLabel="Save">
+              <SelectField
+                label="Motion"
+                name="motion"
+                defaultValue={user.motion}
+                hint="Animations such as the Basement, blinking mascots and the alarm. Follow system turns them off when your device asks for less motion."
+                options={[
+                  { value: "system", label: "Follow system" },
+                  { value: "on", label: "Always on" },
+                  { value: "off", label: "Always off" },
+                ]}
+              />
+            </ActionForm>
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader>
             <CardTitle>Safety</CardTitle>
@@ -62,7 +84,7 @@ export default async function SettingsPage() {
                 <div key={t.key} className="flex items-start justify-between gap-4 py-4 first:pt-0 last:pb-0">
                   <div>
                     <div className="font-medium">
-                      {t.title} <span className={on ? (t.danger ? "text-red-600" : "text-emerald-600") : "text-muted-foreground"}>· {on ? "on" : "off"}</span>
+                      {t.title} <span className={on ? (t.danger ? "text-alarm" : "text-phosphor") : "text-muted-foreground"}>· {on ? "on" : "off"}</span>
                     </div>
                     <p className="text-sm text-muted-foreground">{t.description}</p>
                   </div>

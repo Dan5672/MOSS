@@ -59,6 +59,8 @@ export const users = pgTable(
     passwordHash: text("password_hash"),
     totpSecretRef: text("totp_secret_ref"),
     oidcSubject: text("oidc_subject"),
+    /** Animation preference: follow the OS's reduced-motion setting, or always on / always off. */
+    motion: text("motion", { enum: ["system", "on", "off"] }).notNull().default("system"),
     status: text("status", { enum: ["active", "invited", "disabled"] }).notNull().default("active"),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     ...timestamps(),
@@ -109,7 +111,7 @@ export const sessions = pgTable("sessions", {
 export const providers = pgTable("providers", {
   id: id(),
   ...tenancy(),
-  kind: text("kind", { enum: ["anthropic", "openai", "openrouter", "ollama", "openai_compatible"] }).notNull(),
+  kind: text("kind", { enum: ["anthropic", "openai", "openrouter", "ollama", "openai_compatible", "claude_code"] }).notNull(),
   name: text("name").notNull(),
   baseUrl: text("base_url"),
   apiKeySecretId: uuid("api_key_secret_id"),
@@ -155,6 +157,10 @@ export const agents = pgTable("agents", {
   roleId: uuid("role_id").references(() => roles.id),
   effort: text("effort", { enum: ["low", "medium", "high", "xhigh", "max"] }).notNull().default("medium"),
   maxStepsPerRun: integer("max_steps_per_run").notNull().default(25),
+  /** The agent's mascot (a key of the web app's mascot registry); null means the role's default. */
+  mascot: text("mascot"),
+  /** The mascot's glow colour (#rrggbb); null means the role's colour. */
+  mascotGlow: text("mascot_glow"),
   pausedReason: text("paused_reason"),
   hiredAt: timestamp("hired_at", { withTimezone: true }).notNull().defaultNow(),
   firedAt: timestamp("fired_at", { withTimezone: true }),
@@ -199,6 +205,48 @@ export const agentSchedules = pgTable("agent_schedules", {
   enabled: boolean("enabled").notNull().default(true),
 });
 
+// Per-agent tool overrides on top of what the agent's skills grant: granted = true adds a tool the skills
+// don't give, granted = false removes one they do. The gate and the runtime both apply them.
+export const agentToolOverrides = pgTable(
+  "agent_tool_overrides",
+  {
+    agentId: uuid("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+    tool: text("tool").notNull(),
+    granted: boolean("granted").notNull(),
+    setBy: uuid("set_by").references(() => users.id),
+    setAt: timestamp("set_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.agentId, t.tool] })],
+);
+
+// Custom tools: declarative HTTP tools uploaded by owners (see @moss/tools custom.ts). The validated
+// definition is kept with the original text, and agents get a custom tool only through a grant here.
+export const customTools = pgTable(
+  "custom_tools",
+  {
+    id: id(),
+    ...tenancy(),
+    key: text("key").notNull(),
+    spec: jsonb("spec").$type<Record<string, unknown>>().notNull(),
+    source: text("source").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("custom_tools_org_key_idx").on(t.orgId, t.key)],
+);
+
+export const customToolGrants = pgTable(
+  "custom_tool_grants",
+  {
+    toolId: uuid("tool_id").notNull().references(() => customTools.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+    grantedBy: uuid("granted_by").references(() => users.id),
+    grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.toolId, t.agentId] })],
+);
+
 export const budgets = pgTable("budgets", {
   id: id(),
   ...tenancy(),
@@ -224,6 +272,36 @@ export const agentRuns = pgTable(
     endedAt: timestamp("ended_at", { withTimezone: true }),
   },
   (t) => [index("agent_runs_agent_idx").on(t.agentId, t.startedAt)],
+);
+
+// A conversation between one user and one agent. Each reply is produced by an agent run with
+// trigger "chat", so chat goes through the same policy gate, budgets and audit as any other run.
+export const chatThreads = pgTable(
+  "chat_threads",
+  {
+    id: id(),
+    ...tenancy(),
+    agentId: uuid("agent_id").notNull().references(() => agents.id),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    ...timestamps(),
+  },
+  (t) => [index("chat_threads_agent_user_idx").on(t.agentId, t.userId, t.updatedAt)],
+);
+
+export const chatMessages = pgTable(
+  "chat_messages",
+  {
+    id: id(),
+    threadId: uuid("thread_id").notNull().references(() => chatThreads.id, { onDelete: "cascade" }),
+    role: text("role", { enum: ["user", "agent"] }).notNull(),
+    content: text("content").notNull(),
+    /** For agent replies: the run that produced it. */
+    runId: uuid("run_id").references(() => agentRuns.id),
+    /** For agent replies: how that run ended, so a failed run reads as an error rather than an answer. */
+    status: text("status", { enum: ["succeeded", "failed", "aborted"] }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("chat_messages_thread_idx").on(t.threadId, t.createdAt)],
 );
 
 export const runSteps = pgTable("run_steps", {
@@ -512,7 +590,7 @@ export const monitorSources = pgTable("monitor_sources", {
   id: id(),
   ...tenancy(),
   name: text("name").notNull(),
-  kind: text("kind", { enum: ["uptime_kuma", "beszel", "alertmanager", "generic"] }).notNull(),
+  kind: text("kind", { enum: ["uptime_kuma", "beszel", "alertmanager", "generic", "home_assistant"] }).notNull(),
   /** sha256 of the bearer token; the token itself is shown once on creation. */
   tokenHash: text("token_hash").notNull(),
   /** Applied to monitors this source creates; editable per monitor afterwards. */
@@ -636,6 +714,28 @@ export const secrets = pgTable(
   (t) => [uniqueIndex("secrets_org_name_idx").on(t.orgId, t.name)],
 );
 
+// Device configuration backups taken by the config_backup tool. The content is encrypted by the gate with
+// the master key (envelope encryption, like secrets) and only the gate can decrypt it, for a download.
+export const configBackups = pgTable(
+  "config_backups",
+  {
+    id: id(),
+    ...tenancy(),
+    target: text("target").notNull(),
+    source: text("source", { enum: ["ssh_file", "pihole"] }).notNull(),
+    filename: text("filename").notNull(),
+    contentType: text("content_type").notNull(),
+    bytes: integer("bytes").notNull(),
+    sha256: text("sha256").notNull(),
+    ciphertext: text("ciphertext").notNull(),
+    wrappedDataKey: text("wrapped_data_key").notNull(),
+    agentId: uuid("agent_id").references(() => agents.id, { onDelete: "set null" }),
+    runId: uuid("run_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("config_backups_org_idx").on(t.orgId, t.target, t.source, t.createdAt)],
+);
+
 export const secretGrants = pgTable(
   "secret_grants",
   {
@@ -669,6 +769,27 @@ export const auditLog = pgTable(
   (t) => [index("audit_log_time_idx").on(t.orgId, t.createdAt)],
 );
 
+// Knowledge base: durable facts that agents and people share ("10.0.0.1 is the ISP gateway; its open
+// ports are expected"), so agents stop rediscovering or re-reporting the same thing.
+export const knowledgeNotes = pgTable(
+  "knowledge_notes",
+  {
+    id: id(),
+    ...tenancy(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    tags: jsonb("tags").$type<string[]>().notNull().default([]),
+    /** What the note is about, when it is about one thing: an IP, hostname, asset or service. */
+    subject: text("subject"),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id),
+    createdByAgentId: uuid("created_by_agent_id").references(() => agents.id),
+    updatedByUserId: uuid("updated_by_user_id").references(() => users.id),
+    updatedByAgentId: uuid("updated_by_agent_id").references(() => agents.id),
+    ...timestamps(),
+  },
+  (t) => [index("knowledge_notes_org_idx").on(t.orgId, t.updatedAt)],
+);
+
 export const notifications = pgTable("notifications", {
   id: id(),
   ...tenancy(),
@@ -680,6 +801,24 @@ export const notifications = pgTable("notifications", {
   readAt: timestamp("read_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Optional modules (e.g. Home Assistant). `config` is what people set and is validated by the core
+ * service on every read; `state` is what MOSS records while running the module (last sync, last remedy...).
+ */
+export const modules = pgTable(
+  "modules",
+  {
+    orgId: uuid("org_id").notNull(),
+    key: text("key").notNull(),
+    enabled: boolean("enabled").notNull().default(false),
+    config: jsonb("config").$type<Record<string, unknown>>().notNull().default({}),
+    state: jsonb("state").$type<Record<string, unknown>>().notNull().default({}),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.orgId, t.key] })],
+);
 
 export const settings = pgTable(
   "settings",

@@ -66,7 +66,7 @@ export function UptimeStrip({ results, now = new Date() }: { results: Result[]; 
             <div
               key={i}
               title={`${from.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}: ${label}`}
-              className={cn("flex-1 rounded-sm", b.n === 0 ? "bg-muted" : b.fail ? "bg-red-500" : b.degraded ? "bg-amber-500" : "bg-emerald-500")}
+              className={cn("flex-1 rounded-sm", b.n === 0 ? "bg-muted" : b.fail ? "bg-alarm" : b.degraded ? "bg-amber" : "bg-phosphor")}
             />
           );
         })}

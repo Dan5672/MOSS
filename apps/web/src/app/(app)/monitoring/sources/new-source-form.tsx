@@ -15,7 +15,7 @@ const KIND_OPTIONS: { value: Kind; label: string }[] = [
   { value: "generic", label: "Generic JSON (scripts, cron jobs, anything else)" },
 ];
 
-function Snippet({ children }: { children: string }) {
+export function Snippet({ children }: { children: string }) {
   return (
     <div className="relative">
       <pre className="overflow-x-auto rounded-md bg-muted p-3 pr-16 text-xs whitespace-pre-wrap break-all">{children}</pre>
@@ -107,7 +107,7 @@ export function NewSourceForm({ baseUrl, agents }: { baseUrl: string; agents: { 
     const url = `${baseUrl}/api/hooks/monitoring/${state.sourceId}`;
     return (
       <div className="grid gap-4">
-        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+        <div className="border-2 border-amber bg-amber/10 p-3 text-sm">
           This is the only time the token is shown. Set up the sender now, or delete the source and create a new one later.
         </div>
         <div className="grid gap-1.5 text-sm">

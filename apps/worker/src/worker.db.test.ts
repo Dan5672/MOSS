@@ -1,10 +1,10 @@
 // Worker against Postgres + pg-boss with a scripted LLM and a fake gate. Run with MOSS_TEST_DATABASE_URL set.
-import { hireFromTemplate, loadLibrary, pauseAgent, type GateClient } from "@moss/agent";
+import { chatSnapshot, hireCustom, hireFromTemplate, loadLibrary, pauseAgent, type GateClient } from "@moss/agent";
 import { approveChange, bootstrapOrg, createChangeRequest, createIncident, createMonitor, type CheckResult } from "@moss/core";
-import { agentRuns, incidentComments, incidents, models, monitors, providers, skills, type Database } from "@moss/db";
+import { agentRuns, chatMessages, chatThreads, incidentComments, incidents, models, monitors, providers, skills, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { MockAdapter } from "@moss/llm";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { fileURLToPath } from "node:url";
 import { PgBoss } from "pg-boss";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -72,13 +72,22 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
     expect(rows.map((s) => s.key).sort()).toEqual([
       "asset-inventory",
       "change-management",
+      "config-backups",
       "device-power",
+      "home-assistant",
+      "home-dns-actions",
+      "homelab-integrations",
       "incident-management",
       "monitoring-response",
       "network-discovery",
+      "network-insight",
       "security-baseline",
+      "server-actions",
+      "server-checks",
       "service-desk",
       "service-health",
+      "team-memory",
+      "unifi-actions",
     ]);
   });
 
@@ -186,5 +195,33 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
       return rows.length === 2 && rows.every((r) => r.status === "succeeded") ? rows : undefined;
     });
     expect(runs.map((r) => r.trigger).sort()).toEqual(["event", "ticket"]);
+  });
+
+  it("chat: answers a message with a run, skips answered threads, and catches up on messages sent while busy", async () => {
+    const wren = await hireCustom(db, actor, { name: "Wren", title: "Backup Admin", systemPrompt: "You look after backups and nothing else.", skills: ["service-health"], modelId });
+    const [thread] = await db.insert(chatThreads).values({ orgId: actor.orgId, agentId: wren.id, userId: actor.userId }).returning();
+    const say = async (content: string) => (await db.insert(chatMessages).values({ threadId: thread!.id, role: "user", content }).returning())[0]!;
+    const replies = () => db.select().from(chatMessages).where(and(eq(chatMessages.threadId, thread!.id), eq(chatMessages.role, "agent")));
+
+    const question = await say("Is the NAS backed up?");
+    const snapshot = await chatSnapshot(db, thread!.id);
+    expect(snapshot!.task).toContain("O: Is the NAS backed up?");
+
+    await enqueueRun(boss, { agentId: wren.id, trigger: "chat", triggerRef: thread!.id, task: "Is the NAS backed up?" });
+    const [reply] = await waitFor(async () => ((await replies()).length === 1 ? replies() : undefined));
+    expect(reply).toMatchObject({ content: "All good.", status: "succeeded" });
+    expect(reply!.runId).toBeTruthy();
+    expect(reply!.createdAt.getTime()).toBeGreaterThan(question.createdAt.getTime());
+    const [run] = await db.select().from(agentRuns).where(eq(agentRuns.id, reply!.runId!));
+    expect(run).toMatchObject({ trigger: "chat", triggerRef: thread!.id });
+
+    // Already answered: a duplicate job does nothing.
+    expect(await chatSnapshot(db, thread!.id)).toBeNull();
+
+    // A message that arrives while the agent is busy with other work is answered when that run ends.
+    await say("And the router config?");
+    await enqueueRun(boss, { agentId: wren.id, trigger: "manual", task: "Check the backups." });
+    await waitFor(async () => ((await replies()).length === 2 ? true : undefined));
+    expect(await chatSnapshot(db, thread!.id)).toBeNull();
   });
 });

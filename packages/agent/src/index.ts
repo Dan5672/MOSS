@@ -1,3 +1,4 @@
+export * from "./chat.js";
 export * from "./library.js";
 export * from "./lifecycle.js";
 export * from "./platform-tools.js";
@@ -6,3 +7,5 @@ export * from "./runtime.js";
 export * from "./gate-client.js";
 export * from "./ticket-tools.js";
 export * from "./queue.js";
+export * from "./claude-code.js";
+export * from "./mcp-server.js";

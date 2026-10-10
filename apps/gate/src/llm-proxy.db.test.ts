@@ -13,6 +13,7 @@ import { createGate } from "./service.js";
 const GATE_TOKEN = "w".repeat(48);
 const ANTHROPIC_KEY = "sk-ant-real-key-0123456789";
 const OPENROUTER_KEY = "sk-or-real-key-0123456789";
+const OAUTH_TOKEN = "sk-ant-oat01-subscription-token-0123456789";
 
 describe.skipIf(!TEST_DATABASE_URL)("gate LLM proxy (postgres)", () => {
   let db: Database;
@@ -21,6 +22,7 @@ describe.skipIf(!TEST_DATABASE_URL)("gate LLM proxy (postgres)", () => {
   let gateUrl: string;
   let anthropicId: string;
   let openrouterId: string;
+  let subscriptionId: string;
   const upstream: { url: string; headers: Record<string, string>; body: any }[] = [];
 
   const fakeUpstream = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -58,6 +60,11 @@ describe.skipIf(!TEST_DATABASE_URL)("gate LLM proxy (postgres)", () => {
     [{ id: openrouterId }] = await db
       .insert(providers)
       .values({ orgId: org.id, kind: "openrouter", name: "OpenRouter", apiKeySecretId: await addKey("openrouter-key", OPENROUTER_KEY) })
+      .returning();
+
+    [{ id: subscriptionId }] = await db
+      .insert(providers)
+      .values({ orgId: org.id, kind: "claude_code", name: "Claude subscription", apiKeySecretId: await addKey("claude-sub-token", OAUTH_TOKEN) })
       .returning();
 
     const gate = createGate({ db, masterKey, toolbox: { call: async () => ({ ok: true }) } });
@@ -107,5 +114,28 @@ describe.skipIf(!TEST_DATABASE_URL)("gate LLM proxy (postgres)", () => {
     expect((await get(`/v1/llm/${anthropicId}/v1/models`, { "x-api-key": "wrong" })).status).toBe(401);
     expect((await get(`/v1/llm/${randomUUID()}/v1/models`)).status).toBe(404);
     expect(upstream.length).toBe(before);
+  });
+
+  it("swaps the gate token for the subscription OAuth token on Claude Code calls", async () => {
+    // What the Claude Code CLI sends when pointed at the gate: x-api-key = the worker's gate token.
+    const res = await fetch(`${gateUrl}/v1/llm/${subscriptionId}/v1/messages?beta=true`, {
+      method: "POST",
+      headers: { "x-api-key": GATE_TOKEN, "content-type": "application/json", "anthropic-version": "2023-06-01", "anthropic-beta": "claude-code-20250219,effort-2025-11-24" },
+      body: JSON.stringify({ model: "claude-sonnet-5-5", max_tokens: 10, messages: [{ role: "user", content: "ping" }] }),
+    });
+    expect(res.status).toBe(200);
+    const call = upstream.at(-1)!;
+    expect(call.url).toBe("https://api.anthropic.com/v1/messages");
+    expect(call.headers.authorization).toBe(`Bearer ${OAUTH_TOKEN}`);
+    expect(call.headers["x-api-key"]).toBeUndefined();
+    expect(call.headers["anthropic-beta"]).toBe("claude-code-20250219,effort-2025-11-24,oauth-2025-04-20");
+    expect(JSON.stringify(call.headers)).not.toContain(GATE_TOKEN);
+
+    // Claude Code's connectivity check is answered by the gate, not forwarded.
+    const before = upstream.length;
+    const hello = await fetch(`${gateUrl}/v1/llm/${subscriptionId}/api/hello`, { method: "HEAD", headers: { "x-api-key": GATE_TOKEN } });
+    expect(hello.status).toBe(200);
+    expect(upstream.length).toBe(before);
+    expect((await fetch(`${gateUrl}/v1/llm/${subscriptionId}/api/oauth/profile`, { headers: { "x-api-key": GATE_TOKEN } })).status).toBe(403);
   });
 });

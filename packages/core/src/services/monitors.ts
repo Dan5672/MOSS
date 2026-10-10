@@ -529,19 +529,31 @@ export const sourceInputSchema = z.object({
   defaultResponderAgentId: optionalId,
 });
 
-/** Creates a webhook source. The token is returned once and only its hash is stored. */
-export async function createMonitorSource(db: Database, orgId: string, input: z.input<typeof sourceInputSchema>, actor: Actor) {
-  const parsed = sourceInputSchema.safeParse(input);
+/**
+ * Creates a webhook source. The token is returned once and only its hash is stored. Module-owned kinds
+ * (home_assistant) are only created by their module.
+ */
+export async function createMonitorSource(db: Database, orgId: string, input: z.input<typeof sourceInputSchema>, actor: Actor, opts: { moduleKind?: "home_assistant" } = {}) {
+  const parsed = sourceInputSchema.safeParse(opts.moduleKind ? { ...input, kind: "generic" } : input);
   if (!parsed.success) throw new MonitorValidationError(formatZod(parsed.error));
   const s = parsed.data;
   await assertRefs(db, orgId, { responderAgentId: s.defaultResponderAgentId });
   const token = randomBytes(24).toString("base64url");
   const [source] = await db
     .insert(monitorSources)
-    .values({ orgId, name: s.name, kind: s.kind as MonitorSource["kind"], tokenHash: hashToken(token), defaultPriority: s.defaultPriority, defaultResponderAgentId: s.defaultResponderAgentId ?? null })
+    .values({ orgId, name: s.name, kind: (opts.moduleKind ?? s.kind) as MonitorSource["kind"], tokenHash: hashToken(token), defaultPriority: s.defaultPriority, defaultResponderAgentId: s.defaultResponderAgentId ?? null })
     .returning();
-  await writeAudit(db, { orgId, actorType: actor.type, actorId: actor.id, action: "monitor_source.create", targetType: "monitor_source", targetId: source!.id, details: { name: s.name, kind: s.kind } });
+  await writeAudit(db, { orgId, actorType: actor.type, actorId: actor.id, action: "monitor_source.create", targetType: "monitor_source", targetId: source!.id, details: { name: s.name, kind: opts.moduleKind ?? s.kind } });
   return { source: source!, token };
+}
+
+/** Issues a new token for a source; the old one stops working. Returned once. */
+export async function rotateMonitorSourceToken(db: Database, orgId: string, sourceId: string, actor: Actor) {
+  const token = randomBytes(24).toString("base64url");
+  const [row] = await db.update(monitorSources).set({ tokenHash: hashToken(token), updatedAt: new Date() }).where(and(eq(monitorSources.id, sourceId), eq(monitorSources.orgId, orgId))).returning();
+  if (!row) throw new MonitorValidationError("Source not found");
+  await writeAudit(db, { orgId, actorType: actor.type, actorId: actor.id, action: "monitor_source.rotate_token", targetType: "monitor_source", targetId: sourceId });
+  return token;
 }
 
 export async function listMonitorSources(db: Database, orgId: string) {

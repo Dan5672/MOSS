@@ -33,6 +33,7 @@ export interface CurrentUser {
   email: string;
   displayName: string;
   totpEnabled: boolean;
+  motion: "system" | "on" | "off";
   permissions: Set<Permission>;
 }
 
@@ -52,6 +53,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     email: row.user.email,
     displayName: row.user.displayName,
     totpEnabled: !!row.user.totpSecretRef,
+    motion: row.user.motion,
     permissions: await userPermissions(db(), row.user.id),
   };
 });

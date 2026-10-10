@@ -9,6 +9,9 @@ export interface ProviderConfig {
 }
 
 export function createProvider(config: ProviderConfig): ProviderAdapter {
+  if (config.kind === "claude_code") {
+    throw new Error("Claude subscription providers run through Claude Code, not a completion adapter");
+  }
   if (config.kind === "anthropic") {
     if (!config.apiKey) throw new Error("The Anthropic provider requires an API key");
     return new AnthropicAdapter({ apiKey: config.apiKey, baseURL: config.baseURL });

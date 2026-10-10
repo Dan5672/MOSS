@@ -44,7 +44,7 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
           <span className="flex flex-wrap items-center gap-2">
             {asset.kind} <StatusBadge status={asset.status} /> {asset.locked && <Pill>locked</Pill>}
             <span className="text-xs">
-              Source: {asset.source} · confidence {asset.confidence}% · first seen {timeAgo(asset.firstSeenAt)} · last seen {timeAgo(asset.lastSeenAt)}
+              Source: {asset.source} · confidence {asset.confidence}% · first seen <span className="font-mono">{timeAgo(asset.firstSeenAt)}</span> · last seen <span className="font-mono">{timeAgo(asset.lastSeenAt)}</span>
             </span>
           </span>
         }
@@ -62,7 +62,7 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
           <Section title="Network">
-            <dl className="grid grid-cols-[8rem_1fr] gap-y-1 rounded-lg border p-4 text-sm">
+            <dl className="grid grid-cols-[8rem_1fr] gap-y-1 px-frame p-4 text-sm">
               <dt className="text-muted-foreground">IP</dt>
               <dd className="font-mono">{asset.primaryIp ?? "—"}</dd>
               <dt className="text-muted-foreground">MAC</dt>
@@ -72,7 +72,7 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
               <dt className="text-muted-foreground">Hostnames</dt>
               <dd>{asset.hostnames.join(", ") || "—"}</dd>
               <dt className="text-muted-foreground">Network</dt>
-              <dd>{network ? `${network.name ?? network.cidr} (${network.cidr})` : "—"}</dd>
+              <dd>{network ? <>{network.name ?? network.cidr} <span className="font-mono">({network.cidr})</span></> : "—"}</dd>
               <dt className="text-muted-foreground">OS / model</dt>
               <dd>{[asset.os, asset.model].filter(Boolean).join(" · ") || "—"}</dd>
             </dl>
@@ -81,14 +81,14 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
             {services.length === 0 ? (
               <Empty>No open services recorded.</Empty>
             ) : (
-              <ul className="divide-y rounded-lg border text-sm">
+              <ul className="divide-y-2 px-frame text-sm">
                 {services.map((s) => (
                   <li key={s.id} className="flex justify-between gap-3 p-3">
                     <span className="font-mono">
                       {s.port}/{s.protocol}
                     </span>
                     <span className="text-muted-foreground">{[s.name, s.product, s.version].filter(Boolean).join(" · ")}</span>
-                    <span className="text-xs text-muted-foreground">{timeAgo(s.lastSeenAt)}</span>
+                    <span className="font-mono text-xs text-muted-foreground">{timeAgo(s.lastSeenAt)}</span>
                     {canAddMonitor && s.protocol === "tcp" && (
                       <Link
                         href={
@@ -108,7 +108,7 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
           </Section>
           {attributes.length > 0 && (
             <Section title="Attributes">
-              <dl className="grid grid-cols-[10rem_1fr] gap-y-1 rounded-lg border p-4 text-sm">
+              <dl className="grid grid-cols-[10rem_1fr] gap-y-1 px-frame p-4 text-sm">
                 {attributes.map(([k, v]) => (
                   <div key={k} className="contents">
                     <dt className="text-muted-foreground">{k}</dt>
@@ -126,10 +126,10 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
               {assetMonitors.length === 0 ? (
                 <Empty>Nothing is watching this asset.</Empty>
               ) : (
-                <ul className="divide-y rounded-lg border text-sm">
+                <ul className="divide-y-2 px-frame text-sm">
                   {assetMonitors.map((m) => (
                     <li key={m.id}>
-                      <Link href={`/monitoring/${m.id}`} className="flex items-center gap-3 p-3 hover:bg-accent/40">
+                      <Link href={`/monitoring/${m.id}`} className="flex items-center gap-3 p-3 hover:bg-accent">
                         <StatusBadge status={m.state} /> {m.name}
                         <span className="ml-auto truncate text-xs text-muted-foreground">{m.lastResult?.message}</span>
                       </Link>
@@ -143,10 +143,10 @@ export default async function AssetPage({ params }: PageProps<"/assets/[id]">) {
             {linked.length === 0 ? (
               <Empty>No incidents involve this asset.</Empty>
             ) : (
-              <ul className="divide-y rounded-lg border text-sm">
+              <ul className="divide-y-2 px-frame text-sm">
                 {linked.map(({ incident }) => (
                   <li key={incident.id}>
-                    <Link href={`/incidents/${incident.id}`} className="flex items-center gap-3 p-3 hover:bg-accent/40">
+                    <Link href={`/incidents/${incident.id}`} className="flex items-center gap-3 p-3 hover:bg-accent">
                       <PriorityBadge priority={incident.priority} /> <StatusBadge status={incident.status} /> {incident.title}
                     </Link>
                   </li>

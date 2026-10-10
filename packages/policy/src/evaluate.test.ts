@@ -158,6 +158,19 @@ describe("evaluate", () => {
     expect(evaluate(scan, nmap, ctx())).toMatchObject({ code: "secret_scope" });
   });
 
+  it("requires declared credential arguments to be secret handles, never literal values", () => {
+    const snmp = { name: "snmp_query", class: "read" as const, targetArgs: ["target"], secretArgs: ["community"] };
+    const grants = { toolGrants: new Set(["snmp_query"]), secretGrants: new Set(["switch-snmp"]) };
+    const secrets = new Map([["switch-snmp", { name: "switch-snmp", allowedHosts: ["192.168.1.2"], allowedTools: ["snmp_query"] }]]);
+    const call = (community: unknown) => ({ tool: "snmp_query", args: { target: "192.168.1.2", community, preset: "system" } });
+    expect(evaluate(call("public"), snmp, ctx({ secrets }, grants))).toMatchObject({ code: "secret_required" });
+    expect(evaluate(call(["secret:switch-snmp"]), snmp, ctx({ secrets }, grants))).toMatchObject({ code: "secret_required" });
+    expect(evaluate(call("secret:switch-snmp"), snmp, ctx({ secrets }, grants))).toEqual({ allow: true, targets: ["192.168.1.2"], secretHandles: ["switch-snmp"] });
+    // The secret's host scope still applies.
+    const other = { tool: "snmp_query", args: { target: "192.168.1.3", community: "secret:switch-snmp", preset: "system" } };
+    expect(evaluate(other, snmp, ctx({ secrets }, grants))).toMatchObject({ code: "secret_scope" });
+  });
+
   it("finds secret handles nested anywhere in the arguments", () => {
     const scan = { tool: "nmap_scan", args: { targets: "192.168.1.1", opts: [{ x: "secret:missing" }] } };
     expect(evaluate(scan, nmap, ctx())).toMatchObject({ code: "secret_not_granted" });

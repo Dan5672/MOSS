@@ -94,7 +94,7 @@ export default async function MonitorPage({ params }: PageProps<"/monitoring/[id
                 <div className="text-lg font-semibold">
                   {m.openIncident ? (
                     <Link href={`/incidents/${m.openIncident.id}`} className="hover:underline">
-                      {incidentRef(m.openIncident.number)} <StatusBadge status={m.openIncident.status} />
+                      <span className="font-mono">{incidentRef(m.openIncident.number)}</span> <StatusBadge status={m.openIncident.status} />
                     </Link>
                   ) : (
                     "None"
@@ -114,7 +114,7 @@ export default async function MonitorPage({ params }: PageProps<"/monitoring/[id
             {m.changes.length === 0 ? (
               <Empty>No state changes yet.</Empty>
             ) : (
-              <ol className="divide-y rounded-lg border text-sm">
+              <ol className="divide-y-2 px-frame text-sm">
                 {m.changes.map((c) => (
                   <li key={c.id} className="flex flex-wrap items-center gap-2 p-3">
                     <StatusBadge status={c.from} /> → <StatusBadge status={c.to} />
@@ -122,7 +122,7 @@ export default async function MonitorPage({ params }: PageProps<"/monitoring/[id
                     <span className="min-w-0 flex-1 truncate text-muted-foreground" title={c.reason}>
                       {c.reason}
                     </span>
-                    <span className="text-xs text-muted-foreground">{timeAgo(c.at)}</span>
+                    <span className="font-mono text-xs text-muted-foreground">{timeAgo(c.at)}</span>
                   </li>
                 ))}
               </ol>
@@ -133,15 +133,15 @@ export default async function MonitorPage({ params }: PageProps<"/monitoring/[id
             {m.results.length === 0 ? (
               <Empty>{external ? "No alerts received yet." : "Not checked yet. The first check runs within a few seconds."}</Empty>
             ) : (
-              <ol className="divide-y rounded-lg border text-sm">
+              <ol className="divide-y-2 px-frame text-sm">
                 {m.results.slice(0, 30).map((r) => (
                   <li key={r.id} className="flex items-center gap-3 p-2.5">
-                    <span className={`size-2 shrink-0 rounded-full ${!r.ok ? "bg-red-500" : r.degraded ? "bg-amber-500" : "bg-emerald-500"}`} aria-label={r.ok ? (r.degraded ? "degraded" : "ok") : "failed"} />
+                    <span className={`size-2 shrink-0 rounded-full ${!r.ok ? "bg-alarm" : r.degraded ? "bg-amber" : "bg-phosphor"}`} aria-label={r.ok ? (r.degraded ? "degraded" : "ok") : "failed"} />
                     <span className="min-w-0 flex-1 truncate" title={r.message}>
                       {r.message}
                     </span>
                     <span className="w-16 text-right text-xs tabular-nums text-muted-foreground">{r.latencyMs !== null ? `${r.latencyMs} ms` : ""}</span>
-                    <span className="w-28 text-right text-xs text-muted-foreground">{timeAgo(r.at)}</span>
+                    <span className="w-28 text-right font-mono text-xs text-muted-foreground">{timeAgo(r.at)}</span>
                   </li>
                 ))}
               </ol>
@@ -184,7 +184,7 @@ export default async function MonitorPage({ params }: PageProps<"/monitoring/[id
                 <dt className="text-muted-foreground">On recovery</dt>
                 <dd>{m.autoResolve ? "resolve incident" : "tell the responder"}</dd>
                 <dt className="text-muted-foreground">Last check</dt>
-                <dd>{timeAgo(m.lastCheckAt)}</dd>
+                <dd className="font-mono">{timeAgo(m.lastCheckAt)}</dd>
               </dl>
             </CardContent>
           </Card>

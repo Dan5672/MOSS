@@ -5,9 +5,11 @@ export const PERMISSIONS = [
   "dashboard.read",
   "agents.read",
   "agents.manage", // hire, pause, fire, upskill
+  "agents.chat", // talk to agents (each message starts a run)
   "agents.budget",
   "models.manage",
   "skills.manage",
+  "tools.manage", // upload, edit and grant custom tools
   "assets.read",
   "assets.manage",
   "networks.read",
@@ -19,6 +21,9 @@ export const PERMISSIONS = [
   "changes.approve",
   "monitoring.read",
   "monitoring.manage", // monitors and webhook sources
+  "knowledge.read",
+  "knowledge.manage", // write and delete knowledge base notes
+  "notifications.send", // agents: send a notification to the person they report to
   "secrets.read", // metadata only; values are never readable
   "secrets.manage",
   "integrations.manage",
@@ -39,9 +44,11 @@ export const HUMAN_ONLY_PERMISSIONS: ReadonlySet<Permission> = new Set<Permissio
   "users.manage",
   "settings.manage",
   "agents.manage",
+  "agents.chat",
   "agents.budget",
   "models.manage",
   "skills.manage",
+  "tools.manage",
   "integrations.manage",
   "killswitch.use",
 ]);
@@ -58,12 +65,13 @@ export const BUILT_IN_ROLES: Record<string, { name: string; permissions: Permiss
   },
   operator: {
     name: "Operator",
-    permissions: [...READS, "incidents.manage", "changes.create", "assets.manage", "monitoring.manage", "dev.manage", "killswitch.use"],
+    permissions: [...READS, "agents.chat", "incidents.manage", "changes.create", "assets.manage", "monitoring.manage", "knowledge.manage", "dev.manage", "killswitch.use"],
   },
   viewer: { name: "Viewer", permissions: [...READS] },
   agent: {
     name: "Agent",
     permissions: [
+      "agents.read",
       "assets.read",
       "assets.manage",
       "networks.read",
@@ -72,6 +80,9 @@ export const BUILT_IN_ROLES: Record<string, { name: string; permissions: Permiss
       "changes.read",
       "changes.create",
       "monitoring.read",
+      "knowledge.read",
+      "knowledge.manage",
+      "notifications.send",
       "dev.read",
       "dev.manage",
     ],

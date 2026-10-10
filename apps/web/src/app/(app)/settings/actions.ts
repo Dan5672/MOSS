@@ -23,6 +23,15 @@ export async function toggleSettingAction(key: SettingKey, value: boolean, _: Ac
   });
 }
 
+export async function setMotionAction(_: ActionState, form: FormData): Promise<ActionState> {
+  return act(async () => {
+    const user = await requireUser();
+    const motion = z.enum(["system", "on", "off"]).parse(form.get("motion"));
+    await db().update(users).set({ motion, updatedAt: new Date() }).where(eq(users.id, user.id));
+    return motion === "on" ? "Animations always on." : motion === "off" ? "Animations always off." : "Animations follow your system setting.";
+  });
+}
+
 // --- Two-factor enrolment: the pending secret lives in a short-lived httpOnly cookie until confirmed. ---
 const PENDING_TOTP = "moss_totp_pending";
 

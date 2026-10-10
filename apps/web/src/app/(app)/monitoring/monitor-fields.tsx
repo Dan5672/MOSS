@@ -163,7 +163,7 @@ export function MonitorFields({
         />
       </div>
 
-      <fieldset className="grid gap-3 rounded-lg border p-3">
+      <fieldset className="grid gap-3 px-frame p-3">
         <legend className="px-1 text-sm font-medium">When it goes down</legend>
         <div className={grid}>
           <SelectField

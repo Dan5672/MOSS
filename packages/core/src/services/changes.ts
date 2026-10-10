@@ -6,13 +6,14 @@ import {
   changeAssets,
   changeNotes,
   changeRequests,
+  customTools,
   incidentComments,
   incidents,
   standardChangeTemplates,
   type Database,
   type PlannedToolCall,
 } from "@moss/db";
-import { BUILT_IN_TOOLS, parseToolArgs, type ToolDefinition } from "@moss/tools";
+import { BUILT_IN_TOOLS, customToolDefinition, customToolSpecSchema, parseToolArgs, type ToolDefinition } from "@moss/tools";
 import { and, asc, desc, eq, inArray, ne, type SQL } from "drizzle-orm";
 import { getSetting } from "../store/settings-store.js";
 import { writeAudit } from "../store/audit-store.js";
@@ -52,6 +53,20 @@ export function normalizeCalls(calls: PlannedToolCall[], tools: ReadonlyMap<stri
     if (!parsed.ok) throw new ChangeError(`Planned call ${i + 1} (${c.tool}): ${parsed.error}`);
     return { tool: c.tool, args: parsed.args };
   });
+}
+
+/** Every tool a change in this org can plan: the built-ins plus the org's enabled custom tools. */
+export async function orgToolDefinitions(db: Database, orgId: string): Promise<ReadonlyMap<string, ToolDefinition>> {
+  const rows = await db
+    .select({ spec: customTools.spec })
+    .from(customTools)
+    .where(and(eq(customTools.orgId, orgId), eq(customTools.enabled, true)));
+  const map = new Map(BUILT_IN_TOOLS);
+  for (const row of rows) {
+    const spec = customToolSpecSchema.safeParse(row.spec);
+    if (spec.success && !map.has(spec.data.key)) map.set(spec.data.key, customToolDefinition(spec.data));
+  }
+  return map;
 }
 
 /** Fills a standard template's "{param}" placeholders. Each param must fully match its regex. */
@@ -94,10 +109,13 @@ export interface NewChange {
   assetIds?: string[];
   windowStart?: Date;
   windowEnd?: Date;
+  /** A change MOSS raises (system actor) for an agent to execute, e.g. the Home Assistant module's self-heal. */
+  forAgentId?: string;
 }
 
 export async function createChangeRequest(db: Database, orgId: string, input: NewChange, actor: Actor, opts: ChangeOptions = {}) {
   if (input.windowStart && input.windowEnd && input.windowEnd <= input.windowStart) throw new ChangeError("The window must end after it starts");
+  if (input.forAgentId && actor.type !== "system") throw new ChangeError("Only MOSS itself raises changes for an agent");
 
   let planned = input.plannedCalls ?? [];
   let risk = input.risk ?? "medium";
@@ -113,8 +131,9 @@ export async function createChangeRequest(db: Database, orgId: string, input: Ne
     risk = template.risk;
   }
   if (planned.length === 0) throw new ChangeError("A change needs at least one planned tool call");
-  const plannedCalls = normalizeCalls(planned, opts.tools);
-  const rollbackCalls = normalizeCalls(input.rollbackCalls ?? [], opts.tools);
+  const tools = opts.tools ?? (await orgToolDefinitions(db, orgId));
+  const plannedCalls = normalizeCalls(planned, tools);
+  const rollbackCalls = normalizeCalls(input.rollbackCalls ?? [], tools);
 
   let status: ChangeStatus = "submitted";
   let postReviewRequired = false;
@@ -148,7 +167,7 @@ export async function createChangeRequest(db: Database, orgId: string, input: Ne
         standardTemplateKey: input.standardTemplateKey ?? null,
         incidentId: input.incidentId ?? null,
         requestedByUserId: actor.type === "user" ? actor.id : null,
-        requestedByAgentId: actor.type === "agent" ? actor.id : null,
+        requestedByAgentId: actor.type === "agent" ? actor.id : (input.forAgentId ?? null),
         windowStart: input.windowStart ?? null,
         windowEnd: input.windowEnd ?? null,
         postReviewRequired,

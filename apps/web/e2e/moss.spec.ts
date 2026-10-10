@@ -1,9 +1,10 @@
 // One story through the UI, in order: a new owner sets MOSS up and runs their IT department.
-import { createChangeRequest, dispatchEvents, handleMonitorDown, handleMonitorUp, totpCode } from "@moss/core";
-import { agents, createDb, type Database } from "@moss/db";
+import { createChangeRequest, dispatchEvents, encryptSecret, handleMonitorDown, handleMonitorUp, parseMasterKey, totpCode } from "@moss/core";
+import { agents, configBackups, createDb, type Database } from "@moss/db";
 import { expect, test, type Page } from "@playwright/test";
 import { eq } from "drizzle-orm";
-import { E2E_DATABASE_URL } from "../playwright.config";
+import { randomUUID } from "node:crypto";
+import { E2E_DATABASE_URL, E2E_MASTER_KEY_HEX } from "../playwright.config";
 
 test.describe.configure({ mode: "serial" });
 
@@ -33,6 +34,14 @@ async function signOut() {
   await expect(page).toHaveURL(/\/login$/);
 }
 
+test("app icons load for signed-out visitors", async ({ request }) => {
+  for (const [path, type] of [["/icon.svg", "image/svg+xml"], ["/apple-icon.png", "image/png"], ["/favicon.ico", "image/"]]) {
+    const res = await request.get(path, { maxRedirects: 0 });
+    expect(res.status(), path).toBe(200);
+    expect(res.headers()["content-type"], path).toContain(type);
+  }
+});
+
 test("first run: setup creates the owner and signs them in", async () => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/setup$/);
@@ -44,6 +53,10 @@ test("first run: setup creates the owner and signs them in", async () => {
   await page.getByRole("checkbox").check();
   await page.getByRole("button", { name: "Create and sign in" }).click();
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  // A fresh install suggests the first steps.
+  const setup = page.getByRole("region", { name: "Getting started" });
+  await expect(setup).toContainText("0 of 6 done");
+  await expect(setup.getByRole("link", { name: "Networks" })).toBeVisible();
 });
 
 test("networks: allow a subnet", async () => {
@@ -63,10 +76,27 @@ test("models: add a local provider and a model", async () => {
   await page.getByRole("button", { name: "Add provider" }).click();
   await expect(page.getByText("Added Local Ollama.")).toBeVisible();
 
+  // A Claude subscription provider needs the token from `claude setup-token`.
+  await page.getByLabel("Type").selectOption("claude_code");
+  await page.getByLabel("Name", { exact: true }).fill("Claude Max");
+  await page.getByRole("button", { name: "Add provider" }).click();
+  await expect(page.getByText(/the token from claude setup-token/).first()).toBeVisible();
+  await expect(page.getByText("Using a Claude subscription")).toBeVisible();
+
   await page.getByLabel("Model ID").fill("qwen3:14b");
   await page.getByLabel("Display name").fill("Qwen3 14B");
   await page.getByRole("button", { name: "Add model" }).click();
   await expect(page.getByRole("cell", { name: /Qwen3 14B/ })).toBeVisible();
+
+  // Prices can be changed after a model is added.
+  const qwen = page.getByRole("row", { name: /Qwen3 14B/ });
+  await qwen.getByText("Edit prices").click();
+  await qwen.getByLabel("$ / 1M input").fill("0.5");
+  await qwen.getByLabel("$ / 1M output").fill("1.25");
+  await qwen.getByRole("button", { name: "Save prices" }).click();
+  await expect(page.getByText("Prices updated for Qwen3 14B.")).toBeVisible();
+  await expect(qwen.getByRole("cell", { name: "0.50", exact: true })).toBeVisible();
+  await expect(qwen.getByRole("cell", { name: "1.25", exact: true })).toBeVisible();
 });
 
 test("agents: hire, budget, pause and resume", async () => {
@@ -75,17 +105,303 @@ test("agents: hire, budget, pause and resume", async () => {
   await expect(page.getByRole("heading", { name: "Nina" })).toBeVisible();
   await expect(page.getByText("Network Discovery")).toBeVisible();
 
+  // Three task ideas fit the agent; clicking one fills the task box without starting anything.
+  const ideas = page.locator("form", { has: page.getByRole("button", { name: "Start" }) }).getByRole("listitem");
+  await expect(ideas).toHaveCount(3);
+  await page.getByRole("button", { name: /^Discover devices on all allowed networks/ }).click();
+  await expect(page.getByRole("textbox", { name: "Task", exact: true })).toHaveValue(/^Discover devices on all allowed networks/);
+
   await page.getByLabel("Per").selectOption("day");
   await page.getByLabel("Hard limit").fill("2");
   await page.getByRole("button", { name: "Set budget" }).click();
   await expect(page.getByText("Budget saved.")).toBeVisible();
   await expect(page.getByText(/\$0\.0000 \/ \$2\.00/)).toBeVisible();
 
-  await page.getByRole("button", { name: "Pause" }).click();
-  await expect(page.getByRole("button", { name: "Resume" })).toBeVisible();
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
   await expect(page.getByText("paused", { exact: true }).first()).toBeVisible();
-  await page.getByRole("button", { name: "Resume" }).click();
-  await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+  await page.getByRole("button", { name: "Resume", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+
+  // With a model, an allowed network and a Network Admin, the dashboard offers a first discovery.
+  await page.goto("/");
+  const setup = page.getByRole("region", { name: "Getting started" });
+  await expect(setup).toContainText("3 of 6 done");
+  await setup.getByRole("button", { name: "Start discovery with Nina" }).click();
+  await expect(page.getByText("Nina will start shortly.")).toBeVisible();
+});
+
+test("agents: each agent's mascot can be picked from the registry, defaulting by role", async () => {
+  // The Agents list shows each mascot, linking to where it's changed.
+  await page.goto("/agents");
+  await page.getByRole("link", { name: "Change Nina's mascot" }).click();
+  await expect(page).toHaveURL(/#mascot$/);
+  // A Network Admin defaults to the Desk Lead mascot.
+  await expect(page.getByRole("radio", { name: "Role default (Desk Lead)" })).toBeChecked();
+  await page.getByRole("radio", { name: "Night Shift" }).check({ force: true });
+  await page.getByRole("combobox", { name: "Glow", exact: true }).selectOption("#ffb547");
+  await page.getByRole("button", { name: "Save look" }).click();
+  await expect(page.getByText("Saved Nina's look.")).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("radio", { name: "Night Shift" })).toBeChecked();
+  await expect(page.getByRole("combobox", { name: "Glow", exact: true })).toHaveValue("#ffb547");
+
+  await page.getByRole("radio", { name: "Role default (Desk Lead)" }).check({ force: true });
+  await page.getByRole("button", { name: "Save look" }).click();
+  await expect(page.getByText("Saved Nina's look.")).toBeVisible();
+});
+
+test("agents: schedules read as words and can be edited, turned off, added and deleted", async () => {
+  await page.goto("/agents");
+  await page.getByRole("link", { name: "Nina", exact: true }).click();
+  // The Network Admin template's "30 2 * * *".
+  await expect(page.getByText("Every day at 02:30", { exact: true })).toBeVisible();
+  await expect(page.getByText("30 2 * * *")).toHaveCount(0);
+
+  await page.getByText("Edit", { exact: true }).click();
+  const edit = page.locator("form", { has: page.getByRole("button", { name: "Save schedule" }) });
+  await edit.getByRole("combobox", { name: "Repeats", exact: true }).selectOption("every_hours");
+  // By role: getByLabel would match the label's whole text, which includes the select's options.
+  await edit.getByRole("combobox", { name: "Every", exact: true }).selectOption("6");
+  await edit.getByRole("spinbutton", { name: "Minutes past the hour" }).fill("15");
+  await expect(edit.getByText("Runs: Every 6 hours, at 15 past")).toBeVisible();
+  await edit.getByRole("button", { name: "Save schedule" }).click();
+  await expect(page.getByText("Schedule saved: Every 6 hours, at 15 past.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Turn off" }).click();
+  await expect(page.getByText("off", { exact: true })).toBeVisible();
+
+  await page.getByText("Add a schedule").click();
+  const add = page.locator("form", { has: page.getByRole("button", { name: "Add schedule" }) });
+  await add.getByRole("combobox", { name: "Repeats", exact: true }).selectOption("weekly");
+  await add.getByRole("checkbox", { name: "Mon" }).uncheck();
+  await add.getByRole("checkbox", { name: "Sat" }).check();
+  await add.getByLabel("At", { exact: true }).fill("07:30");
+  await add.getByRole("textbox", { name: "Task", exact: true }).fill("Check the backup NAS has space left.");
+  await add.getByRole("button", { name: "Add schedule" }).click();
+  await expect(page.getByText("Scheduled: Saturdays at 07:30.")).toBeVisible();
+
+  // Custom cron is validated on the server. (The add form stays open after a save.)
+  await add.getByRole("combobox", { name: "Repeats", exact: true }).selectOption("custom");
+  await add.getByRole("textbox", { name: "Cron expression" }).fill("* * * * *");
+  await add.getByRole("textbox", { name: "Task", exact: true }).fill("Too often.");
+  await add.getByRole("button", { name: "Add schedule" }).click();
+  await expect(add.getByRole("alert")).toContainText("more than every 5 minutes");
+
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Delete" }).first().click();
+  await expect(page.getByText("Schedule deleted.")).toBeVisible();
+});
+
+test("agents: tool access shows who can use each tool, and the knowledge base can be edited", async () => {
+  await page.goto("/agents");
+  await page.getByRole("link", { name: "Tool access" }).click();
+  await expect(page).toHaveURL(/\/agents\/tools$/);
+  const nmap = page.getByRole("row", { name: /nmap_scan/ });
+  await expect(nmap.getByRole("link", { name: /Nina/ })).toBeVisible();
+  await expect(nmap.getByText("read", { exact: true })).toBeVisible();
+  await expect(page.getByRole("row", { name: /wake_on_lan/ }).getByText("write", { exact: true })).toBeVisible();
+  // New MOSS tools come with the Team Memory skill, which the Network Admin template now includes.
+  await expect(page.getByRole("row", { name: /kb_search/ }).getByRole("link", { name: /Nina/ })).toBeVisible();
+
+  // Access can be changed here: remove a skill's tool from one agent, then give it back.
+  await nmap.getByText("Change access").click();
+  await nmap.getByRole("checkbox", { name: /^Nina/ }).uncheck();
+  await nmap.getByRole("button", { name: "Save access" }).click();
+  await expect(page.getByText("Updated who can use nmap_scan.")).toBeVisible();
+  await expect(nmap.getByRole("link", { name: /Nina/ })).toHaveCount(0);
+  await expect(nmap.getByText("(access removed)")).toHaveCount(1);
+  // The section stays open after saving.
+  await nmap.getByRole("checkbox", { name: /^Nina/ }).check();
+  await nmap.getByRole("button", { name: "Save access" }).click();
+  await expect(nmap.getByRole("link", { name: /Nina/ })).toBeVisible();
+
+  await page.getByRole("link", { name: "Knowledge base" }).click();
+  await expect(page.getByText("No notes yet.")).toBeVisible();
+  const add = page.locator("form", { has: page.getByRole("button", { name: "Add note" }) });
+  await add.getByLabel("Title", { exact: true }).fill("ISP gateway");
+  await add.getByLabel("Subject", { exact: true }).fill("192.168.50.1");
+  await add.getByLabel("Note", { exact: true }).fill("The ISP's gateway. Its open ports are expected.");
+  await add.getByLabel("Tags", { exact: true }).fill("gateway, expected");
+  await add.getByRole("button", { name: "Add note" }).click();
+  await expect(page.getByText('Saved "ISP gateway".')).toBeVisible();
+  await expect(page.getByRole("heading", { name: "ISP gateway" })).toBeVisible();
+
+  await page.getByRole("searchbox", { name: "Search notes" }).or(page.getByLabel("Search notes")).fill("nothing-like-this");
+  await page.getByRole("button", { name: "Search" }).click();
+  await expect(page.getByText('Nothing matches "nothing-like-this".')).toBeVisible();
+  await page.getByLabel("Search notes").fill("gateway");
+  await page.getByRole("button", { name: "Search" }).click();
+  await expect(page.getByRole("heading", { name: "ISP gateway" })).toBeVisible();
+  // Searching loads a new page; wait until it's interactive before using a form on it.
+  await page.waitForLoadState("networkidle");
+
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByText("Note deleted.")).toBeVisible();
+});
+
+test("settings: secrets are scoped to hosts and tools, granted to agents, and never shown", async () => {
+  await page.goto("/settings");
+  await page.getByRole("link", { name: "Secrets" }).click();
+  await expect(page.getByText("No secrets yet.")).toBeVisible();
+  const add = page.locator("form", { has: page.getByRole("button", { name: "Save secret" }) });
+  await add.getByLabel("Name", { exact: true }).fill("unifi-api");
+  await add.getByRole("textbox", { name: "Value" }).fill("super-secret-key-value");
+  await add.getByLabel("Description").fill("Read-only key for the UniFi console");
+
+  // A host scope is required (by the browser), and checked on the server.
+  const hosts = add.getByRole("textbox", { name: "Use only with these hosts" });
+  await expect(hosts).toHaveAttribute("required", "");
+  await hosts.fill("the-nas");
+  await add.getByRole("button", { name: "Save secret" }).click();
+  await expect(add.getByRole("alert")).toContainText(`"the-nas" isn't an IP address or CIDR`);
+
+  await hosts.fill("192.168.50.1");
+  await add.getByRole("checkbox", { name: /^Nina/ }).check();
+  await add.getByRole("button", { name: "Save secret" }).click();
+  await expect(page.getByText("Saved secret:unifi-api.")).toBeVisible();
+
+  const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: "secret:unifi-api" }) });
+  await expect(card).toContainText("192.168.50.1");
+  await expect(card).toContainText("unifi_clients");
+  await expect(card).toContainText("Nina");
+  await expect(page.getByText("super-secret-key-value")).toHaveCount(0);
+
+  await card.getByText("Change scope and agents").click();
+  await card.getByRole("textbox", { name: "Use only with these hosts" }).fill("192.168.50.1, 192.168.50.2");
+  await card.getByRole("button", { name: "Save scope" }).click();
+  await expect(page.getByText("Updated secret:unifi-api.")).toBeVisible();
+  await expect(card).toContainText("192.168.50.1, 192.168.50.2");
+
+  page.once("dialog", (d) => d.accept());
+  await card.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByText("Deleted secret:unifi-api.")).toBeVisible();
+});
+
+test("agents: custom tools are uploaded as definitions, validated, granted and shown in tool access", async () => {
+  await page.goto("/agents/custom-tools");
+  await expect(page.getByText("No custom tools yet.")).toBeVisible();
+  const add = page.locator("form", { has: page.getByRole("button", { name: "Add tool" }) });
+  const definition = add.getByRole("textbox", { name: "Definition" });
+  const example = await definition.inputValue();
+
+  // Problems are explained, not stored.
+  await definition.fill(example.replace("method: GET", "method: POST"));
+  await add.getByRole("button", { name: "Add tool" }).click();
+  await expect(add.getByRole("alert")).toContainText("request.method: read tools must use GET");
+  await definition.fill(example.replace("key: plex_sessions", "key: nmap_scan"));
+  await add.getByRole("button", { name: "Add tool" }).click();
+  await expect(add.getByRole("alert")).toContainText('"nmap_scan" is the name of a built-in tool');
+
+  await definition.fill(example);
+  await add.getByRole("checkbox", { name: /^Nina/ }).check();
+  await add.getByRole("button", { name: "Add tool" }).click();
+  await expect(page.getByText("Added plex_sessions.")).toBeVisible();
+  const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: "plex_sessions" }) });
+  await expect(card).toContainText("GET http://{host}:32400/status/sessions");
+  await expect(card).toContainText("not stored yet");
+  await expect(card).toContainText("Nina");
+
+  await page.getByRole("link", { name: "Tool access" }).click();
+  await expect(page.getByRole("heading", { name: "Custom tools" })).toBeVisible();
+  await expect(page.getByRole("row", { name: /plex_sessions/ }).getByRole("link", { name: /Nina/ })).toBeVisible();
+
+  await page.getByRole("link", { name: "Custom tools" }).click();
+  await card.getByRole("button", { name: "Turn off" }).click();
+  await expect(page.getByText("plex_sessions turned off.")).toBeVisible();
+  await expect(card.getByText("off", { exact: true })).toBeVisible();
+  await page.waitForLoadState("networkidle");
+  page.once("dialog", (d) => d.accept());
+  await card.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByText("Deleted plex_sessions.")).toBeVisible();
+});
+
+test("settings: config backups are listed, downloaded through the gate, and deleted", async () => {
+  // Seed one backup the way the gate stores them: encrypted under the master key.
+  const db = createDb(E2E_DATABASE_URL);
+  const [nina] = await db.select().from(agents).where(eq(agents.name, "Nina"));
+  const id = randomUUID();
+  const content = "upstreams = ['1.1.1.1']\n";
+  await db.insert(configBackups).values({
+    id,
+    orgId: nina!.orgId,
+    target: "192.168.50.53",
+    source: "ssh_file",
+    filename: "pihole.toml",
+    contentType: "application/octet-stream",
+    bytes: content.length,
+    sha256: "a".repeat(64),
+    agentId: nina!.id,
+    ...encryptSecret(parseMasterKey(Buffer.from(E2E_MASTER_KEY_HEX)), `backup:${id}`, Buffer.from(content).toString("base64")),
+  });
+  await db.$client.end();
+
+  await page.goto("/settings");
+  await page.getByRole("link", { name: "Backups" }).click();
+  const row = page.getByRole("row", { name: /pihole\.toml/ });
+  await expect(row).toContainText("192.168.50.53");
+  await expect(row).toContainText("Nina");
+  const href = await row.getByRole("link", { name: "Download" }).getAttribute("href");
+  const res = await page.request.get(href!);
+  expect(res.status()).toBe(200);
+  expect(await res.text()).toBe(content);
+  expect(res.headers()["content-disposition"]).toContain("pihole.toml");
+
+  page.once("dialog", (d) => d.accept());
+  await row.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByText("Deleted the backup of pihole.toml.")).toBeVisible();
+});
+
+test("settings: the Motion setting can override the device's reduced-motion preference", async () => {
+  const ledSpeed = async () => {
+    await page.goto("/basement");
+    return page.locator(".b1-led").first().evaluate((el) => getComputedStyle(el).animationDuration);
+  };
+  const setMotion = async (value: string, message: string) => {
+    await page.goto("/settings");
+    await page.getByRole("combobox", { name: "Motion", exact: true }).selectOption(value);
+    await page.locator("form", { has: page.getByRole("combobox", { name: "Motion", exact: true }) }).getByRole("button", { name: "Save" }).click();
+    await expect(page.getByText(message)).toBeVisible();
+  };
+
+  // The device asks for less motion: by default, MOSS follows it.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  expect(await ledSpeed()).toBe("1e-05s");
+  await setMotion("on", "Animations always on.");
+  expect(await ledSpeed()).toBe("1.6s");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await setMotion("off", "Animations always off.");
+  expect(await ledSpeed()).toBe("1e-05s");
+  await setMotion("system", "Animations follow your system setting.");
+  expect(await ledSpeed()).toBe("1.6s");
+});
+
+test("agents: hire a custom agent with chosen skills", async () => {
+  await page.goto("/agents");
+  const form = page.locator("form", { has: page.getByRole("button", { name: "Hire custom agent" }) });
+  await form.getByLabel("Name").fill("Wren");
+  await form.getByLabel("Job title").fill("Backup Admin");
+  await form.getByLabel("Instructions").fill("You look after backups. Check the NAS is reachable each morning.");
+  await form.getByLabel("Service Health Checks").check();
+  await form.getByLabel("Incident Management").check();
+  await form.getByRole("button", { name: "Hire custom agent" }).click();
+
+  await expect(page.getByRole("heading", { name: "Wren" })).toBeVisible();
+  await expect(page.getByText("Backup Admin").first()).toBeVisible();
+  // Only the chosen skills are granted; the rest stay available to add.
+  const granted = page.getByRole("listitem").filter({ has: page.getByRole("button", { name: "Remove" }) });
+  await expect(granted).toHaveCount(2);
+  await expect(granted.filter({ hasText: "Service Health Checks" })).toHaveCount(1);
+  await expect(granted.filter({ hasText: "Incident Management" })).toHaveCount(1);
+
+  // Chat: the message is stored and a run is queued (no worker runs in this suite, so no reply).
+  await page.getByRole("link", { name: "Chat" }).click();
+  await expect(page.getByRole("heading", { name: "Chat with Wren" })).toBeVisible();
+  await page.getByLabel("Message").fill("Is the NAS backed up?");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByRole("list", { name: "Conversation" })).toContainText("Is the NAS backed up?");
+  await expect(page.getByRole("status")).toContainText("Wren is working on a reply");
 });
 
 test("incidents: raise, comment and update", async () => {
@@ -166,8 +482,8 @@ test("monitoring: add checks, and warn about targets outside allowed networks", 
   await page.getByRole("button", { name: "Add monitor" }).click();
   await expect(page.getByText("MOSS will not check this target")).toBeVisible();
   await expect(page.getByText(/not inside an allowed network/)).toBeVisible();
-  await page.getByRole("button", { name: "Pause" }).click();
-  await expect(page.getByRole("button", { name: "Resume" })).toBeVisible();
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
 });
 
 test("monitoring: an Uptime Kuma alert raises an incident for the responder agent", async () => {
@@ -218,6 +534,53 @@ test("monitoring: an Uptime Kuma alert raises an incident for the responder agen
   await expect(page.getByText("Monitors down")).toBeVisible();
 });
 
+test("modules: Home Assistant is connected, tested, switched on, and fills in the inventory", async () => {
+  await page.goto("/settings/modules");
+  await expect(page.getByText("Not set up.")).toBeVisible();
+  await page.getByRole("link", { name: "Set up" }).click();
+  await expect(page.getByRole("heading", { name: "Home Assistant", exact: true })).toBeVisible();
+
+  const connection = page.locator("#connection");
+  await connection.getByLabel("Address", { exact: true }).fill("192.168.50.20");
+  await connection.getByLabel("Access token").fill("e2e-long-lived-access-token-0123456789");
+  await connection.getByRole("button", { name: "Save connection" }).click();
+  await expect(page.getByText("Saved the connection and the token.")).toBeVisible();
+  // The token is never shown again, only that one is stored.
+  await expect(connection.getByLabel("Access token")).toHaveValue("");
+  await expect(connection.getByLabel("Access token")).toHaveAttribute("placeholder", /^Stored/);
+
+  // Testing works before the module is on.
+  await connection.getByRole("button", { name: "Test connection" }).click();
+  await expect(page.getByText("Connected to Home Assistant 2026.9.2 (Home): 42 entities. All integrations loaded.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Switch module on" }).click();
+  await expect(page.getByText("Home Assistant module switched on.")).toBeVisible();
+
+  // Alerts: a webhook source with a token shown once, and the rest_command to paste.
+  const alerts = page.locator("#alerts");
+  await alerts.getByLabel("Alerts from Home Assistant automations").check();
+  await alerts.getByRole("button", { name: "Save alerts and health checks" }).click();
+  await expect(alerts.getByText("This is the only time the webhook token is shown.")).toBeVisible();
+  await expect(alerts.getByText(/rest_command:\s+moss_alert:/)).toBeVisible();
+  await expect(alerts.getByText(/\/api\/hooks\/monitoring\/[0-9a-f-]{36}/).first()).toBeVisible();
+
+  const inventory = page.locator("#inventory");
+  await inventory.getByLabel("Sync the inventory from Home Assistant").check();
+  await inventory.getByRole("button", { name: "Save inventory sync" }).click();
+  await expect(page.getByText("Inventory sync switched on")).toBeVisible();
+  await inventory.getByRole("button", { name: "Sync now" }).click();
+  await expect(page.getByText("Matched 0 device(s) to the inventory, added 1, skipped 0 with no address on an allowed network.")).toBeVisible();
+  await page.goto("/assets");
+  await expect(page.getByRole("link", { name: "Living room TV" })).toBeVisible();
+
+  await page.goto("/settings/modules");
+  await expect(page.getByText("Using: alerts, inventory sync.")).toBeVisible();
+  await page.getByRole("link", { name: "Configure" }).click();
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Switch module off" }).click();
+  await expect(page.getByText("Home Assistant module switched off")).toBeVisible();
+});
+
 test("settings: the kill switch stops agents and shows everywhere", async () => {
   await page.goto("/settings");
   await page.getByRole("button", { name: "Turn on" }).first().click();
@@ -226,6 +589,14 @@ test("settings: the kill switch stops agents and shows everywhere", async () => 
   await expect(page.getByRole("status")).toContainText("All agents are paused");
   await page.goto("/settings");
   await page.getByRole("button", { name: "Turn off" }).first().click();
+  await expect(page.getByRole("status")).toHaveCount(0);
+
+  // The sidebar panel does the same, asking before it pauses.
+  await page.goto("/");
+  await page.getByRole("button", { name: "PAUSE ALL AGENTS" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Pause all agents" }).click();
+  await expect(page.getByRole("status")).toContainText("All agents are paused");
+  await page.getByRole("button", { name: "RESUME AGENTS" }).click();
   await expect(page.getByRole("status")).toHaveCount(0);
 });
 
@@ -273,6 +644,19 @@ test("users: a viewer can look but not approve or manage", async () => {
   await page.goto("/monitoring");
   await expect(page.getByRole("link", { name: "NAS web" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add monitor" })).toHaveCount(0);
+  await page.goto("/settings/modules/home-assistant");
+  await expect(page.getByText("You don't have permission to view this page.")).toBeVisible();
+});
+
+test("basement: shows every agent at a desk or on a break, as a scene and as a list", async () => {
+  await page.goto("/");
+  await page.getByRole("link", { name: "Basement" }).click();
+  await expect(page.getByRole("heading", { name: "The Basement" })).toBeVisible();
+  await expect(page.getByRole("img", { name: /^\d+ agents?: \d+ at desks, \d+ on break\./ })).toBeVisible();
+  const nina = page.getByRole("listitem").filter({ has: page.getByRole("link", { name: "Nina", exact: true }) });
+  await expect(nina).toContainText(/WORKING|ON BREAK|RESPONDING/);
+  await nina.getByRole("link", { name: "Nina", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Nina" })).toBeVisible();
 });
 
 test("audit: the log is intact after all of that", async () => {

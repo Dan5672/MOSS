@@ -1,7 +1,8 @@
 // Parsers for monitoring webhooks. Every field here comes from outside MOSS and is untrusted:
 // it is length-capped, stripped of control characters, and only ever stored and displayed as data.
 
-export type SourceKind = "uptime_kuma" | "beszel" | "alertmanager" | "generic";
+export type SourceKind = "uptime_kuma" | "beszel" | "alertmanager" | "generic" | "home_assistant";
+/** Kinds people can create on the Monitoring page; home_assistant sources belong to the Home Assistant module. */
 export const SOURCE_KINDS: SourceKind[] = ["uptime_kuma", "beszel", "alertmanager", "generic"];
 
 export interface ParsedAlert {
@@ -141,6 +142,26 @@ function parseGeneric(body: Record<string, unknown>): ParseOutcome {
   return { ok: true, alerts };
 }
 
+/**
+ * Home Assistant (a rest_command from an automation): { key, name?, status: up|down|degraded, message? }
+ * or { key, name?, problem: true|false, message? }, or { alerts: [...] } of those. Keys come from the
+ * automation, e.g. "kitchen_leak"; one MOSS monitor per key.
+ */
+function parseHomeAssistant(body: Record<string, unknown>): ParseOutcome {
+  const items = Array.isArray(body.alerts) ? body.alerts : [body];
+  const alerts: ParsedAlert[] = [];
+  for (const raw of items.slice(0, 100)) {
+    const a = obj(raw);
+    const key = a ? cleanText(a.key ?? a.entity_id, 150) : "";
+    const status = typeof a?.problem === "boolean" ? (a.problem ? "down" : "up") : String(a?.status ?? "").toLowerCase();
+    if (!a || !key || !["up", "down", "degraded"].includes(status)) {
+      return { ok: false, error: 'Each alert needs "key" and either "status" (up, down or degraded) or "problem" (true or false)' };
+    }
+    alerts.push(alert({ key: `ha:event:${key}`, name: String(a.name ?? key), status: status as ParsedAlert["status"], message: String(a.message ?? "") }));
+  }
+  return { ok: true, alerts };
+}
+
 export function parseWebhook(kind: SourceKind, body: unknown): ParseOutcome {
   const b = obj(body);
   if (!b) return { ok: false, error: "Expected a JSON object" };
@@ -153,5 +174,7 @@ export function parseWebhook(kind: SourceKind, body: unknown): ParseOutcome {
       return parseAlertmanager(b);
     case "generic":
       return parseGeneric(b);
+    case "home_assistant":
+      return parseHomeAssistant(b);
   }
 }

@@ -70,7 +70,7 @@ export default async function UsersPage() {
                 <TableCell>
                   <StatusBadge status={user.status} />
                 </TableCell>
-                <TableCell className="text-sm">{timeAgo(user.lastLoginAt)}</TableCell>
+                <TableCell className="font-mono text-sm">{timeAgo(user.lastLoginAt)}</TableCell>
                 <TableCell className="text-right">
                   {!self &&
                     (user.status === "active" ? (

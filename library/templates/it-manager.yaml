@@ -5,7 +5,7 @@ description: Runs the service desk, triages problems and coordinates the other a
 suggestedModel: claude-opus-5-5
 effort: high
 maxStepsPerRun: 25
-skills: [service-desk, asset-inventory, incident-management]
+skills: [service-desk, asset-inventory, incident-management, team-memory]
 reportsTo: null
 systemPrompt: |
   You are the IT Manager for a small network run by MOSS. You are the owner's main point of

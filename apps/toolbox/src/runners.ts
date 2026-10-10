@@ -1,11 +1,19 @@
 // Executes built-in tools. Binaries are invoked with execFile and fixed argument lists:
 // no shell, and every user-supplied value has already passed strict schema validation.
 import { contains, parseRange } from "@moss/policy";
-import { BUILT_IN_TOOLS, parseToolArgs } from "@moss/tools";
+import { BUILT_IN_TOOLS, customHttp as customHttpTool, parseToolArgs, SYSTEM_TOOLS, type RenderedRequest } from "@moss/tools";
+import * as actions from "./actions.js";
+import { configBackup, type BackupArgs } from "./backups.js";
+import { customHttp, sendRequest, type RawRequest } from "./custom-http.js";
+import { homeassistantDevices, homeassistantHealth, homeassistantLogs, homeassistantNotify, homeassistantPublish } from "./home-assistant.js";
+import { adguardStats, HomelabError, homeassistantStates, piholeSummary, proxmoxStatus, synologyStatus, truenasStatus } from "./homelab.js";
+import { unifiAuthMode, unifiClientsByLogin, unifiFirewall } from "./unifi.js";
+import { diskUsage, dockerPs, hostFacts, ServerError, serviceStatus, sshRun, type SshRun, type SshTarget } from "./servers.js";
 import { execFile } from "node:child_process";
 import { createSocket } from "node:dgram";
 import { promises as dns } from "node:dns";
 import { networkInterfaces } from "node:os";
+import { DiscoveryError, httpsGet, nameLookup, snmpQuery, traceroute, unifiClients, type HttpGet } from "./discovery.js";
 import { parseArpScan, parseNmapXml, parsePing } from "./parsers.js";
 import { httpProbe, tcpConnect, tlsInspect, type HttpProbeArgs } from "./probes.js";
 
@@ -14,6 +22,31 @@ const NMAP_PROFILES: Record<string, string[]> = {
   top100: ["-sS", "--top-ports", "100", "-T4"],
   services: ["-sS", "-sV", "--top-ports", "1000", "-T4"],
 };
+
+/** Host discovery by ICMP echo and timestamp only, for when TCP replies can't be trusted. */
+const ICMP_DISCOVERY = ["-PE", "-PP"];
+/** Host-up reasons that come from TCP probes. */
+const TCP_REASONS = new Set(["reset", "syn-ack"]);
+
+// Some network paths answer TCP probes for every address themselves: Docker Desktop's NAT replies
+// with a reset for addresses where nothing exists, so nmap's default discovery reports every address
+// up. Once that is seen, discovery uses ICMP only for the life of the process.
+let tcpRepliesUntrusted = false;
+
+/** Test hook. */
+export function resetDiscoveryState() {
+  tcpRepliesUntrusted = false;
+}
+
+/** The network and broadcast addresses of IPv4 CIDR targets: no real host answers as them. */
+function reservedAddresses(targets: string[]): Set<bigint> {
+  const out = new Set<bigint>();
+  for (const t of targets) {
+    const range = parseRange(t)!;
+    if (range.version === 4 && range.end - range.start >= 3n) out.add(range.start).add(range.end);
+  }
+  return out;
+}
 
 export class ToolError extends Error {}
 
@@ -97,8 +130,30 @@ export async function runTool(
   rawArgs: unknown,
   exec: Exec = defaultExec,
   interfaces: InterfaceLister = listInterfaces,
+  get: HttpGet = httpsGet,
+  send: RawRequest = sendRequest,
+  ssh: SshRun = sshRun,
 ): Promise<unknown> {
-  const def = BUILT_IN_TOOLS.get(name);
+  try {
+    return await runToolInner(name, rawArgs, exec, interfaces, get, send, ssh);
+  } catch (err) {
+    // Device-side problems (bad key, no answer, wrong port) are tool errors the agent can read, not crashes.
+    if (err instanceof DiscoveryError || err instanceof ServerError || err instanceof HomelabError) throw new ToolError(err.message);
+    throw err;
+  }
+}
+
+async function runToolInner(
+  name: string,
+  rawArgs: unknown,
+  exec: Exec,
+  interfaces: InterfaceLister,
+  get: HttpGet,
+  send: RawRequest,
+  ssh: SshRun,
+): Promise<unknown> {
+  // custom_http and the system tools are internal: only the gate sends them, for a call it already allowed.
+  const def = name === "custom_http" ? customHttpTool : (BUILT_IN_TOOLS.get(name) ?? SYSTEM_TOOLS.get(name));
   if (!def) throw new ToolError(`Unknown tool ${name}`);
   const parsed = parseToolArgs(def, rawArgs);
   if (!parsed.ok) throw new ToolError(`Invalid arguments: ${parsed.error}`);
@@ -108,10 +163,28 @@ export async function runTool(
     case "nmap_scan": {
       const targets = args.targets as string[];
       assertTargets(targets);
-      const flags = [...NMAP_PROFILES[args.profile as string]!, "--privileged", "-oX", "-", ...targets];
-      const res = await exec("nmap", flags, 15 * 60_000);
-      if (res.code !== 0 && !res.stdout.includes("<nmaprun")) throw new ToolError(`nmap failed: ${res.stderr.slice(0, 500)}`);
-      return parseNmapXml(res.stdout);
+      const scan = async (icmpOnly: boolean) => {
+        const flags = [...NMAP_PROFILES[args.profile as string]!, ...(icmpOnly ? ICMP_DISCOVERY : []), "--privileged", "-oX", "-", ...targets];
+        const res = await exec("nmap", flags, 15 * 60_000);
+        if (res.code !== 0 && !res.stdout.includes("<nmaprun")) throw new ToolError(`nmap failed: ${res.stderr.slice(0, 500)}`);
+        return parseNmapXml(res.stdout);
+      };
+      const reserved = reservedAddresses(targets);
+      const isReserved = (ip: string) => reserved.has(parseRange(ip)?.start ?? -1n);
+      let result = await scan(tcpRepliesUntrusted);
+      if (!tcpRepliesUntrusted && result.hosts.some((h) => h.status === "up" && isReserved(h.ip) && TCP_REASONS.has(h.reason ?? ""))) {
+        tcpRepliesUntrusted = true;
+        result = await scan(true);
+      }
+      return {
+        ...result,
+        hosts: result.hosts.filter((h) => !isReserved(h.ip)),
+        ...(tcpRepliesUntrusted && {
+          warning:
+            "TCP replies on this network path are unreliable (something answers for addresses where no host exists), " +
+            "so hosts were discovered by ICMP only. Hosts that block ping will not be listed.",
+        }),
+      };
     }
     case "arp_scan": {
       const targets = args.targets as string[];
@@ -164,6 +237,116 @@ export async function runTool(
       const target = args.target as string;
       assertHost(target);
       return tlsInspect(target, args.port as number, args.servername as string | undefined, args.timeoutMs as number);
+    }
+    case "custom_http": {
+      assertHost(args.target as string);
+      try {
+        return await customHttp(args as unknown as RenderedRequest, send);
+      } catch (err) {
+        throw new ToolError(`Request failed: ${(err as Error).message}`);
+      }
+    }
+    case "host_facts":
+    case "disk_usage":
+    case "service_status":
+    case "docker_ps": {
+      assertHost(args.target as string);
+      const t = args as unknown as SshTarget & { service: string; all: boolean };
+      if (name === "host_facts") return hostFacts(t, ssh);
+      if (name === "disk_usage") return diskUsage(t, ssh);
+      if (name === "service_status") return serviceStatus(t, ssh);
+      return dockerPs(t, ssh);
+    }
+    case "proxmox_status":
+    case "truenas_status":
+    case "synology_status":
+    case "homeassistant_states":
+    case "pihole_summary":
+    case "adguard_stats": {
+      assertHost(args.target as string);
+      const a = args as never;
+      if (name === "proxmox_status") return proxmoxStatus(a, send);
+      if (name === "truenas_status") return truenasStatus(a, send);
+      if (name === "synology_status") return synologyStatus(a, send);
+      if (name === "homeassistant_states") return homeassistantStates(a, send);
+      if (name === "pihole_summary") return piholeSummary(a, send);
+      return adguardStats(a, send);
+    }
+    case "homeassistant_health":
+    case "homeassistant_logs":
+    case "homeassistant_devices":
+    case "homeassistant_notify":
+    case "homeassistant_publish": {
+      assertHost(args.target as string);
+      const a = args as never;
+      if (name === "homeassistant_health") return homeassistantHealth(a, send);
+      if (name === "homeassistant_logs") return homeassistantLogs(a, send);
+      if (name === "homeassistant_devices") return homeassistantDevices(a, send);
+      if (name === "homeassistant_notify") return homeassistantNotify(a, send);
+      return homeassistantPublish(a, send);
+    }
+    case "config_backup": {
+      assertHost(args.target as string);
+      return configBackup(args as unknown as BackupArgs, ssh, send);
+    }
+    // Write tools: the gate only sends these as a step of an approved change request.
+    case "service_restart":
+    case "container_restart":
+    case "host_reboot": {
+      assertHost(args.target as string);
+      const t = args as never;
+      if (name === "service_restart") return actions.serviceRestart(t, ssh);
+      if (name === "container_restart") return actions.containerRestart(t, ssh);
+      return actions.hostReboot(t, ssh);
+    }
+    case "homeassistant_switch":
+    case "homeassistant_power_cycle":
+    case "pihole_domain_rule":
+    case "pihole_local_dns":
+    case "adguard_rule":
+    case "adguard_rewrite": {
+      assertHost(args.target as string);
+      const a = args as never;
+      if (name === "homeassistant_switch") return actions.homeassistantSwitch(a, send);
+      if (name === "homeassistant_power_cycle") return actions.homeassistantPowerCycle(a, send);
+      if (name === "pihole_domain_rule") return actions.piholeDomainRule(a, send);
+      if (name === "pihole_local_dns") return actions.piholeLocalDns(a, send);
+      if (name === "adguard_rule") return actions.adguardRule(a, send);
+      return actions.adguardRewrite(a, send);
+    }
+    case "unifi_client_block":
+    case "unifi_dhcp_reservation":
+    case "unifi_wlan_enable":
+    case "unifi_firewall": {
+      assertHost(args.controller as string);
+      const a = args as never;
+      if (name === "unifi_client_block") return actions.unifiClientBlock(a, send);
+      if (name === "unifi_dhcp_reservation") return actions.unifiDhcpReservation(a, send);
+      if (name === "unifi_firewall") return unifiFirewall(a, send);
+      return actions.unifiWlanEnable(a, send);
+    }
+    case "unifi_clients": {
+      assertHost(args.controller as string);
+      // The official clients API takes only an API key; a username and password use the classic one.
+      if (unifiAuthMode(args as never) === "login") return unifiClientsByLogin(args as never, send);
+      return unifiClients(args as Parameters<typeof unifiClients>[0] & { apiKey: string }, get);
+    }
+    case "snmp_query": {
+      assertHost(args.target as string);
+      return snmpQuery(args as Parameters<typeof snmpQuery>[0], exec);
+    }
+    case "traceroute": {
+      assertHost(args.target as string);
+      return traceroute(args as Parameters<typeof traceroute>[0], exec);
+    }
+    case "name_lookup": {
+      const targets = args.targets as string[];
+      assertTargets(targets);
+      for (const t of targets) {
+        const r = parseRange(t)!;
+        if (r.end - r.start > 255n) throw new ToolError(`${t} is too large for name_lookup; use /24 or smaller`);
+      }
+      return nameLookup({ targets }, exec);
     }
     default:
       throw new ToolError(`Tool ${name} has no runner`);

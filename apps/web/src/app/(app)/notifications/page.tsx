@@ -26,13 +26,13 @@ export default async function NotificationsPage() {
       {rows.length === 0 ? (
         <Empty>Nothing yet.</Empty>
       ) : (
-        <ul className="divide-y rounded-lg border">
+        <ul className="divide-y-2 px-frame">
           {rows.map((n) => (
             <li key={n.id} className={n.readAt ? "opacity-70" : ""}>
-              <Link href={n.link ?? "#"} className="block p-3 hover:bg-accent/40">
+              <Link href={n.link ?? "#"} className="block p-3 hover:bg-accent">
                 <div className="flex justify-between gap-3 text-sm">
                   <span className={n.readAt ? "" : "font-medium"}>{n.title}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground">{timeAgo(n.createdAt)}</span>
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground">{timeAgo(n.createdAt)}</span>
                 </div>
                 {n.body && <p className="line-clamp-2 text-sm text-muted-foreground">{n.body}</p>}
               </Link>

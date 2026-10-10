@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseArpScan, parseNmapXml, parsePing } from "./parsers.js";
-import { magicPacket, runTool, setUdpSender, type Exec } from "./runners.js";
+import type { NmapResult } from "@moss/tools";
+import { magicPacket, resetDiscoveryState, runTool, setUdpSender, type Exec } from "./runners.js";
 import { buildToolboxServer } from "./server.js";
 
 const NMAP_XML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -61,6 +62,37 @@ describe("runTool", () => {
     const exec: Exec = async (file, args) => (calls.push([file, args]), { stdout: NMAP_XML, stderr: "", code: 0 });
     await runTool("nmap_scan", { targets: ["192.168.1.0/30"], profile: "top100" }, exec);
     expect(calls).toEqual([["nmap", ["-sS", "--top-ports", "100", "-T4", "--privileged", "-oX", "-", "192.168.1.0/30"]]]);
+  });
+
+  it("falls back to ICMP discovery when every address answers TCP probes", async () => {
+    resetDiscoveryState();
+    // Docker Desktop's NAT answers TCP probes with a reset for every address, even the network address.
+    const host = (ip: string, reason: string) => `<host><status state="up" reason="${reason}"/><address addr="${ip}" addrtype="ipv4"/></host>`;
+    const fabricated = `<nmaprun>${["10.0.0.0", "10.0.0.1", "10.0.0.2", "10.0.0.3"].map((ip) => host(ip, "reset")).join("")}</nmaprun>`;
+    const honest = `<nmaprun>${host("10.0.0.2", "echo-reply")}</nmaprun>`;
+    const calls: string[][] = [];
+    const exec: Exec = async (_f, args) => (calls.push(args), { stdout: args.includes("-PE") ? honest : fabricated, stderr: "", code: 0 });
+
+    const res = (await runTool("nmap_scan", { targets: ["10.0.0.0/30"], profile: "ping" }, exec)) as NmapResult;
+    expect(calls).toEqual([
+      ["-sn", "--privileged", "-oX", "-", "10.0.0.0/30"],
+      ["-sn", "-PE", "-PP", "--privileged", "-oX", "-", "10.0.0.0/30"],
+    ]);
+    expect(res.hosts.map((h) => h.ip)).toEqual(["10.0.0.2"]);
+    expect(res.warning).toMatch(/ICMP only/);
+
+    // Later scans go straight to ICMP discovery.
+    calls.length = 0;
+    await runTool("nmap_scan", { targets: ["10.0.0.7"], profile: "top100" }, exec);
+    expect(calls).toEqual([["-sS", "--top-ports", "100", "-T4", "-PE", "-PP", "--privileged", "-oX", "-", "10.0.0.7"]]);
+    resetDiscoveryState();
+  });
+
+  it("never reports a subnet's network or broadcast address as a host", async () => {
+    const xml = `<nmaprun>${["192.168.1.0", "192.168.1.1", "192.168.1.3"].map((ip) => `<host><status state="up" reason="echo-reply"/><address addr="${ip}" addrtype="ipv4"/></host>`).join("")}</nmaprun>`;
+    const res = (await runTool("nmap_scan", { targets: ["192.168.1.0/30"], profile: "ping" }, async () => ({ stdout: xml, stderr: "", code: 0 }))) as NmapResult;
+    expect(res.hosts.map((h) => h.ip)).toEqual(["192.168.1.1"]);
+    expect(res.warning).toBeUndefined();
   });
 
   it("runs arp-scan on the interface attached to the target subnet", async () => {

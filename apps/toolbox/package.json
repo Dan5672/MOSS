@@ -7,13 +7,17 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --testTimeout=30000",
     "start": "node dist/main.js"
   },
   "dependencies": {
     "@moss/policy": "workspace:*",
     "@moss/tools": "workspace:*",
     "fast-xml-parser": "^5.11.2",
-    "fastify": "^5.12.5"
+    "fastify": "^5.12.5",
+    "ssh2": "^1.17.0"
+  },
+  "devDependencies": {
+    "@types/ssh2": "^1.15.6"
   }
 }

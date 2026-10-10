@@ -70,6 +70,7 @@ services:
     secrets: [gate_token]
     networks: [backend]
     read_only: true
+    tmpfs: [/tmp] # scratch home for Claude Code runs
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     depends_on:
@@ -88,6 +89,8 @@ services:
       WEB_TOKEN_FILE: /run/secrets/web_token
       MOSS_APP_KEY_FILE: /run/secrets/app_key
       MOSS_SECURE_COOKIES: ${MOSS_SECURE_COOKIES:-false}
+      # Same zone as the worker, which runs agent schedules in it, so times on screen match.
+      TZ: ${TZ:-UTC}
     secrets: [web_token, app_key]
     ports:
       - "${MOSS_WEB_BIND:-127.0.0.1}:3000:3000"
