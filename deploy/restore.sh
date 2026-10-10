@@ -102,7 +102,7 @@ if $checkout; then
 fi
 
 info "Stopping MOSS services (the database stays up)"
-dc stop web worker gate toolbox >/dev/null 2>&1 || true
+dc stop web worker gate toolbox bridge backup >/dev/null 2>&1 || true
 dc up -d postgres >/dev/null
 for _ in $(seq 1 60); do
   dc exec -T postgres sh -c 'pg_isready -q -U "$POSTGRES_USER"' && break

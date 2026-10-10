@@ -1,6 +1,7 @@
-// Gate HTTP API. Two callers, two tokens, disjoint routes:
-//   worker (GATE_TOKEN): tool calls, tool listing, monitor checks, module calls, LLM proxy
-//   web    (WEB_TOKEN):  write-only secrets API, config backup downloads, a person's module calls (/v1/web/...)
+// Gate HTTP API. Three callers, three tokens, disjoint routes:
+//   worker (GATE_TOKEN):   tool calls, tool listing, monitor checks, module calls, LLM proxy
+//   web    (WEB_TOKEN):    write-only secrets API, config backup downloads, a person's module calls (/v1/web/...)
+//   bridge (BRIDGE_TOKEN): the Telegram and Discord bot tokens (/v1/bridge/...)
 import Fastify from "fastify";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { Readable } from "node:stream";
@@ -29,6 +30,8 @@ export interface GateServerOptions {
     /** The org of an active user, for a person's module calls. */
     userOrg?: (userId: string) => Promise<string | null>;
   };
+  /** The chat bridge's bot tokens, authenticated with its own token. */
+  bridge?: { token: string; credentials: () => Promise<{ orgId: string; platform: string; token: string }[]> };
   logger?: boolean;
 }
 
@@ -36,6 +39,9 @@ export function buildGateServer(gate: Gate, opts: GateServerOptions) {
   if (opts.token.length < 32) throw new Error("GATE_TOKEN must be at least 32 characters");
   if (opts.secrets && opts.secrets.token.length < 32) throw new Error("WEB_TOKEN must be at least 32 characters");
   if (opts.secrets && sameToken(opts.secrets.token, opts.token)) throw new Error("WEB_TOKEN must differ from GATE_TOKEN");
+  if (opts.bridge && (opts.bridge.token.length < 32 || sameToken(opts.bridge.token, opts.token) || (opts.secrets && sameToken(opts.bridge.token, opts.secrets.token)))) {
+    throw new Error("BRIDGE_TOKEN must be at least 32 characters and differ from the other tokens");
+  }
   // Large body limit for LLM requests (long agent transcripts); tool calls are small.
   const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 32 * 1024 * 1024 });
 
@@ -45,7 +51,8 @@ export function buildGateServer(gate: Gate, opts: GateServerOptions) {
     const header = req.headers.authorization ?? "";
     const presented = header.startsWith("Bearer ") ? header.slice(7) : req.headers["x-api-key"];
     const webRoute = req.url.startsWith("/v1/secrets") || req.url.startsWith("/v1/backups") || req.url.startsWith("/v1/web/");
-    const expected = webRoute ? opts.secrets?.token : opts.token;
+    const bridgeRoute = req.url.startsWith("/v1/bridge/");
+    const expected = bridgeRoute ? opts.bridge?.token : webRoute ? opts.secrets?.token : opts.token;
     if (typeof presented !== "string" || !expected || !sameToken(presented, expected)) {
       return reply.code(401).send({ error: "unauthorized" });
     }
@@ -103,6 +110,11 @@ export function buildGateServer(gate: Gate, opts: GateServerOptions) {
   }
 
   app.get("/v1/health", async () => ({ ok: true }));
+
+  if (opts.bridge) {
+    const bridge = opts.bridge;
+    app.get("/v1/bridge/credentials", async () => ({ bots: await bridge.credentials() }));
+  }
 
   // The worker's integration calls: health checks and inventory syncs.
   app.post<{ Params: { key: string; op: string }; Body: { orgId?: string; args?: Record<string, unknown> } }>("/v1/integrations/:key/:op", async (req, reply) => {

@@ -212,6 +212,19 @@ Its token acts as the person who made it, so it can never do more than they can,
 is in MOSS's audit log as "via Home Assistant". **Revoke the token in MOSS** if a Home Assistant
 install is lost or compromised.
 
+### Other integrations
+
+**Settings → Integrations** also connects MOSS to the rest of your home lab. Each one starts by
+reading, never changing, and only from an address in an allowed network:
+
+- **Telegram and Discord**: your MOSS notifications on your phone, Approve and Reject buttons for
+  changes, and your agents to talk to, through a bot you create. Each person connects their own
+  account in Settings → General. Risky changes still have to be approved in MOSS itself.
+- **Proxmox VE and Proxmox Backup Server**: nodes, storage and VMs watched, every VM and container in
+  the inventory, and a warning when a guest hasn't been backed up.
+- **Pi-hole and AdGuard Home**: a warning when blocking is switched off, graphs of your DNS, and device
+  names for the inventory.
+
 ---
 
 ## 6. How MOSS keeps you safe

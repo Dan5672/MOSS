@@ -183,6 +183,13 @@
       "when": 1791621933263,
       "tag": "0025_monitor_dashboards",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791632521946,
+      "tag": "0026_chat_bridge",
+      "breakpoints": true
     }
   ]
 }

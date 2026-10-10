@@ -27,6 +27,7 @@ export * from "./integrations/config.js";
 export * from "./integrations/inventory.js";
 export * from "./integrations/health.js";
 export * from "./integrations/run.js";
+export * from "./chat-bridge/chat.js";
 export * from "./services/certificates.js";
 export * from "./services/moss-backups.js";
 export * from "./services/knowledge.js";

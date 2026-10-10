@@ -1,4 +1,4 @@
-import { getSetting, totpUri, type SettingKey } from "@moss/core";
+import { CHAT_NAMES, CHAT_PLATFORMS, getSetting, listChatLinks, loadChatModule, totpUri, type SettingKey } from "@moss/core";
 import { cookies } from "next/headers";
 import QRCode from "qrcode";
 import { ActionForm } from "@/components/action-form";
@@ -9,7 +9,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { confirmTotpAction, disableTotpAction, setMotionAction, setSetupChecklistHiddenAction, startTotpAction, toggleSettingAction } from "./actions";
+import { ConnectChat } from "./chat-connect";
 import { HttpsCard } from "./https-card";
+import { unlinkMyChatAction } from "./integrations/chat/actions";
 
 export const metadata = { title: "Settings" };
 
@@ -53,6 +55,11 @@ export default async function SettingsPage() {
   const values = Object.fromEntries(await Promise.all(TOGGLES.map(async (t) => [t.key, await getSetting(db(), user.orgId, t.key)] as const)));
   const pendingSecret = (await cookies()).get("moss_totp_pending")?.value;
   const qr = pendingSecret ? await QRCode.toDataURL(totpUri(pendingSecret, user.email), { margin: 1, width: 200 }) : null;
+  const [chatApps, myLinks] = await Promise.all([
+    Promise.all(CHAT_PLATFORMS.map(async (p) => ({ p, on: (await loadChatModule(db(), user.orgId, p)).enabled }))),
+    listChatLinks(db(), user.orgId, user.id),
+  ]);
+  const chatOn = chatApps.filter((c) => c.on);
 
   return (
     <>
@@ -65,6 +72,30 @@ export default async function SettingsPage() {
       )}
       <div className="grid gap-6 lg:grid-cols-2">
         <HttpsCard orgId={user.orgId} canManage={user.permissions.has("settings.manage")} />
+        {(chatOn.length > 0 || myLinks.length > 0) && (
+          <Card id="chat-apps">
+            <CardHeader>
+              <CardTitle>Telegram and Discord</CardTitle>
+              <CardDescription>Get your MOSS notifications on your phone, approve changes with a tap, and talk to your agents.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 text-sm">
+              {myLinks.map((l) => (
+                <div key={l.id} className="flex flex-wrap items-center gap-3">
+                  <span>
+                    Connected to {CHAT_NAMES[l.platform]}
+                    {l.username ? <> as <span className="font-mono">@{l.username}</span></> : null}.
+                  </span>
+                  <ActionForm action={unlinkMyChatAction.bind(null, l.id)} submitLabel="Disconnect" submitVariant="outline" inline />
+                </div>
+              ))}
+              {chatOn
+                .filter((c) => !myLinks.some((l) => l.platform === c.p))
+                .map((c) => (
+                  <ConnectChat key={c.p} platform={c.p} name={CHAT_NAMES[c.p]} />
+                ))}
+            </CardContent>
+          </Card>
+        )}
         <Card>
           <CardHeader>
             <CardTitle>Display</CardTitle>

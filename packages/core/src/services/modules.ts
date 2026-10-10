@@ -7,10 +7,15 @@ import { INTEGRATIONS } from "../integrations/registry.js";
 import type { Actor } from "./assets.js";
 
 /** Integrations: Home Assistant (its own pages) and the ones in the integrations registry. */
-export const MODULE_KEYS: string[] = ["home_assistant", ...INTEGRATIONS.map((d) => d.key)];
+export const MODULE_KEYS: string[] = ["home_assistant", "telegram", "discord", ...INTEGRATIONS.map((d) => d.key)];
 export type ModuleKey = string;
 /** What each integration is called on screen (and in Moss's docs, which a test checks). */
-export const MODULE_NAMES: Record<ModuleKey, string> = { home_assistant: "Home Assistant", ...Object.fromEntries(INTEGRATIONS.map((d) => [d.key, d.name])) };
+export const MODULE_NAMES: Record<ModuleKey, string> = {
+  home_assistant: "Home Assistant",
+  telegram: "Telegram",
+  discord: "Discord",
+  ...Object.fromEntries(INTEGRATIONS.map((d) => [d.key, d.name])),
+};
 
 /** The module a built-in tool belongs to: its tools only work while the module is on. */
 export function moduleForTool(tool: string): ModuleKey | null {

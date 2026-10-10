@@ -4,6 +4,8 @@ Newest first. After an upgrade, Moss posts the newest section in #general.
 ## 0.5.0
 - **Integrations for your home lab**, each with its own page in Settings → Integrations: connect it, test
   it, switch on what it should do, and see what it last found.
+- **Telegram and Discord**: your MOSS notifications on your phone, Approve and Reject buttons for
+  changes, and your agents to talk to, through your own bot. Connect in Settings → General.
 - **Proxmox VE and Proxmox Backup Server**: nodes, storage and the VMs that should be running are watched,
   every VM and container joins the inventory under its node, and you hear when a guest hasn't been
   backed up. Agents can snapshot a VM before changing it.

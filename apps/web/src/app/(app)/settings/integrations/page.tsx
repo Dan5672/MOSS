@@ -1,4 +1,4 @@
-import { INTEGRATIONS, loadHomeAssistant, loadIntegration } from "@moss/core";
+import { CHAT_NAMES, CHAT_PLATFORMS, INTEGRATIONS, listChatLinks, loadChatModule, loadHomeAssistant, loadIntegration } from "@moss/core";
 import Link from "next/link";
 import { NoPermission, PageHeader } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
@@ -11,9 +11,11 @@ export const metadata = { title: "Integrations" };
 export default async function ModulesPage() {
   const user = await requireUser();
   if (!user.permissions.has("integrations.manage")) return <NoPermission />;
-  const [ha, others] = await Promise.all([
+  const [ha, others, chats, links] = await Promise.all([
     loadHomeAssistant(db(), user.orgId),
     Promise.all(INTEGRATIONS.map(async (def) => ({ def, it: await loadIntegration(db(), user.orgId, def) }))),
+    Promise.all(CHAT_PLATFORMS.map(async (p) => ({ p, it: await loadChatModule(db(), user.orgId, p) }))),
+    listChatLinks(db(), user.orgId),
   ]);
   const c = ha.config;
   const features = [
@@ -53,6 +55,28 @@ export default async function ModulesPage() {
             </Link>
           </CardContent>
         </Card>
+        {chats.map(({ p, it }) => {
+          const people = links.filter((l) => l.platform === p).length;
+          return (
+            <Card key={p}>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Link href={`/settings/integrations/${p}`} className="underline-offset-2 hover:underline">
+                    {CHAT_NAMES[p]}
+                  </Link>
+                  <Badge variant={it.enabled ? "default" : "outline"}>{it.enabled ? "On" : "Off"}</Badge>
+                </CardTitle>
+                <CardDescription>Alerts on your phone, Approve and Reject buttons for changes, and your agents to talk to, through your own {CHAT_NAMES[p]} bot.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3 text-sm">
+                <p>{it.enabled ? `On, ${people} person${people === 1 ? "" : "s"} connected.` : "Not set up."}</p>
+                <Link href={`/settings/integrations/${p}`} className="w-fit border-2 px-3 py-2 font-mono text-sm hover:bg-muted">
+                  {it.enabled ? "Configure" : "Set up"}
+                </Link>
+              </CardContent>
+            </Card>
+          );
+        })}
         {others.map(({ def, it }) => {
           const on = def.features.filter((f) => it.config.features[f.key]).map((f) => f.label.toLowerCase());
           return (

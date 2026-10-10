@@ -66,6 +66,28 @@ Home Assistant is refused unless "Let Home Assistant resume agents" is ticked. T
 or revoked token" means make a new token; entities unavailable means Home Assistant can't reach MOSS's
 address (it must be reachable from Home Assistant, e.g. http://<MOSS host IP>:3000).
 
+## The Telegram integration
+Settings > Integrations > Telegram: your own bot (create it with @BotFather, /newbot, and paste its token;
+stored as secret:telegram-bot-token, usable by nothing but MOSS's chat bridge). Switch it on, then each
+person connects their own account in Settings > General > Connect Telegram, which shows a one-time code
+(10 minutes) to send the bot as /link CODE. Messages from accounts that aren't connected are ignored, and
+groups are ignored. People get their own MOSS notifications there, filtered by the integration's
+settings: incidents (P2 and up by default), monitors, changes awaiting approval, and mentions, comments and
+agents' replies, with links if MOSS's address is set. Changes come with Approve and Reject buttons for
+people who may approve; the decision is recorded as them, with the same rules as in MOSS (separate
+approver, conflicts). Emergency, high-risk and dangerous changes, and agents' access requests, must be
+approved in MOSS. Writing to the bot talks to Moss; /agents lists the agents, /agent <name> switches,
+/unlink disconnects. The conversation is the person's DM with that agent in MOSS, so it shows in Chat too;
+agents only answer people with agents.chat. The bridge polls Telegram, so nothing has to reach MOSS from
+the internet.
+
+## The Discord integration
+Settings > Integrations > Discord: the same as Telegram, with a Discord bot (Developer Portal: create an
+application, Bot, Reset Token; under Installation allow User Install, or invite the bot to a server you
+share). Token: secret:discord-bot-token. People connect in Settings > General > Connect Discord and send
+the bot /link CODE in a direct message; messages in servers are ignored. Buttons update the message with
+the result.
+
 ## The Proxmox VE integration
 Settings > Integrations > Proxmox VE. Connection: any node's address, port 8006, and an API token
 (Datacenter > Permissions > API Tokens, pasted as USER@REALM!TOKENID=SECRET; the PVEAuditor role is enough

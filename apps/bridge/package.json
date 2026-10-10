@@ -1,0 +1,20 @@
+{
+  "name": "@moss/bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --testTimeout=30000",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@moss/agent": "workspace:*",
+    "@moss/core": "workspace:*",
+    "@moss/db": "workspace:*",
+    "drizzle-orm": "^0.44.0",
+    "pg-boss": "^12.36.0"
+  }
+}

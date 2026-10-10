@@ -1,6 +1,6 @@
 // One story through the UI, in order: a new owner sets MOSS up and runs their IT department.
-import { createChangeRequest, dispatchEvents, encryptSecret, handleMonitorDown, handleMonitorUp, parseMasterKey, totpCode } from "@moss/core";
-import { agentRuns, agents, configBackups, createDb, monitors, secrets, type Database } from "@moss/db";
+import { createChangeRequest, dispatchEvents, encryptSecret, handleIncoming, handleMonitorDown, handleMonitorUp, parseMasterKey, totpCode } from "@moss/core";
+import { agentRuns, agents, configBackups, createDb, monitors, secrets, users, type Database } from "@moss/db";
 import { expect, test, type Page } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -881,6 +881,47 @@ test("integrations: Home Assistant is connected, tested, switched on, and fills 
   page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "Switch integration off" }).click();
   await expect(page.getByText("Home Assistant integration switched off")).toBeVisible();
+});
+
+test("integrations: Telegram is set up, and a person connects their account with a one-time code", async () => {
+  const db = createDb(E2E_DATABASE_URL);
+  const [owner] = await db.select().from(users).where(eq(users.email, OWNER.email));
+  await page.goto("/settings/integrations");
+  await page.getByRole("link", { name: "Telegram", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Telegram", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Switch integration on" }).click();
+  await expect(page.getByText("Save the bot token first.")).toBeVisible();
+  const bot = page.locator("#bot");
+  await bot.getByLabel("Bot token").fill("not a token");
+  await bot.getByRole("button", { name: "Save token" }).click();
+  await expect(page.getByText("That doesn't look like a Telegram bot token (123456789:AA...).")).toBeVisible();
+  await bot.getByLabel("Bot token").fill("123456789:AAHe2eTelegramBotToken0123456789abcdef");
+  await bot.getByRole("button", { name: "Save token" }).click();
+  await expect(page.getByText("Saved the bot token.")).toBeVisible();
+  await page.getByRole("button", { name: "Switch integration on" }).click();
+  await expect(page.getByText("Telegram is on. The bot starts within a minute.")).toBeVisible();
+  const messages = page.locator("#messages");
+  await messages.getByLabel("Monitors degraded and back up").uncheck();
+  await messages.getByLabel("MOSS's address (for links)").fill("https://moss.test");
+  await messages.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Saved.", { exact: true })).toBeVisible();
+
+  // The person connects their own account: a code to send the bot.
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "Connect Telegram" }).click();
+  const code = ((await page.getByRole("status").filter({ hasText: "/link" }).locator("code").textContent()) ?? "").replace("/link ", "");
+  expect(code).toMatch(/^[A-Z2-9]{8}$/);
+  // What the bridge does when they send it.
+  const linked = await handleIncoming(db, { orgId: owner!.orgId, platform: "telegram", externalUserId: "e2e-tg-1", chatId: "1001", username: "dana", text: `/link ${code}` });
+  expect(linked.replies[0]).toMatch(/^Linked to Dana Owner/);
+  await page.reload();
+  await expect(page.locator("#chat-apps")).toContainText("Connected to Telegram as @dana.");
+  await page.goto("/settings/integrations/telegram");
+  await expect(page.getByRole("list", { name: "Connected to Telegram" })).toContainText("Dana Owner");
+  await page.goto("/settings");
+  await page.locator("#chat-apps").getByRole("button", { name: "Disconnect" }).click();
+  await expect(page.getByText("Disconnected.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Connect Telegram" })).toBeVisible();
 });
 
 test("integrations: Pi-hole is set up, tested, switched on, and names a device", async () => {

@@ -45,7 +45,9 @@ services:
       TOOLBOX_TOKEN_FILE: /run/secrets/toolbox_token
       TOOLBOX_URL: http://toolbox:7070
       WEB_TOKEN_FILE: /run/secrets/web_token
-    secrets: [master_key, gate_token, toolbox_token, web_token]
+      # The chat bridge fetches the Telegram and Discord bot tokens with its own token.
+      BRIDGE_TOKEN_FILE: /run/secrets/bridge_token
+    secrets: [master_key, gate_token, toolbox_token, web_token, bridge_token]
     ports:
       - "127.0.0.1:7080:7080"
     networks: [backend, tools]
@@ -132,6 +134,28 @@ services:
     cap_drop: [ALL]
     cap_add: [NET_RAW, NET_ADMIN]
 
+  # Telegram and Discord: the bots people link their chat accounts to, for alerts, approvals and chatting with
+  # agents. The only service that talks to those apps (on the egress network); it gets the bot tokens from the
+  # gate, which decrypts them only while their integration is on. Does nothing until one is set up.
+  bridge:
+    image: moss-bridge:${MOSS_VERSION:-dev}
+    build: { context: .., dockerfile: deploy/docker/bridge.Dockerfile }
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-moss}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-moss}
+      GATE_URL: http://gate:7080
+      BRIDGE_TOKEN_FILE: /run/secrets/bridge_token
+      TZ: ${TZ:-UTC}
+    secrets: [bridge_token]
+    networks: [backend, egress]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      gate: { condition: service_started }
+
   # MOSS backups from the web: the same archives as deploy/backup.sh, into deploy/backups. It reads the
   # secrets and .env (to put them in the archive) and hands archives out only encrypted with a passphrase.
   # Root inside the container, with just the capabilities to read those files and give archives to the
@@ -213,6 +237,7 @@ secrets:
   web_token: { file: ./secrets/web.token }
   app_key: { file: ./secrets/app.key }
   backup_token: { file: ./secrets/backup.token }
+  bridge_token: { file: ./secrets/bridge.token }
 
 volumes:
   pgdata:

@@ -1080,6 +1080,63 @@ export const modules = pgTable(
   (t) => [primaryKey({ columns: [t.orgId, t.key] })],
 );
 
+/**
+ * Telegram and Discord: a person's chat account linked to their MOSS account (by a one-time code they send the
+ * bot). Messages from accounts that aren't linked are ignored. The agent they're talking to (Moss unless they
+ * chose another), and how far MOSS has forwarded that agent's replies.
+ */
+export const chatLinks = pgTable(
+  "chat_links",
+  {
+    id: id(),
+    ...tenancy(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    platform: text("platform", { enum: ["telegram", "discord"] }).notNull(),
+    externalUserId: text("external_user_id").notNull(),
+    /** Where to send to them: the Telegram chat or the Discord DM channel. */
+    chatId: text("chat_id").notNull(),
+    username: text("username"),
+    agentId: uuid("agent_id").references(() => agents.id, { onDelete: "set null" }),
+    repliesForwardedAt: timestamp("replies_forwarded_at", { withTimezone: true }).notNull().defaultNow(),
+    /** How far MOSS has forwarded their notifications (alerts, approvals, mentions). */
+    notifiedAt: timestamp("notified_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("chat_links_platform_user_idx").on(t.platform, t.externalUserId), index("chat_links_user_idx").on(t.userId)],
+);
+
+/** One-time codes for linking a chat account, valid for a few minutes. Stored hashed. */
+export const chatLinkCodes = pgTable("chat_link_codes", {
+  codeHash: text("code_hash").primaryKey(),
+  orgId: uuid("org_id").notNull(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  platform: text("platform", { enum: ["telegram", "discord"] }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+
+/** Messages waiting for the bridge to send to Telegram or Discord (alerts, approval requests, agents' replies). */
+export const chatOutbox = pgTable(
+  "chat_outbox",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    orgId: uuid("org_id").notNull(),
+    platform: text("platform", { enum: ["telegram", "discord"] }).notNull(),
+    chatId: text("chat_id").notNull(),
+    text: text("text").notNull(),
+    /** Buttons under the message: a label, and what pressing it sends back (approve:<id>, reject:<id>). */
+    buttons: jsonb("buttons").$type<{ label: string; data: string }[]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    error: text("error"),
+  },
+  (t) => [index("chat_outbox_unsent_idx").on(t.sentAt, t.id)],
+);
+
 export const settings = pgTable(
   "settings",
   {
