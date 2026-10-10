@@ -1,6 +1,6 @@
-# MOSS — Managed Operations & Systems Service
-<img width="2560" height="800" alt="image" src="https://github.com/user-attachments/assets/e2df642b-7195-44a7-b155-a3e8789a2f2c" />
 
+<img width="2560" height="800" alt="image" src="https://github.com/user-attachments/assets/e2df642b-7195-44a7-b155-a3e8789a2f2c" />
+# MOSS — Managed Operations & Systems Service
 **Your AI IT department.**
 
 MOSS is a self-hosted IT department for home and small networks, staffed by AI agents. You hire
