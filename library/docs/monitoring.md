@@ -55,6 +55,11 @@ After the failure threshold, MOSS opens an incident at the monitor's priority fo
 responder starts work straight away. A repeat while the incident is open adds a comment instead. On
 recovery the incident is updated, or resolved if the monitor auto-resolves. Outages during an approved
 change on the same asset don't open incidents.
+Agent instructions (optional, on any monitor, in "When it goes down"): guidance for the responding
+agent, up to 2,000 characters, e.g. what the device is and what to check first. They go into the incident
+with the name of whoever last changed them, kept apart from the monitored system's own text. Only people
+who can manage monitors set them (never a webhook, an integration or an agent), and they can't widen what
+the agent may do: it still has only its own tools, and risky actions still need an approved change.
 
 ## Incidents
 Raise one with "Raise an incident" (top right of Incidents). Types: break/fix, security, request.

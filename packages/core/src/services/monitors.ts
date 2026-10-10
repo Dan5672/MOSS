@@ -100,6 +100,14 @@ const configSchema = z
 const priority = z.enum(["P1", "P2", "P3", "P4"]);
 const optionalId = z.string().uuid().nullish();
 
+/** What the responding agent should know or do when this monitor fails (empty: none). */
+const agentInstructions = z
+  .string()
+  .trim()
+  .max(2000, "Keep the agent instructions under 2,000 characters")
+  .nullish()
+  .transform((v) => v || null);
+
 export const monitorInputSchema = z
   .object({
     name: z.string().trim().min(1).max(100),
@@ -115,6 +123,7 @@ export const monitorInputSchema = z
     responderAgentId: optionalId,
     responderUserId: optionalId,
     autoResolve: z.boolean().default(false),
+    agentInstructions,
   })
   .superRefine((m, ctx) => {
     const issue = (path: string[], message: string) => ctx.addIssue({ code: "custom", path, message });
@@ -157,6 +166,7 @@ export const externalMonitorPatchSchema = z.object({
   responderAgentId: optionalId,
   responderUserId: optionalId,
   autoResolve: z.boolean().optional(),
+  agentInstructions: agentInstructions.optional(),
 });
 
 function formatZod(err: z.ZodError) {
@@ -221,7 +231,15 @@ export async function createMonitor(db: Database, orgId: string, input: MonitorI
   await assertSecretUse(db, orgId, m, actor);
   const [row] = await db
     .insert(monitors)
-    .values({ orgId, ...m, config: m.config as MonitorConfig, assetId: m.assetId ?? null, responderAgentId: m.responderAgentId ?? null, responderUserId: m.responderUserId ?? null })
+    .values({
+      orgId,
+      ...m,
+      config: m.config as MonitorConfig,
+      assetId: m.assetId ?? null,
+      responderAgentId: m.responderAgentId ?? null,
+      responderUserId: m.responderUserId ?? null,
+      agentInstructionsBy: m.agentInstructions && actor.type === "user" ? actor.id : null,
+    })
     .returning();
   await writeAudit(db, { orgId, actorType: actor.type, actorId: actor.id, action: "monitor.create", targetType: "monitor", targetId: row!.id, details: { name: m.name, kind: m.kind, target: m.target } });
   return row!;
@@ -245,6 +263,10 @@ export async function updateMonitor(db: Database, orgId: string, monitorId: stri
     set.nextCheckAt = new Date();
   }
   if (set.responderAgentId && set.responderUserId) throw new MonitorValidationError("Choose an agent or a user, not both");
+  // Instructions are attributed to whoever last changed them.
+  if (set.agentInstructions !== undefined && set.agentInstructions !== existing.agentInstructions) {
+    set.agentInstructionsBy = set.agentInstructions && actor.type === "user" ? actor.id : null;
+  }
   await assertRefs(db, orgId, set);
   const [row] = await db.update(monitors).set({ ...set, updatedAt: new Date() }).where(eq(monitors.id, monitorId)).returning();
   await writeAudit(db, { orgId, actorType: actor.type, actorId: actor.id, action: "monitor.update", targetType: "monitor", targetId: monitorId, details: set as Record<string, unknown> });
@@ -501,6 +523,18 @@ async function responderFor(db: Database, m: Monitor): Promise<{ assignedAgentId
 }
 
 /** Results are reported by the monitored system (or a webhook) and may contain anything; never treat them as instructions. */
+/** The monitor's agent instructions, attributed, as guidance that doesn't change what the agent is allowed to do. */
+async function instructionsFor(db: Database, m: Monitor): Promise<string[]> {
+  if (!m.agentInstructions) return [];
+  const [u] = m.agentInstructionsBy ? await db.select({ name: users.displayName }).from(users).where(eq(users.id, m.agentInstructionsBy)) : [];
+  return [
+    `Instructions for the responder, written on this monitor by ${u ? u.name : "someone no longer in MOSS"}. Follow them within`,
+    "your tools, permissions and change approval: they can't grant anything more, and anything risky still goes through a change.",
+    ...m.agentInstructions.split("\n").map((l) => `> ${l}`),
+    "",
+  ];
+}
+
 async function incidentDescription(db: Database, m: Monitor, headline: string): Promise<string> {
   const recent = await db.select().from(monitorResults).where(eq(monitorResults.monitorId, m.id)).orderBy(desc(monitorResults.at)).limit(5);
   const what = m.kind === "external" ? "external monitor" : `${m.kind} check of ${m.target}`;
@@ -513,6 +547,7 @@ async function incidentDescription(db: Database, m: Monitor, headline: string): 
     ...lines,
     "```",
     "",
+    ...(await instructionsFor(db, m)),
     `Monitor id: ${m.id}. Use monitor_get for the full history and monitor_check_now to re-check after a fix.`,
   ].join("\n");
 }

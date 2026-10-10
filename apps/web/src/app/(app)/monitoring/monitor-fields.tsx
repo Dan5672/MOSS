@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckboxField, SelectField, TextField } from "@/components/field";
+import { CheckboxField, SelectField, TextAreaField, TextField } from "@/components/field";
 
 export type MonitorKind = "ping" | "tcp" | "http" | "tls" | "dns" | "snmp" | "host" | "ha_sensor";
 
@@ -39,6 +39,22 @@ export interface MonitorDefaults {
   priority?: string;
   responder?: string;
   autoResolve?: boolean;
+  agentInstructions?: string | null;
+}
+
+/** Guidance for the agent that responds when the monitor fails. */
+export function AgentInstructionsField({ defaultValue }: { defaultValue?: string | null }) {
+  return (
+    <TextAreaField
+      label="Agent instructions (optional)"
+      name="agentInstructions"
+      rows={3}
+      maxLength={2000}
+      defaultValue={defaultValue ?? ""}
+      placeholder="e.g. This is the NAS. Check the UPS first; if the array is degraded, don't reboot it, raise a P1."
+      hint="Passed to the responding agent with the incident, with your name on it. It's guidance: the agent still only has its own tools, and anything risky still needs an approved change."
+    />
+  );
 }
 
 const KINDS: { value: MonitorKind; label: string }[] = [
@@ -328,6 +344,7 @@ export function MonitorFields({
           hint="Otherwise the responder is told it recovered and confirms the fix before resolving."
         />
         <CheckboxField label="Raise a P4 incident when degraded (not only a notification)" name="incidentOnDegraded" defaultChecked={defaults.incidentOnDegraded ?? false} />
+        <AgentInstructionsField defaultValue={defaults.agentInstructions} />
       </fieldset>
     </>
   );

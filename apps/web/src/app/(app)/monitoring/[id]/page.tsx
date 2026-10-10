@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { checkNowAction, deleteMonitorAction, setMonitorEnabledAction, updateMonitorAction } from "../actions";
-import { MonitorFields } from "../monitor-fields";
+import { AgentInstructionsField, MonitorFields } from "../monitor-fields";
 import { describeTarget, formatUptime, latencyStats, monitorFormOptions, UptimeStrip } from "../shared";
 
 export default async function MonitorPage({ params }: PageProps<"/monitoring/[id]">) {
@@ -213,6 +213,12 @@ export default async function MonitorPage({ params }: PageProps<"/monitoring/[id
                 )}
                 <dt className="text-muted-foreground">On recovery</dt>
                 <dd>{m.autoResolve ? "resolve incident" : "tell the responder"}</dd>
+                {m.agentInstructions && (
+                  <>
+                    <dt className="text-muted-foreground">Agent instructions</dt>
+                    <dd className="whitespace-pre-line">{m.agentInstructions}</dd>
+                  </>
+                )}
                 <dt className="text-muted-foreground">Last check</dt>
                 <dd className="font-mono">{timeAgo(m.lastCheckAt)}</dd>
               </dl>
@@ -233,6 +239,7 @@ export default async function MonitorPage({ params }: PageProps<"/monitoring/[id
                       <SelectField label="Responder" name="responder" defaultValue={responder} options={options.responders} />
                       <SelectField label="Incident priority" name="priority" defaultValue={m.priority} options={["P1", "P2", "P3", "P4"].map((p) => ({ value: p, label: p }))} />
                       <CheckboxField label="Resolve the incident automatically on recovery" name="autoResolve" defaultChecked={m.autoResolve} />
+                      <AgentInstructionsField defaultValue={m.agentInstructions} />
                     </>
                   ) : (
                     <MonitorFields
@@ -240,7 +247,7 @@ export default async function MonitorPage({ params }: PageProps<"/monitoring/[id
                       assets={options.assets}
                       responders={options.responders}
                       secrets={options.secrets}
-                      defaults={{ ...m.config, name: m.name, kind: m.kind as "http", target: m.target, assetId: m.assetId, intervalSeconds: m.intervalSeconds, failureThreshold: m.failureThreshold, recoveryThreshold: m.recoveryThreshold, priority: m.priority, responder, autoResolve: m.autoResolve }}
+                      defaults={{ ...m.config, name: m.name, kind: m.kind as "http", target: m.target, assetId: m.assetId, intervalSeconds: m.intervalSeconds, failureThreshold: m.failureThreshold, recoveryThreshold: m.recoveryThreshold, priority: m.priority, responder, autoResolve: m.autoResolve, agentInstructions: m.agentInstructions }}
                     />
                   )}
                 </ActionForm>

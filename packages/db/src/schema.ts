@@ -758,6 +758,13 @@ export const monitors = pgTable(
     responderAgentId: uuid("responder_agent_id").references(() => agents.id, { onDelete: "set null" }),
     responderUserId: uuid("responder_user_id").references(() => users.id, { onDelete: "set null" }),
     autoResolve: boolean("auto_resolve").notNull().default(false),
+    /**
+     * Guidance a person wrote for the agent that responds when this monitor fails, passed on with the incident and
+     * attributed to them. Only people set it (never a webhook, an integration or an agent); it can't widen what the
+     * agent may do.
+     */
+    agentInstructions: text("agent_instructions"),
+    agentInstructionsBy: uuid("agent_instructions_by").references(() => users.id, { onDelete: "set null" }),
     enabled: boolean("enabled").notNull().default(true),
     state: monitorState("state").notNull().default("pending"),
     consecutiveFailures: integer("consecutive_failures").notNull().default(0),
