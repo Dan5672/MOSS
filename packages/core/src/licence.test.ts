@@ -65,6 +65,7 @@ describe("licence keys", () => {
   it("takes an extra public key from the environment (for tests), alongside the built-in ones", () => {
     expect(licencePublicKeys({ MOSS_LICENCE_EXTRA_PUBLIC_KEY: `e2e:${k.pub}` })).toMatchObject({ "moss-2026": expect.any(String), e2e: k.pub });
     expect(Object.keys(licencePublicKeys({ MOSS_LICENCE_EXTRA_PUBLIC_KEY: "not a key" }))).toEqual(["moss-2026"]);
+    expect(licencePublicKeys({ MOSS_LICENCE_EXTRA_PUBLIC_KEY: `moss-2026:${k.pub}` })["moss-2026"]).not.toBe(k.pub);
   });
 
   it("verifies keys made by scripts/licence.mjs", () => {

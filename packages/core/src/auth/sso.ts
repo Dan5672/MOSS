@@ -128,6 +128,15 @@ export function verifyIdToken(token: string, keys: { keys?: JsonWebKey[] }, c: S
   return { provider: "google", id, email, name: str("name"), nonce: str("nonce") };
 }
 
+/** Links a provider account to someone signed in (who proved it with their password). */
+export async function linkSsoAccount(db: Database, orgId: string, userId: string, c: SsoClaims) {
+  const subject = ssoSubject(c);
+  const [other] = await db.select({ id: users.id }).from(users).where(and(eq(users.orgId, orgId), eq(users.oidcSubject, subject)));
+  if (other && other.id !== userId) throw new SsoError(`That ${SSO_NAMES[c.provider]} account is already linked to someone else in MOSS.`);
+  await db.update(users).set({ oidcSubject: subject, updatedAt: new Date() }).where(and(eq(users.id, userId), eq(users.orgId, orgId)));
+  await writeAudit(db, { orgId, actorType: "user", actorId: userId, action: "auth.sso_linked", targetType: "user", targetId: userId, details: { provider: c.provider, email: c.email, subject } });
+}
+
 /** How a person's provider account is remembered on their MOSS user. */
 export function ssoSubject(c: SsoClaims): string {
   return c.provider === "microsoft" ? `microsoft:${c.tenantId}:${c.id}` : `google:${c.id}`;
@@ -156,6 +165,12 @@ export async function ssoUser(db: Database, orgId: string, c: SsoClaims) {
   if (!byEmail) {
     await audit("auth.sso_refused", { reason: "not_invited" });
     throw new SsoError(`${c.email} isn't in MOSS. Ask an admin to add you in Users, then sign in again.`);
+  }
+  // Someone with a MOSS password is never claimed by email alone (a provider's email isn't always verified):
+  // they link their account themselves, signed in, in Settings.
+  if (byEmail.passwordHash) {
+    await audit("auth.sso_refused", { reason: "has_password" }, byEmail.id);
+    throw new SsoError(`Sign in with your MOSS password first, then link your ${SSO_NAMES[c.provider]} account in Settings → General.`);
   }
   const [user] = await db.update(users).set({ oidcSubject: subject, status: "active", updatedAt: new Date() }).where(eq(users.id, byEmail.id)).returning();
   await audit("auth.sso_linked", { subject }, user!.id);

@@ -104,8 +104,12 @@ export async function saveIntegrationConnectionAction(key: string, _: ActionStat
       if (def.credential && f.credential) {
         await storeSecret({ userId: user.id, name: def.credential.secretName, type: def.credential.type, value: f.credential, description: `${def.credential.label} (${def.name} integration)`, allowedTools: def.credential.tools });
       }
-      await save(user, def, { ...config, fields });
-      return f.credential ? "Saved the connection and the credential." : "Saved the connection.";
+      // Pointing sign-in at another directory or app is for whoever manages settings: switch it off until they say.
+      const moved = Object.keys(fields).some((k) => (config.fields[k] ?? "") !== fields[k]);
+      const ssoOff = moved && config.options.ssoEnabled === true;
+      await save(user, def, { ...config, fields, options: ssoOff ? { ...config.options, ssoEnabled: false } : config.options });
+      const saved = f.credential ? "Saved the connection and the credential." : "Saved the connection.";
+      return ssoOff ? `${saved} Signing in with it is off until someone who manages settings switches it back on.` : saved;
     }
     const host = (f.host ?? "").trim();
     if (!IPV4.test(host)) throw new Error(`${def.name}'s address must be an IPv4 address.`);

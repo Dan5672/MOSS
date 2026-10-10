@@ -107,5 +107,8 @@ describe.skipIf(!TEST_DATABASE_URL)("integration calls (gate)", () => {
     reply = { ok: true, result: { devices: [] } };
     expect(await ask()).toMatchObject({ allowed: true, ok: true });
     expect(calls.at(-1)).toEqual({ tool: "tailscale_devices", args: { apiKey: "tskey-api-abc", tailnet: "-", timeoutMs: 10000 } });
+    // System tools (signing in) are never an agent's, even with a grant.
+    await db.insert(agentToolOverrides).values({ agentId: agent!.id, tool: "oidc_exchange", granted: true });
+    expect(await gate.handleToolCall({ agentId: agent!.id, tool: "oidc_exchange", args: {} })).toMatchObject({ allowed: false, code: "unknown_tool" });
   });
 });

@@ -1,8 +1,8 @@
 // Back from Microsoft or Google: check the state, have the gate exchange the code and check the token, check the
 // nonce, then sign in the MOSS user it belongs to (only people already in MOSS).
-import { SSO_NAMES, SsoError, ssoUser, writeAudit, type SsoClaims } from "@moss/core";
+import { linkSsoAccount, SSO_NAMES, SsoError, ssoUser, writeAudit, type SsoClaims } from "@moss/core";
 import { cookies } from "next/headers";
-import { startSession } from "@/server/auth";
+import { getCurrentUser, startSession } from "@/server/auth";
 import { config } from "@/server/config";
 import { db } from "@/server/db";
 import { isSsoProvider, openSsoCookie, requestOrigin, SSO_COOKIE, ssoOrgId } from "@/server/sso";
@@ -41,6 +41,20 @@ export async function GET(req: Request, ctx: RouteContext<"/api/auth/sso/[provid
   if (!body.ok || !body.claims) return back(body.error ?? `${name} sign-in failed.`);
   // The nonce ties the token to this sign-in (an old token can't be replayed).
   if (body.claims.nonce !== saved.nonce) return back("That sign-in token wasn't for this sign-in. Try again.");
+
+  // Linking: to the person who asked, still signed in. No new session.
+  if (saved.linkUserId) {
+    const me = await getCurrentUser();
+    const toSettings = (q: string) => Response.redirect(`${origin}/settings?${q}#sign-in-accounts`, 303);
+    if (!me || me.id !== saved.linkUserId) return toSettings(`sso_error=${encodeURIComponent("Sign in to MOSS again, then link your account.")}`);
+    try {
+      await linkSsoAccount(db(), orgId, me.id, body.claims);
+      return toSettings(`sso_linked=${provider}`);
+    } catch (err) {
+      if (err instanceof SsoError) return toSettings(`sso_error=${encodeURIComponent(err.message)}`);
+      throw err;
+    }
+  }
 
   try {
     const user = await ssoUser(db(), orgId, body.claims);

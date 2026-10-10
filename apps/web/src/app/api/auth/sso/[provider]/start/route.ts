@@ -3,7 +3,8 @@
 import { SSO_NAMES, ssoAuthorizeUrl, ssoAvailable, ssoStart } from "@moss/core";
 import { cookies } from "next/headers";
 import { db } from "@/server/db";
-import { isSsoProvider, requestOrigin, safeNext, sealSsoCookie, SSO_COOKIE, SSO_COOKIE_SECONDS, ssoOrgId, ssoRedirectUri } from "@/server/sso";
+import { getCurrentUser } from "@/server/auth";
+import { isSsoProvider, openSsoCookie, requestOrigin, safeNext, sealSsoCookie, SSO_COOKIE, SSO_COOKIE_SECONDS, SSO_LINK_COOKIE, ssoOrgId, ssoRedirectUri, type SsoLinkIntent } from "@/server/sso";
 
 export async function GET(req: Request, ctx: RouteContext<"/api/auth/sso/[provider]/start">) {
   const { provider } = await ctx.params;
@@ -14,9 +15,20 @@ export async function GET(req: Request, ctx: RouteContext<"/api/auth/sso/[provid
   const setup = orgId ? await ssoAvailable(db(), orgId, provider) : null;
   if (!setup) return back(`Signing in with ${SSO_NAMES[provider]} isn't switched on.`);
 
+  // Linking an account to the person signed in: only with the intent they made by confirming their password.
+  const jar = await cookies();
+  let linkUserId: string | undefined;
+  if (new URL(req.url).searchParams.get("link") === "1") {
+    const intent = openSsoCookie<SsoLinkIntent>(jar.get(SSO_LINK_COOKIE)?.value);
+    jar.delete({ name: SSO_LINK_COOKIE, path: "/api/auth/sso" });
+    const me = await getCurrentUser();
+    if (!intent || !me || intent.userId !== me.id || intent.provider !== provider) return Response.redirect(`${origin}/settings?sso_error=${encodeURIComponent("Linking had expired. Try again.")}`, 303);
+    linkUserId = me.id;
+  }
+
   const s = ssoStart();
   const redirectUri = ssoRedirectUri(origin, provider);
-  (await cookies()).set(SSO_COOKIE, sealSsoCookie({ provider, state: s.state, nonce: s.nonce, verifier: s.verifier, redirectUri, next: safeNext(new URL(req.url).searchParams.get("next")) }), {
+  jar.set(SSO_COOKIE, sealSsoCookie({ provider, state: s.state, nonce: s.nonce, verifier: s.verifier, redirectUri, next: linkUserId ? "/settings" : safeNext(new URL(req.url).searchParams.get("next")), ...(linkUserId ? { linkUserId } : {}) }), {
     httpOnly: true,
     sameSite: "lax",
     secure: origin.startsWith("https:"),

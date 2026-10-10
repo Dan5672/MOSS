@@ -43,7 +43,8 @@ const b64url = (b: Buffer) => b.toString("base64url");
 export function licencePublicKeys(env: Record<string, string | undefined> = process.env): Record<string, string> {
   const extra = env.MOSS_LICENCE_EXTRA_PUBLIC_KEY?.trim();
   const m = extra ? /^([a-z0-9-]{1,40}):([A-Za-z0-9+/=]+)$/.exec(extra) : null;
-  return m ? { ...LICENCE_PUBLIC_KEYS, [m[1]!]: m[2]! } : LICENCE_PUBLIC_KEYS;
+  // It can add a key, never replace a built-in one.
+  return m && !(m[1]! in LICENCE_PUBLIC_KEYS) ? { ...LICENCE_PUBLIC_KEYS, [m[1]!]: m[2]! } : LICENCE_PUBLIC_KEYS;
 }
 
 /** Signs a licence (for scripts/licence.mjs and tests; MOSS itself never holds a private key). */

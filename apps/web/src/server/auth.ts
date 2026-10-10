@@ -3,6 +3,7 @@ import {
   decryptSecret,
   encryptSecret,
   anySsoAvailable,
+  ssoAvailable,
   getPasswordPolicy,
   getSetting,
   mustEnrolTotp,
@@ -46,6 +47,9 @@ export interface CurrentUser {
    * expired password. Every page but the one that does it redirects there.
    */
   blocker: "enrol_totp" | "change_password" | null;
+  /** How and when this session signed in (sensitive steps can ask for a recent sign-in). */
+  session: { method: "password" | "microsoft" | "google"; createdAt: Date };
+  hasPassword: boolean;
 }
 
 /** The pages a blocked person may still use (the one that fixes it). */
@@ -56,11 +60,13 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
   const [row] = await db()
-    .select({ user: users, authMethod: sessions.authMethod })
+    .select({ user: users, authMethod: sessions.authMethod, sessionCreatedAt: sessions.createdAt })
     .from(sessions)
     .innerJoin(users, eq(sessions.userId, users.id))
     .where(and(eq(sessions.tokenHash, hashToken(token)), gt(sessions.expiresAt, new Date())));
   if (!row || row.user.status !== "active") return null;
+  // A Microsoft or Google session ends once signing in that way stops (switched off, licence lapsed).
+  if (row.authMethod !== "password" && !(await ssoAvailable(db(), row.user.orgId, row.authMethod))) return null;
   const [policy, roleRows] = await Promise.all([
     getPasswordPolicy(db(), row.user.orgId),
     db().select({ key: roles.key }).from(userRoles).innerJoin(roles, eq(roles.id, userRoles.roleId)).where(eq(userRoles.userId, row.user.id)),
@@ -74,6 +80,8 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
       : null;
   return {
     blocker,
+    session: { method: row.authMethod, createdAt: row.sessionCreatedAt },
+    hasPassword,
     id: row.user.id,
     orgId: row.user.orgId,
     email: row.user.email,

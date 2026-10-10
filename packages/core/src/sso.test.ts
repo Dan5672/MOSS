@@ -4,7 +4,7 @@ import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { eq } from "drizzle-orm";
 import { createHash, generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ssoAuthorizeUrl, ssoStart, ssoUser, verifyIdToken, type SsoClient } from "./auth/sso.js";
+import { linkSsoAccount, ssoAuthorizeUrl, ssoStart, ssoUser, verifyIdToken, type SsoClient } from "./auth/sso.js";
 import { bootstrapOrg } from "./store/bootstrap.js";
 
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -89,5 +89,16 @@ describe.skipIf(!TEST_DATABASE_URL)("matching people (postgres)", () => {
     await expect(ssoUser(db, orgId, { ...claims, id: "oid-3", email: "gone@acme.test" })).rejects.toThrow(/isn't in MOSS/);
     await db.update(users).set({ status: "disabled" }).where(eq(users.id, ann.id));
     await expect(ssoUser(db, orgId, claims)).rejects.toThrow(/disabled/);
+  });
+
+  it("never claims someone with a password by email: they link their account themselves", async () => {
+    const ownerClaims = { ...verifyIdToken(jwt(msClaims), jwks, ms, now), id: "oid-owner", email: "owner@acme.test" };
+    await expect(ssoUser(db, orgId, ownerClaims)).rejects.toThrow("Sign in with your MOSS password first, then link your Microsoft account in Settings → General.");
+    const [owner] = await db.select().from(users).where(eq(users.email, "owner@acme.test"));
+    expect(owner!.oidcSubject).toBeNull();
+    await linkSsoAccount(db, orgId, owner!.id, ownerClaims);
+    expect((await ssoUser(db, orgId, ownerClaims)).id).toBe(owner!.id);
+    // An account already linked to someone else can't be linked again.
+    await expect(linkSsoAccount(db, orgId, owner!.id, { ...ownerClaims, id: "oid-1" })).rejects.toThrow(/already linked to someone else/);
   });
 });

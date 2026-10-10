@@ -57,6 +57,16 @@ export async function startTotpAction(_: ActionState): Promise<ActionState> {
 export async function confirmTotpAction(_: ActionState, form: FormData): Promise<ActionState> {
   return act(async () => {
     const user = await requireUser({ unblocks: "enrol_totp" });
+    // Two-factor guards sensitive steps (backup downloads), so a stolen session mustn't be able to set its own:
+    // an existing one is never replaced here (turning it off needs the password), and setting one up needs the
+    // password, or for someone without one (they sign in with Microsoft or Google) a sign-in in the last 10 minutes.
+    if (user.totpEnabled) throw new Error("Two-factor is already on. Turn it off first (with your password) to set up a new one.");
+    if (user.hasPassword) {
+      const [row] = await db().select({ hash: users.passwordHash }).from(users).where(eq(users.id, user.id));
+      if (!row?.hash || !(await verifyPassword(String(form.get("password") ?? ""), row.hash))) throw new Error("Incorrect password.");
+    } else if (Date.now() - user.session.createdAt.getTime() > 10 * 60_000) {
+      throw new Error("Sign out and sign in again with Microsoft or Google, then set up two-factor within 10 minutes.");
+    }
     const store = await cookies();
     const secret = store.get(PENDING_TOTP)?.value;
     if (!secret) throw new Error("Enrolment expired; start again.");

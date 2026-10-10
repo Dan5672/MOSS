@@ -214,10 +214,17 @@ the integration's app registration (add a Web platform with the redirect URI). G
 (client ID, client secret stored as secret:google-oauth-secret, usable only for signing in) and the
 Workspace domains allowed; Google only accepts a real domain name in the redirect URI (open MOSS by its Let's
 Encrypt or Tailscale ts.net name, not an IP or .lan). Then "Let people sign in with ...". The sign-in page
-shows the button while the integration is licensed, on and set up. Only people already in Users can sign in:
-matched by email the first time (Microsoft: in your tenant only; Google: a verified email in an allowed
-domain), then by their account id. Nobody new is created; anyone else is refused (audited). The provider
-checks MFA, so MOSS doesn't ask for its own two-factor code, and there's no MOSS password to expire. Adding a
+shows the button while the integration is licensed, on and set up. Only people already in Users can sign in.
+People added without a password (for single sign-on) are matched by email the first time (Microsoft: in your
+tenant only; Google: a verified email in an allowed domain), then by their account id. Anyone with a MOSS
+password is never claimed by email: they link their account in Settings > General > Sign-in accounts,
+confirming their password (and can unlink it there). Nobody new is created; anyone else is refused
+(audited). MOSS doesn't ask for its own two-factor code on these sign-ins: require MFA in Microsoft's or
+Google's sign-in policies (MOSS doesn't check that the provider did). Their sessions end when signing in that
+way stops (switched off, licence lapsed). Setting up MOSS two-factor needs the password, or for someone
+without one, a sign-in in the last 10 minutes; an existing two-factor can only be replaced by turning it off
+with the password first. Changing Microsoft 365's directory or application ID switches sign-in off until
+someone who manages settings switches it back on. Adding a
 person in Users: the password is optional while single sign-on is on. Single sign-on only (on the same
 card): only owners can sign in with a password; everyone else with Microsoft or Google. It applies only
 while a sign-in method works: if the licence lapses or the integration is switched off, passwords work again.
@@ -238,7 +245,8 @@ m365_devices, m365_service_health (skill: Workplace Directory).
 Business, read-only. Settings > Integrations > Google Workspace. Connection: a service account's JSON key
 (secret:google-service-account) with domain-wide delegation in the Admin console (Security > API controls)
 for admin.directory.user.readonly, admin.directory.device.mobile.readonly,
-admin.directory.device.chromeos.readonly and apps.alerts, and an admin's email for it to act as. Features:
+admin.directory.device.chromeos.readonly and apps.alerts (Google has no read-only alerts scope; MOSS only
+reads alerts), and an admin's email for it to act as. Features:
 managed phones, tablets and Chromebooks in the inventory (every 6 hours); security alerts (every 15
 minutes: Alert Center alerts from the last 7 days that aren't closed, as one monitor, down for high
 severity). Agent tools: gworkspace_users, gworkspace_devices, gworkspace_alerts.

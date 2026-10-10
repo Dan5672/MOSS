@@ -1102,6 +1102,11 @@ test("two-factor: enrol, then sign in with a code", async () => {
   const secret = (await page.locator("details code").textContent())!.trim();
   ownerTotpSecret = secret;
   await page.getByLabel("Code").fill(totpCode(secret));
+  // A session alone can't set up two-factor: it takes the password too.
+  await page.getByLabel("Confirm your password").fill("not-my-password");
+  await page.getByRole("button", { name: "Confirm" }).click();
+  await expect(page.getByText("Incorrect password.")).toBeVisible();
+  await page.getByLabel("Confirm your password").fill(OWNER.password);
   await page.getByRole("button", { name: "Confirm" }).click();
   await expect(page.getByText("Two-factor authentication is on for")).toBeVisible();
 
@@ -1462,8 +1467,29 @@ test("business: Microsoft 365 locked without a licence; with one, people in MOSS
   expect(sam!.oidcSubject).toBe(`microsoft:${TENANT}:id-SAM@home.test`);
   await signOut();
 
-  // Single sign-on only: a viewer's password is refused; the owner's still works.
+  // Someone with a password is never claimed by email: they link their account themselves, in Settings.
+  await ssoAs(OWNER.email);
+  await page.getByRole("link", { name: "Sign in with Microsoft" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "password first" })).toContainText("Sign in with your MOSS password first, then link your Microsoft account in Settings → General.");
   await signIn(OWNER.email, OWNER.password, totpCode(ownerTotpSecret));
+  await page.goto("/settings");
+  const accounts = page.locator("#sign-in-accounts");
+  await expect(accounts).toContainText("No account linked yet.");
+  await accounts.getByRole("button", { name: "Link your Microsoft account" }).click();
+  const link = page.getByRole("dialog", { name: "Link your Microsoft account" });
+  await link.getByLabel("Your MOSS password").fill("not-my-password");
+  await link.getByRole("button", { name: "Continue to Microsoft" }).click();
+  await expect(accounts.getByRole("alert")).toContainText("Incorrect password.");
+  await accounts.getByRole("button", { name: "Link your Microsoft account" }).click();
+  await link.getByLabel("Your MOSS password").fill(OWNER.password);
+  await link.getByRole("button", { name: "Continue to Microsoft" }).click();
+  await expect(accounts).toContainText("Linked your Microsoft account. You can sign in with it now.");
+  await expect(accounts).toContainText("Linked to your Microsoft account.");
+  await signOut();
+  await page.getByRole("link", { name: "Sign in with Microsoft" }).click();
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+
+  // Single sign-on only: a viewer's password is refused; the owner's still works.
   await page.goto("/settings/integrations/m365");
   page.once("dialog", (d) => d.accept());
   await page.locator("#sso").getByRole("button", { name: "Switch on single sign-on only" }).click();

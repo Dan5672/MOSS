@@ -8,6 +8,7 @@ import {
   customToolDefinition,
   parseToolArgs,
   renderCustomRequest,
+  SYSTEM_TOOLS,
   toolInputSchema,
   type ConfigBackupFile,
   type CustomToolSpec,
@@ -81,6 +82,8 @@ export function createGate(deps: GateDeps) {
     };
 
     // Built-in tools first; a name that isn't built in may be one of the org's custom tools.
+    // MOSS's own system tools (signing in, Home Assistant notifications) are never an agent's, nor a custom tool's name.
+    if (SYSTEM_TOOLS.has(req.tool)) return deny("unknown_tool", `Unknown tool ${req.tool}`);
     const custom: CustomToolSpec | null = tools.has(req.tool) ? null : await loadCustomTool(deps.db, agent.orgId, req.tool);
     const def = tools.get(req.tool) ?? (custom ? customToolDefinition(custom) : undefined);
     if (!def) return deny("unknown_tool", `Unknown tool ${req.tool}`);

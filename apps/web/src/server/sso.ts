@@ -49,22 +49,31 @@ export interface SsoCookie {
   redirectUri: string;
   /** Where to go after signing in. */
   next: string;
+  /** Linking an account to this signed-in person, rather than signing in. */
+  linkUserId?: string;
+}
+
+/** Someone signed in who proved their password and asked to link their account (good for 2 minutes). */
+export const SSO_LINK_COOKIE = "moss_sso_link";
+export interface SsoLinkIntent {
+  userId: string;
+  provider: SsoProvider;
 }
 
 const mac = (body: string) => createHmac("sha256", config.appKey()).update(`moss-sso:${body}`).digest("base64url");
 
-export function sealSsoCookie(c: SsoCookie): string {
-  const body = Buffer.from(JSON.stringify({ ...c, exp: Date.now() + SSO_COOKIE_SECONDS * 1000 })).toString("base64url");
+export function sealSsoCookie(c: SsoCookie | SsoLinkIntent, seconds = SSO_COOKIE_SECONDS): string {
+  const body = Buffer.from(JSON.stringify({ ...c, exp: Date.now() + seconds * 1000 })).toString("base64url");
   return `${body}.${mac(body)}`;
 }
 
-export function openSsoCookie(value: string | undefined): SsoCookie | null {
+export function openSsoCookie<T = SsoCookie>(value: string | undefined): T | null {
   const [body, sig] = (value ?? "").split(".");
   if (!body || !sig) return null;
   const want = Buffer.from(mac(body));
   const got = Buffer.from(sig);
   if (want.length !== got.length || !timingSafeEqual(want, got)) return null;
-  const c = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as SsoCookie & { exp: number };
+  const c = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as T & { exp: number };
   return c.exp > Date.now() ? c : null;
 }
 

@@ -11,6 +11,7 @@ import { db } from "@/server/db";
 import { confirmTotpAction, disableTotpAction, setMotionAction, setSetupChecklistHiddenAction, startTotpAction, toggleSettingAction } from "./actions";
 import { ConnectChat } from "./chat-connect";
 import { HttpsCard } from "./https-card";
+import { SignInAccounts } from "./sign-in-accounts";
 import { unlinkMyChatAction } from "./integrations/chat/actions";
 
 export const metadata = { title: "Settings" };
@@ -50,8 +51,9 @@ const TOGGLES: { key: SettingKey; title: string; description: string; danger?: b
   },
 ];
 
-export default async function SettingsPage() {
+export default async function SettingsPage({ searchParams }: PageProps<"/settings">) {
   const user = await requireUser({ unblocks: "enrol_totp" });
+  const q = await searchParams;
   const values = Object.fromEntries(await Promise.all(TOGGLES.map(async (t) => [t.key, await getSetting(db(), user.orgId, t.key)] as const)));
   const pendingSecret = (await cookies()).get("moss_totp_pending")?.value;
   const qr = pendingSecret ? await QRCode.toDataURL(totpUri(pendingSecret, user.email), { margin: 1, width: 200 }) : null;
@@ -72,6 +74,7 @@ export default async function SettingsPage() {
       )}
       <div className="grid gap-6 lg:grid-cols-2">
         <HttpsCard orgId={user.orgId} canManage={user.permissions.has("settings.manage")} />
+        <SignInAccounts user={user} linked={typeof q.sso_linked === "string" ? q.sso_linked : undefined} error={typeof q.sso_error === "string" ? q.sso_error.slice(0, 300) : undefined} />
         {(chatOn.length > 0 || myLinks.length > 0) && (
           <Card id="chat-apps">
             <CardHeader>
@@ -173,6 +176,7 @@ export default async function SettingsPage() {
                   <code className="break-all">{pendingSecret}</code>
                 </details>
                 <TextField label="Code" name="code" inputMode="numeric" autoComplete="one-time-code" maxLength={7} required />
+                {user.hasPassword && <TextField label="Confirm your password" name="password" type="password" autoComplete="current-password" required />}
               </ActionForm>
             ) : (
               <ActionForm action={startTotpAction} submitLabel="Set up two-factor" />
