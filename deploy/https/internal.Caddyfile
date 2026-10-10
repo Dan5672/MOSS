@@ -20,6 +20,10 @@
 
 import /etc/caddy/moss.caddy
 
+# A trusted certificate from Let's Encrypt for a public name (Settings → HTTPS), through a Cloudflare DNS challenge:
+# its own site block, written by the web app. None by default.
+import /tls/web/sites/*.caddy
+
 {$MOSS_HTTPS_HOSTS:localhost} {
 	import /tls/web/tls.caddy
 	# The CA certificate, for devices to trust once (it's public; it's what makes the padlock work).

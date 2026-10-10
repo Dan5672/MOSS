@@ -215,7 +215,8 @@ services:
   #   files     your own certificate: deploy/certs/cert.pem (full chain) and key.pem, e.g. from Let's Encrypt
   #             or Tailscale. Restart this service after replacing them.
   https:
-    image: caddy:2-alpine
+    image: moss-https:${MOSS_VERSION:-dev}
+    build: { context: .., dockerfile: deploy/docker/https.Dockerfile }
     profiles: [https]
     restart: unless-stopped
     # /tls/web is shared with the web app (which writes the uploaded certificate and the choice of certificate);
@@ -223,7 +224,7 @@ services:
     command:
       - sh
       - -c
-      - mkdir -p /tls/web && chmod 0777 /tls/web && { [ -f /tls/web/tls.caddy ] || echo "tls internal" > /tls/web/tls.caddy; } && exec caddy run --config "/etc/caddy/${MOSS_TLS:-internal}.Caddyfile" --adapter caddyfile
+      - mkdir -p /tls/web/sites && chmod 0777 /tls/web /tls/web/sites && { [ -f /tls/web/tls.caddy ] || echo "tls internal" > /tls/web/tls.caddy; } && exec caddy run --config "/etc/caddy/${MOSS_TLS:-internal}.Caddyfile" --adapter caddyfile
     environment:
       MOSS_HTTPS_HOSTS: ${MOSS_HTTPS_HOSTS:-localhost}
       # The certificate for clients that connect by IP address (they send no name): usually the LAN IP.

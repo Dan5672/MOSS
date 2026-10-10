@@ -167,6 +167,17 @@ Reaching MOSS over Tailscale (separate from the integration): add tailscale to C
 deploy/.env and set MOSS_TAILSCALE_AUTHKEY to an auth key; a sidecar joins the tailnet as "moss" and serves
 https://moss.<tailnet>.ts.net with a real certificate, with no ports opened.
 
+## The Cloudflare integration
+Settings > Integrations > Cloudflare (a cloud service: MOSS reads api.cloudflare.com). Credential: an API token
+with Zone: Read, DNS: Read and Account: Cloudflare Tunnel: Read (add DNS: Edit only if agents should change
+records), stored as secret:cloudflare-token. Exposure report (every hour): every hostname reachable from the
+internet through Cloudflare (proxied records, records pointing at public addresses, tunnel routes), listed on
+the integration's page; a new one makes the "Cloudflare public hostnames" monitor degraded until it's marked
+as expected there (Mark as expected, or Mark all; Unmark puts it back). Tunnel checks (every 5 minutes): a
+monitor per tunnel, down when it isn't healthy. Agent tools, usable only while the integration is on:
+cloudflare_dns and cloudflare_tunnels, and the change-gated cloudflare_dns_record (create, update or delete
+one A, AAAA, CNAME or TXT record). This token is separate from the one for Let's Encrypt (Settings > HTTPS).
+
 ## The Pi-hole integration
 Settings > Integrations > Pi-hole (v6 or newer). Connection: its address, port (80) and http/https, and an
 app password (Pi-hole: Settings > Web interface / API > Configure app password), stored as
@@ -205,6 +216,13 @@ matches, in date, chain in order, covers at least one of MOSS_HTTPS_HOSTS; uncov
 chain are warnings), then the https service switches to it without a restart. If the service refuses it,
 nothing changes. "Use MOSS's own certificate" switches back and deletes the uploaded key. Moss reminds
 everyone in #general 30 and 7 days before an uploaded certificate runs out. Backups include it.
+Let's Encrypt (with Cloudflare): for a domain on Cloudflare, Settings > HTTPS > Use Let's Encrypt takes a
+public name (e.g. moss.example.com) and a Cloudflare API token ("Edit zone DNS", that zone only). The https
+service (Caddy with the caddy-dns/cloudflare module) proves ownership with a temporary DNS record, gets the
+certificate and renews it itself; nothing is opened to the internet. The name needs a DNS record pointing at
+MOSS's address (a private address is fine; not proxied). Only that name uses it: MOSS_HTTPS_HOSTS keep the
+certificate above. The token is kept in the https service's shared folder, readable only by the web and https
+services. "Stop using Let's Encrypt" removes it and deletes the token.
 MOSS_TLS=files (older option): your own cert.pem (full chain) and key.pem in deploy/certs.
 MOSS_HTTPS_HOSTS lists the names and IPs the certificate covers; a browser warning about the name usually
 means the address used isn't in that list (add it and restart). The Home Assistant integration shows the

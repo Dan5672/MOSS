@@ -1,6 +1,6 @@
 // One story through the UI, in order: a new owner sets MOSS up and runs their IT department.
 import { createChangeRequest, dispatchEvents, encryptSecret, handleIncoming, handleMonitorDown, handleMonitorUp, parseMasterKey, totpCode } from "@moss/core";
-import { agentRuns, agents, configBackups, createDb, monitors, secrets, users, type Database } from "@moss/db";
+import { agentRuns, agents, configBackups, createDb, modules, monitors, secrets, users, type Database } from "@moss/db";
 import { expect, test, type Page } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -1374,6 +1374,57 @@ test("https: upload your own certificate (checked first), then go back to MOSS's
   await expect(card.getByRole("button", { name: "Upload a certificate" })).toBeVisible();
   expect(readFileSync(join(E2E_TLS_DIR, "tls.caddy"), "utf8")).toBe("tls internal\n");
   expect(existsSync(join(E2E_TLS_DIR, "uploaded-key.pem"))).toBe(false);
+
+  // Let's Encrypt through Cloudflare: its own site for the public name; the LAN keeps MOSS's own CA.
+  await card.getByRole("button", { name: "Use Let's Encrypt" }).click();
+  const le = page.getByRole("dialog", { name: "Let's Encrypt through Cloudflare" });
+  await le.getByLabel("Hostname").fill("moss");
+  await le.getByLabel("Cloudflare API token").fill("abcdefghij0123456789ABCDEFGHIJ0123456789");
+  await le.getByRole("button", { name: "Save and get the certificate" }).click();
+  await expect(le.getByRole("alert")).toContainText("The hostname must be a full public name");
+  await le.getByLabel("Hostname").fill("moss.example.com");
+  await le.getByRole("button", { name: "Save and get the certificate" }).click();
+  await expect(page.getByText(/^MOSS is getting a certificate for moss\.example\.com from Let's Encrypt/)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(card).toContainText("MOSS has a trusted certificate from Let's Encrypt for https://moss.example.com");
+  expect(readFileSync(join(E2E_TLS_DIR, "sites", "letsencrypt.caddy"), "utf8")).toMatch(/^moss\.example\.com \{\n\ttls \{\n\t\tdns cloudflare \{file\.\S+cloudflare-token\}/m);
+  expect(readFileSync(join(E2E_TLS_DIR, "cloudflare-token"), "utf8")).toBe("abcdefghij0123456789ABCDEFGHIJ0123456789");
+  expect(readFileSync(join(E2E_TLS_DIR, "tls.caddy"), "utf8")).toBe("tls internal\n");
+
+  page.once("dialog", (d) => d.accept());
+  await card.getByRole("button", { name: "Stop using Let's Encrypt" }).click();
+  await expect(page.getByText(/^Let's Encrypt is off, and the Cloudflare token has been deleted/)).toBeVisible();
+  expect(existsSync(join(E2E_TLS_DIR, "sites", "letsencrypt.caddy"))).toBe(false);
+  expect(existsSync(join(E2E_TLS_DIR, "cloudflare-token"))).toBe(false);
+});
+
+test("integrations: Cloudflare's public hostnames, new ones flagged until marked as expected", async () => {
+  const db = createDb(E2E_DATABASE_URL);
+  const [owner] = await db.select().from(users).where(eq(users.email, OWNER.email));
+  const hostnames = [
+    { name: "blog.example.com", type: "A", content: "198.51.100.4", via: "proxied" },
+    { name: "ha.example.com", type: "CNAME", content: "abc.cfargotunnel.com", via: "tunnel" },
+    { name: "home.example.com", type: "A", content: "203.0.113.7", via: "public address" },
+  ];
+  await db
+    .insert(modules)
+    .values({ orgId: owner!.orgId, key: "cloudflare", config: { options: { acknowledged: ["blog.example.com"] } }, state: { exposure: { at: new Date().toISOString(), hostnames } } });
+  await page.goto("/settings/integrations/cloudflare");
+  await expect(page.getByLabel("Address")).toHaveCount(0);
+  const card = page.locator("#exposure");
+  await expect(card.getByText("2 new")).toBeVisible();
+  const row = (name: string) => card.getByRole("listitem").filter({ hasText: name });
+  await expect(row("blog.example.com")).toContainText("Expected");
+  await expect(row("ha.example.com")).toContainText("Cloudflare Tunnel (CNAME abc.cfargotunnel.com)");
+  await row("ha.example.com").getByRole("button", { name: "Mark as expected" }).click();
+  await expect(page.getByText(/^Marked ha\.example\.com as expected/)).toBeVisible();
+  await expect(card.getByText("1 new")).toBeVisible();
+  await row("home.example.com").getByRole("button", { name: "Mark as expected" }).click();
+  await expect(card.getByText(/\d new/)).toHaveCount(0);
+  await row("blog.example.com").getByRole("button", { name: "Unmark" }).click();
+  await expect(card.getByText("1 new")).toBeVisible();
+  const [m] = await db.select().from(modules).where(eq(modules.key, "cloudflare"));
+  expect((m!.config as { options: { acknowledged: string[] } }).options.acknowledged).toEqual(["ha.example.com", "home.example.com"]);
 });
 
 test("backups: back MOSS up, schedule it, and download one encrypted with a fresh code", async () => {

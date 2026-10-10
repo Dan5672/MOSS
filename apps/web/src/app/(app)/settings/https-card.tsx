@@ -6,18 +6,19 @@ import { FormDialog } from "@/components/form-dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { db } from "@/server/db";
 import { httpsInfo } from "@/server/https-info";
-import { activeCertificate } from "@/server/tls-store";
-import { switchToOwnCaAction, uploadCertificateAction } from "./https-actions";
+import { activeCertificate, letsEncryptHostname } from "@/server/tls-store";
+import { stopLetsEncryptAction, switchToOwnCaAction, uploadCertificateAction, useLetsEncryptAction } from "./https-actions";
 
 /**
  * Whether this connection is HTTPS, how each device trusts MOSS's own certificate authority, and (for
  * people who manage settings) uploading a certificate of your own instead.
  */
 export async function HttpsCard({ orgId, canManage }: { orgId: string; canManage: boolean }) {
-  const [info, h, active, uploaded] = await Promise.all([
+  const [info, h, active, leHost, uploaded] = await Promise.all([
     httpsInfo(),
     headers(),
     activeCertificate(),
+    letsEncryptHostname(),
     getSetting(db(), orgId, "https.certificate") as Promise<{ subject?: string; notAfter?: string; fingerprint?: string }>,
   ]);
   const secure = (h.get("x-forwarded-proto") ?? "").split(",")[0]?.trim() === "https";
@@ -116,6 +117,58 @@ export async function HttpsCard({ orgId, canManage }: { orgId: string; canManage
               <div>
                 <UploadDialog label="Upload a certificate" />
               </div>
+            </div>
+          )}
+        </CardContent>
+      )}
+      {info.mode === "internal" && active && (canManage || leHost) && (
+        <CardContent className="grid gap-3 border-t pt-4 text-sm">
+          <p className="font-medium">Let&apos;s Encrypt (with Cloudflare)</p>
+          {leHost ? (
+            <p>
+              MOSS has a trusted certificate from Let&apos;s Encrypt for <strong>https://{leHost}</strong>, renewed automatically. Its other
+              addresses keep the certificate above.
+            </p>
+          ) : (
+            <p>
+              Own a domain on Cloudflare? MOSS can get a certificate every device already trusts, for a name like moss.example.com, through a DNS
+              challenge: nothing on your network is opened to the internet. The name needs a DNS record pointing at MOSS&apos;s address (a private
+              address is fine; not proxied).
+            </p>
+          )}
+          {canManage && (
+            <div className="flex flex-wrap gap-2">
+              <FormDialog
+                label={leHost ? "Change" : "Use Let's Encrypt"}
+                variant="outline"
+                title="Let's Encrypt through Cloudflare"
+                description="Caddy proves you own the name with a temporary DNS record, then gets and renews the certificate itself. The token is kept on this machine, readable only by the web and HTTPS services."
+              >
+                <ActionForm action={useLetsEncryptAction} submitLabel="Save and get the certificate">
+                  <TextField label="Hostname" name="hostname" defaultValue={leHost ?? ""} placeholder="moss.example.com" required />
+                  <TextField
+                    label="Cloudflare API token"
+                    name="token"
+                    type="password"
+                    autoComplete="off"
+                    required={!leHost}
+                    hint={
+                      <>
+                        Cloudflare: My Profile, API Tokens, Create Token, &quot;Edit zone DNS&quot;, for that one zone only.{leHost ? " Leave empty to keep the stored one." : ""}
+                      </>
+                    }
+                  />
+                </ActionForm>
+              </FormDialog>
+              {leHost && (
+                <ActionForm
+                  action={stopLetsEncryptAction}
+                  submitLabel="Stop using Let's Encrypt"
+                  submitVariant="outline"
+                  confirm={`Stop using Let's Encrypt for ${leHost}? https://${leHost} stops working, and the token is deleted.`}
+                  inline
+                />
+              )}
             </div>
           )}
         </CardContent>

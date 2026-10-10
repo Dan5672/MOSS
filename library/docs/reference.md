@@ -45,15 +45,15 @@ Granted by: Network Discovery.
 
 ## Tool cloudflare_dns
 A network tool (read), run by the toolbox through the policy gate. List the Cloudflare zones the token can see, and each zone's DNS records (type, name, content, proxied). Calls api.cloudflare.com.
-Granted by: no skill (grant it on Agents → Tool access).
+Granted by: Firewall Actions, Home Lab Integrations.
 
 ## Tool cloudflare_dns_record
 A network tool (changes things: only through an approved change), run by the toolbox through the policy gate. Create, update or delete one DNS record in a Cloudflare zone. Only runs as part of an approved change.
-Granted by: no skill (grant it on Agents → Tool access).
+Granted by: Firewall Actions.
 
 ## Tool cloudflare_tunnels
 A network tool (read), run by the toolbox through the policy gate. List the Cloudflare Tunnels, their status and connections, and the public hostnames each serves. Calls api.cloudflare.com.
-Granted by: no skill (grant it on Agents → Tool access).
+Granted by: Home Lab Integrations.
 
 ## Tool config_backup
 A network tool (read), run by the toolbox through the policy gate. Back up a device's configuration into MOSS, encrypted. Sources: 'ssh_file' copies one config file over SSH (under /etc, /opt, /srv, /usr/local/etc, /var/lib or a home directory; at most 512 KB); 'pihole' downloads a Pi-hole (v6) Teleporter export. You get back the backup's id, size and SHA-256, never its contents. Take one before changing a device's config.
@@ -404,8 +404,8 @@ Added per agent. Key device-power. Wake devices with Wake-on-LAN (through change
 Tools: wake_on_lan.
 
 ## Skill Firewall Actions
-Added per agent. Key firewall-actions. Read OPNsense and pfSense, and block or unblock a device on them through an approved change.
-Tools: opnsense_status, pfsense_status, opnsense_block, pfsense_block, inventory_search.
+Added per agent. Key firewall-actions. Read OPNsense and pfSense, and block or unblock a device on them, or change a Cloudflare DNS record, through an approved change.
+Tools: opnsense_status, pfsense_status, opnsense_block, pfsense_block, cloudflare_dns, cloudflare_dns_record, inventory_search.
 
 ## Skill Home & DNS Actions
 Added per agent. Key home-dns-actions. Switch smart plugs and lights, power-cycle a hung device, and change Pi-hole or AdGuard Home blocking and local DNS, through approved changes.
@@ -417,7 +417,7 @@ Tools: homeassistant_health, homeassistant_logs, homeassistant_states, homeassis
 
 ## Skill Home Lab Integrations
 Added per agent. Key homelab-integrations. Read Proxmox (and its Backup Server), TrueNAS, Synology, Home Assistant, Pi-hole and AdGuard Home through their own APIs.
-Tools: tailscale_devices, opnsense_status, pfsense_status, docker_api_containers, proxmox_status, proxmox_inventory, pbs_status, truenas_status, synology_status, homeassistant_states, pihole_summary, pihole_clients, adguard_stats, adguard_clients, inventory_search.
+Tools: tailscale_devices, cloudflare_dns, cloudflare_tunnels, opnsense_status, pfsense_status, docker_api_containers, proxmox_status, proxmox_inventory, pbs_status, truenas_status, synology_status, homeassistant_states, pihole_summary, pihole_clients, adguard_stats, adguard_clients, inventory_search.
 
 ## Skill Incident Management
 Core: built into every agent (except Moss). Key incident-management. Raise, work and resolve incidents.

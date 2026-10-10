@@ -28,6 +28,7 @@ export * from "./integrations/inventory.js";
 export * from "./integrations/health.js";
 export * from "./integrations/run.js";
 export * from "./integrations/ups-shutdown.js";
+export { acknowledgedHostnames, publicHostnames, type CloudflareState, type PublicHostname } from "./integrations/cloudflare.js";
 export * from "./chat-bridge/chat.js";
 export * from "./services/certificates.js";
 export * from "./services/moss-backups.js";

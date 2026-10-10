@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/server/auth";
 import { integrationOrNull, integrationPage } from "@/server/integrations";
+import { CloudflareExposureCard } from "./cloudflare-exposure";
 import { UpsPlanCard } from "./ups-plan";
 import { saveIntegrationConnectionAction, saveIntegrationFeaturesAction, setIntegrationEnabledAction, syncIntegrationFeatureAction, testIntegrationAction } from "./actions";
 
@@ -195,6 +196,7 @@ export default async function IntegrationSettingsPage({ params }: PageProps<"/se
           </CardContent>
         </Card>
 
+        {def.key === "cloudflare" && <CloudflareExposureCard orgId={user.orgId} canManage={user.permissions.has("integrations.manage")} />}
         {def.key === "nut" && <UpsPlanCard orgId={user.orgId} agents={p.agents} canApprove={user.permissions.has("changes.approve")} />}
 
         {def.agentTools.length > 0 && (

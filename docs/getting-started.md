@@ -226,6 +226,9 @@ reading, never changing, and only from an address in an allowed network:
   inventory. To reach MOSS itself from anywhere over Tailscale, add `tailscale` to `COMPOSE_PROFILES`
   in `deploy/.env` and set `MOSS_TAILSCALE_AUTHKEY` to an auth key from the Tailscale admin console:
   MOSS appears at `https://moss.<your-tailnet>.ts.net`, with a real certificate and no open ports.
+- **Cloudflare**: an exposure report of every hostname the internet can reach through Cloudflare, with
+  new ones flagged, and tunnels watched. Own a domain on Cloudflare? Settings → HTTPS → Use Let's Encrypt
+  gives MOSS a certificate every device already trusts, with nothing opened to the internet.
 - **Pi-hole and AdGuard Home**: a warning when blocking is switched off, graphs of your DNS, and device
   names for the inventory.
 

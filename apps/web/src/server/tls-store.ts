@@ -3,7 +3,7 @@
 // Caddy uses), then asks Caddy to load its config again through the admin socket in the same folder. Only
 // these two containers mount it. If Caddy refuses the new config, the previous files are put back.
 import "server-only";
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { request } from "node:http";
 import { join } from "node:path";
 
@@ -80,4 +80,61 @@ export async function switchCertificate(next: { certPem: string; keyPem: string 
     await rm(KEY, { force: true });
     await rm(CERT, { force: true });
   }
+}
+
+// --- Let's Encrypt through a Cloudflare DNS challenge ---------------------------------------------
+// Its own site block in sites/letsencrypt.caddy (imported by internal.Caddyfile), so the public name gets a trusted
+// certificate while the LAN names and addresses keep MOSS's own. Caddy gets and renews the certificate itself, with
+// the Cloudflare token read from a file beside it; nothing listens on the internet.
+const SITES = join(DIR, "sites");
+const LE_SITE = join(SITES, "letsencrypt.caddy");
+const CF_TOKEN = join(DIR, "cloudflare-token");
+
+/** The public name MOSS gets a Let's Encrypt certificate for, if it's set up. */
+export async function letsEncryptHostname(): Promise<string | null> {
+  const site = await readOrNull(LE_SITE);
+  return site?.match(/^(\S+) \{/m)?.[1] ?? null;
+}
+
+/** Whether a Cloudflare token is stored for Let's Encrypt (never its value). */
+export async function letsEncryptHasToken(): Promise<boolean> {
+  return !!(await readOrNull(CF_TOKEN));
+}
+
+const site = (hostname: string) => `# Written by MOSS (Settings → HTTPS). Let's Encrypt for ${hostname}, through a Cloudflare DNS challenge.
+${hostname} {
+	tls {
+		dns cloudflare {file.${CF_TOKEN}}
+		resolvers 1.1.1.1
+	}
+	import moss
+}
+`;
+
+/** Sets up Let's Encrypt for a hostname (a new token, or the stored one), or switches it off; puts the old files back if Caddy refuses. */
+export async function setLetsEncrypt(next: { hostname: string; token?: string } | null): Promise<void> {
+  const caddyfile = await readFile(CADDY_CONFIG, "utf8").catch(() => {
+    throw new Error("This install's HTTPS can't be managed from MOSS (the https service's config isn't shared with the web app).");
+  });
+  if ((await readOrNull(CHOICE)) === null) throw new Error("HTTPS isn't running, so there's nothing to set up.");
+  const before = { site: await readOrNull(LE_SITE), token: await readOrNull(CF_TOKEN) };
+  if (next && !next.token && !before.token) throw new Error("Enter the Cloudflare API token.");
+  try {
+    if (next) {
+      await mkdir(SITES, { recursive: true, mode: 0o755 });
+      if (next.token) await writeAtomic(CF_TOKEN, next.token);
+      await writeAtomic(LE_SITE, site(next.hostname));
+    } else {
+      await rm(LE_SITE, { force: true });
+    }
+    await reloadCaddy(caddyfile);
+  } catch (err) {
+    if (before.site !== null) await writeAtomic(LE_SITE, before.site);
+    else await rm(LE_SITE, { force: true });
+    if (before.token !== null) await writeAtomic(CF_TOKEN, before.token);
+    else await rm(CF_TOKEN, { force: true });
+    throw new Error(`The HTTPS service didn't accept it, so nothing changed. (${err instanceof Error ? err.message : String(err)})`);
+  }
+  // Switched off: the token isn't needed any more.
+  if (!next) await rm(CF_TOKEN, { force: true });
 }
