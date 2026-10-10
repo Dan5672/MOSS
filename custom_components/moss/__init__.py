@@ -21,8 +21,8 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import MossApi, MossError
-from .const import CARD_URL, CONF_TOKEN, CONF_URL, CONF_VERIFY_SSL, DEFAULT_ASSIST_AGENT, DOMAIN
+from .api import MossApi, MossError, ssl_context
+from .const import CARD_URL, CONF_CA_PEM, CONF_TOKEN, CONF_URL, CONF_VERIFY_SSL, DEFAULT_ASSIST_AGENT, DOMAIN
 from .coordinator import MossCoordinator
 
 PLATFORMS = [
@@ -53,7 +53,10 @@ ACK_SCHEMA = vol.Schema({vol.Required("incident_id"): cv.string})
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: MossConfigEntry) -> bool:
-    api = MossApi(async_get_clientsession(hass, verify_ssl=entry.data.get(CONF_VERIFY_SSL, True)), entry.data[CONF_URL], entry.data[CONF_TOKEN], entry.data.get(CONF_VERIFY_SSL, True))
+    ca = entry.data.get(CONF_CA_PEM)
+    context = await hass.async_add_executor_job(ssl_context, ca) if ca else None
+    verify = entry.data.get(CONF_VERIFY_SSL, True)
+    api = MossApi(async_get_clientsession(hass, verify_ssl=verify), entry.data[CONF_URL], entry.data[CONF_TOKEN], verify, context)
     coordinator = MossCoordinator(hass, entry, api)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator

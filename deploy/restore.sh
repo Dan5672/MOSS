@@ -94,4 +94,9 @@ dc exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no
 info "Starting MOSS"
 if $checkout; then dc up -d --build >&2; else dc up -d >&2; fi
 wait_healthy || die "MOSS did not come back healthy. Check: docker compose logs"
+if [ -f "$work/https-pki.tar" ] && dc ps --services 2>/dev/null | grep -qx https; then
+  info "Restoring the HTTPS certificate authority"
+  dc exec -T https sh -c 'rm -rf /data/caddy/pki && tar -C /data -xf -' <"$work/https-pki.tar" && dc restart https >/dev/null 2>&1 ||
+    warn "could not restore the HTTPS certificate authority; devices will need to trust the new one"
+fi
 info "Restore complete"

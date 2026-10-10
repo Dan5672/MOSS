@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import ssl
 from typing import Any
 
 import aiohttp
@@ -16,14 +18,44 @@ class MossAuthError(MossError):
     """The token is wrong or has been revoked."""
 
 
+class MossCertError(MossError):
+    """MOSS's certificate isn't trusted (usually: it's MOSS's own certificate authority)."""
+
+
+def ssl_context(ca_pem: str) -> ssl.SSLContext:
+    """Trusts MOSS's own certificate authority (on top of the usual ones). Blocking: run it in an executor."""
+    return ssl.create_default_context(cadata=ca_pem)
+
+
+def fingerprint(ca_pem: str) -> str:
+    """SHA-256 fingerprint as MOSS shows it in Settings, HTTPS (AA:BB:...)."""
+    digest = hashlib.sha256(ssl.PEM_cert_to_DER_cert(ca_pem)).hexdigest().upper()
+    return ":".join(digest[i : i + 2] for i in range(0, len(digest), 2))
+
+
+async def fetch_ca(session: aiohttp.ClientSession, url: str) -> str:
+    """MOSS's CA certificate, from https://<moss>/moss-ca.crt. It's public; the person checks its fingerprint."""
+    try:
+        async with asyncio.timeout(15):
+            async with session.get(url.rstrip("/") + "/moss-ca.crt", ssl=False) as resp:
+                text = await resp.text()
+    except (aiohttp.ClientError, TimeoutError) as err:
+        raise MossError(f"Can't fetch MOSS's certificate: {err}") from err
+    if resp.status != 200 or "-----BEGIN CERTIFICATE-----" not in text:
+        raise MossError("MOSS didn't offer its certificate")
+    start = text.index("-----BEGIN CERTIFICATE-----")
+    end = text.index("-----END CERTIFICATE-----") + len("-----END CERTIFICATE-----")
+    return text[start:end] + "\n"
+
+
 class MossApi:
     """Talks to one MOSS install with one integration token."""
 
-    def __init__(self, session: aiohttp.ClientSession, url: str, token: str, verify_ssl: bool = True) -> None:
+    def __init__(self, session: aiohttp.ClientSession, url: str, token: str, verify_ssl: bool = True, context: ssl.SSLContext | None = None) -> None:
         self._session = session
         self._base = url.rstrip("/") + "/api/ha/v1/"
         self._token = token
-        self._ssl = None if verify_ssl else False
+        self._ssl: ssl.SSLContext | bool | None = context if context is not None else (None if verify_ssl else False)
 
     async def _request(self, method: str, path: str, *, json: dict[str, Any] | None = None, params: dict[str, str] | None = None) -> Any:
         try:
@@ -42,6 +74,8 @@ class MossApi:
                     if resp.status >= 400:
                         raise MossError((data or {}).get("error", f"MOSS answered HTTP {resp.status}"))
                     return data
+        except aiohttp.ClientConnectorCertificateError as err:
+            raise MossCertError(f"MOSS's certificate isn't trusted: {err}") from err
         except (aiohttp.ClientError, TimeoutError, ValueError) as err:
             raise MossError(f"Can't reach MOSS: {err}") from err
 

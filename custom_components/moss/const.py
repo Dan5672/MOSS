@@ -6,6 +6,8 @@ CONF_URL = "url"
 CONF_TOKEN = "token"
 CONF_VERIFY_SSL = "verify_ssl"
 CONF_ASSIST_AGENT = "assist_agent"
+# MOSS's own certificate authority, trusted after the person checked its fingerprint.
+CONF_CA_PEM = "ca_pem"
 
 DEFAULT_ASSIST_AGENT = "Moss"
 

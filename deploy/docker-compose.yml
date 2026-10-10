@@ -1,5 +1,5 @@
-# MOSS stack. Open the web UI at http://localhost:3000. To reach it from other devices, set
-# MOSS_WEB_BIND=0.0.0.0 in .env; put it behind HTTPS and set MOSS_SECURE_COOKIES=true if you do.
+# MOSS stack. With HTTPS on (the "https" profile, which deploy/init.sh switches on for new installs), open
+# https://<this host>; other devices use that too. Without it, the web UI is http://localhost:3000 only.
 name: moss
 
 services:
@@ -89,9 +89,13 @@ services:
       WEB_TOKEN_FILE: /run/secrets/web_token
       MOSS_APP_KEY_FILE: /run/secrets/app_key
       MOSS_SECURE_COOKIES: ${MOSS_SECURE_COOKIES:-false}
+      # HTTPS mode (empty when off), so Settings can show how to trust MOSS's certificate.
+      MOSS_TLS: ${MOSS_TLS:-}
       # Same zone as the worker, which runs agent schedules in it, so times on screen match.
       TZ: ${TZ:-UTC}
     secrets: [web_token, app_key]
+    # Read-only: the HTTPS certificate authority's public certificate, to show its fingerprint.
+    volumes: ["caddy_data:/caddy:ro"]
     ports:
       - "${MOSS_WEB_BIND:-127.0.0.1}:3000:3000"
     networks: [backend]
@@ -118,6 +122,32 @@ services:
     cap_drop: [ALL]
     cap_add: [NET_RAW, NET_ADMIN]
 
+  # HTTPS in front of the web UI, for every device on your network. MOSS_TLS chooses the certificate:
+  #   internal  MOSS's own certificate authority (default): works offline; each device trusts it once by
+  #             installing https://<host>/moss-ca.crt. MOSS_HTTPS_HOSTS lists the names and IPs it answers to.
+  #   files     your own certificate: deploy/certs/cert.pem (full chain) and key.pem, e.g. from Let's Encrypt
+  #             or Tailscale. Restart this service after replacing them.
+  https:
+    image: caddy:2-alpine
+    profiles: [https]
+    restart: unless-stopped
+    command: ["caddy", "run", "--config", "/etc/caddy/${MOSS_TLS:-internal}.Caddyfile", "--adapter", "caddyfile"]
+    environment:
+      MOSS_HTTPS_HOSTS: ${MOSS_HTTPS_HOSTS:-localhost}
+    ports:
+      - "${MOSS_HTTPS_BIND:-0.0.0.0}:${MOSS_HTTPS_PORT:-443}:8443"
+    volumes:
+      - ./https:/etc/caddy:ro
+      - ./certs:/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [backend]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on: [web]
+
 networks:
   backend: {}
   # Internal: gate <-> toolbox only, no route out.
@@ -134,3 +164,7 @@ secrets:
 
 volumes:
   pgdata:
+  # HTTPS: MOSS's certificate authority and certificates. Back it up with the rest (losing it means every
+  # device has to trust a new CA).
+  caddy_data:
+  caddy_config:

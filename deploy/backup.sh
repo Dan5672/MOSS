@@ -2,6 +2,7 @@
 # Backs up everything needed to rebuild this MOSS install on this or another machine:
 #   - the database (pg_dump, custom format, checked after writing)
 #   - deploy/secrets/ (master key, app key, service tokens) and deploy/.env
+#   - with HTTPS on, MOSS's certificate authority (so devices keep trusting it)
 #   - a manifest: when, which MOSS commit, which database migration
 # The archive contains the master key, so treat it like a password: it is written with
 # owner-only permissions. Keep a copy somewhere other than this machine.
@@ -34,6 +35,10 @@ dc exec -T postgres pg_restore --list <"$work/db.dump" >/dev/null || die "the da
 info "Copying secrets and settings"
 cp -R secrets "$work/secrets"
 cp .env "$work/env"
+# HTTPS: MOSS's own certificate authority, so devices that trust it keep trusting a restored install.
+if dc exec -T https test -d /data/caddy/pki >/dev/null 2>&1; then
+  dc exec -T https tar -C /data -cf - caddy/pki >"$work/https-pki.tar" || warn "could not copy the HTTPS certificate authority"
+fi
 
 migrations=$(psql_moss 'select count(*) from drizzle.__drizzle_migrations' 2>/dev/null || echo unknown)
 commit=$(git_repo rev-parse HEAD 2>/dev/null || echo unknown)

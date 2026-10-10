@@ -1,0 +1,15 @@
+# HTTPS with your own certificate: put cert.pem (the full chain) and key.pem in deploy/certs. Works with
+# Let's Encrypt (from any client or DNS provider), Tailscale (tailscale cert) or a company CA. Caddy reloads
+# nothing by itself: restart the https service after you replace the files.
+{
+	admin off
+	https_port 8443
+	auto_https off
+}
+
+import moss.caddy
+
+:8443 {
+	tls /certs/cert.pem /certs/key.pem
+	import moss
+}

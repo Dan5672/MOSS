@@ -10,19 +10,26 @@
           "verify_ssl": "Verify the TLS certificate"
         },
         "data_description": {
-          "url": "How Home Assistant reaches MOSS, e.g. http://10.0.0.20:3000",
+          "url": "How Home Assistant reaches MOSS, e.g. https://10.0.0.20 (MOSS shows it in Settings, HTTPS)",
           "token": "Starts with moss_ha_. It acts as the person who made it, and can't approve changes or change settings."
         }
       },
       "reauth_confirm": {
         "title": "New MOSS token",
         "description": "The token was revoked or is no longer valid. Make a new one in MOSS and paste it here.",
-        "data": { "token": "Token" }
+        "data": {
+          "token": "Token"
+        }
+      },
+      "trust": {
+        "title": "Trust MOSS's certificate?",
+        "description": "MOSS at {url} uses its own certificate authority. Check this fingerprint matches the one in MOSS (Settings, HTTPS):\n\n`{fingerprint}`\n\nIf it matches, submit: Home Assistant will trust MOSS's certificate from now on. If it doesn't, stop: something else may be answering at that address."
       }
     },
     "error": {
       "cannot_connect": "Can't reach MOSS at that address.",
-      "invalid_auth": "MOSS didn't accept that token."
+      "invalid_auth": "MOSS didn't accept that token.",
+      "cert_untrusted": "MOSS's certificate isn't trusted, and MOSS didn't offer its own. Use MOSS's https address, or untick certificate verification."
     },
     "abort": {
       "already_configured": "This MOSS is already set up.",
@@ -33,14 +40,20 @@
     "step": {
       "init": {
         "title": "MOSS options",
-        "data": { "assist_agent": "Who answers in Assist" }
+        "data": {
+          "assist_agent": "Who answers in Assist"
+        }
       }
     }
   },
   "entity": {
     "sensor": {
       "agent_status": {
-        "state": { "working": "Working", "on_break": "On a break", "paused": "Paused" }
+        "state": {
+          "working": "Working",
+          "on_break": "On a break",
+          "paused": "Paused"
+        }
       }
     }
   },
@@ -49,26 +62,50 @@
       "name": "Raise incident",
       "description": "Raise an incident in MOSS, optionally for an agent to work on.",
       "fields": {
-        "title": { "name": "Title", "description": "What's wrong." },
-        "description": { "name": "Description", "description": "More detail." },
-        "priority": { "name": "Priority", "description": "P1 (critical) to P4 (low)." },
-        "type": { "name": "Type", "description": "break_fix, security or request." },
-        "agent": { "name": "Agent", "description": "The agent to give it to, by name." }
+        "title": {
+          "name": "Title",
+          "description": "What's wrong."
+        },
+        "description": {
+          "name": "Description",
+          "description": "More detail."
+        },
+        "priority": {
+          "name": "Priority",
+          "description": "P1 (critical) to P4 (low)."
+        },
+        "type": {
+          "name": "Type",
+          "description": "break_fix, security or request."
+        },
+        "agent": {
+          "name": "Agent",
+          "description": "The agent to give it to, by name."
+        }
       }
     },
     "ask_agent": {
       "name": "Ask an agent",
       "description": "Ask a MOSS agent a question and get its answer back.",
       "fields": {
-        "agent": { "name": "Agent", "description": "The agent's name. Moss by default." },
-        "question": { "name": "Question", "description": "What to ask." }
+        "agent": {
+          "name": "Agent",
+          "description": "The agent's name. Moss by default."
+        },
+        "question": {
+          "name": "Question",
+          "description": "What to ask."
+        }
       }
     },
     "acknowledge_incident": {
       "name": "Acknowledge incident",
       "description": "Note on an incident that you've seen it.",
       "fields": {
-        "incident_id": { "name": "Incident", "description": "The incident's id (in the Incident event's data)." }
+        "incident_id": {
+          "name": "Incident",
+          "description": "The incident's id (in the Incident event's data)."
+        }
       }
     }
   }
