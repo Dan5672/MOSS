@@ -98,6 +98,10 @@ MOSS assumes the AI can be wrong and that your network can contain hostile data.
 
 ## Quick start
 
+**New to MOSS? Read the [Getting started guide](docs/getting-started.md).** It covers installing,
+HTTPS, first steps, the Home Assistant integration, the security model, and what to consider before
+giving an AI agent access to your devices.
+
 You need Docker with the Compose plugin and `openssl`. A Linux host is recommended. MOSS is
 developed and tested on x86-64; ARM boards such as the Raspberry Pi 5 are a target but not yet tested.
 
@@ -109,7 +113,8 @@ sh deploy/init.sh   # creates deploy/.env, the master key and service tokens
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 ```
 
-Open http://localhost:3000 and follow the setup screen to create the owner account. Then:
+Open the HTTPS address `init.sh` printed (for example https://192.168.1.20) and follow the setup
+screen to create the owner account. Then:
 
 1. **Networks**: add your LAN (for example `192.168.1.0/24`) and mark it **allowed**.
 2. **Models**: add a provider (an API key, or a local Ollama URL) and a model.
@@ -119,12 +124,14 @@ Open http://localhost:3000 and follow the setup screen to create the owner accou
 **Back up `deploy/secrets/master.key`.** Without it, stored secrets can't be decrypted, even from a
 database backup.
 
-### Reaching MOSS from other devices
+### Reaching MOSS from other devices: HTTPS
 
-By default the web UI only listens on `127.0.0.1`. To use it from elsewhere on your network, set
-`MOSS_WEB_BIND=0.0.0.0` in `deploy/.env`. Put it behind an HTTPS reverse proxy, and set
-`MOSS_SECURE_COOKIES=true` once you do. Monitoring tools on other machines that send webhooks
-need to reach it too.
+New installs serve MOSS over HTTPS to your whole network, using MOSS's own certificate authority:
+nothing to buy or expose. Each device trusts it once (Settings → HTTPS has the certificate, its
+fingerprint and per-device steps). To use your own certificate (Let's Encrypt, Tailscale, a company
+CA), put `cert.pem` and `key.pem` in `deploy/certs` and set `MOSS_TLS=files`. The names and
+addresses MOSS answers to are `MOSS_HTTPS_HOSTS` in `deploy/.env`. Without HTTPS
+(`COMPOSE_PROFILES` not set to `https`), MOSS only listens on `http://localhost:3000`.
 
 ### Discovery on your LAN
 

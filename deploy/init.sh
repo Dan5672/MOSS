@@ -18,7 +18,11 @@ if [ ! -f .env ]; then
   name=$(hostname 2>/dev/null | cut -d. -f1)
   hosts="localhost"
   [ -n "$name" ] && hosts="$hosts, $name, $name.local"
-  for ip in $(lan_addresses); do hosts="$hosts, $ip"; done
+  first=""
+  for ip in $(lan_addresses); do
+    hosts="$hosts, $ip"
+    [ -z "$first" ] && first=$ip
+  done
   {
     echo ""
     echo "# HTTPS (added by init.sh). Open https://<one of MOSS_HTTPS_HOSTS>; trust /moss-ca.crt once per device."
@@ -26,6 +30,7 @@ if [ ! -f .env ]; then
     echo "MOSS_SECURE_COOKIES=true"
     echo "MOSS_TLS=internal"
     echo "MOSS_HTTPS_HOSTS=$hosts"
+    echo "MOSS_HTTPS_DEFAULT_NAME=${first:-localhost}"
   } >> .env
   echo "HTTPS is on. MOSS will answer at: $hosts"
 fi

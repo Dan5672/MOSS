@@ -94,8 +94,6 @@ services:
       # Same zone as the worker, which runs agent schedules in it, so times on screen match.
       TZ: ${TZ:-UTC}
     secrets: [web_token, app_key]
-    # Read-only: the HTTPS certificate authority's public certificate, to show its fingerprint.
-    volumes: ["caddy_data:/caddy:ro"]
     ports:
       - "${MOSS_WEB_BIND:-127.0.0.1}:3000:3000"
     networks: [backend]
@@ -134,6 +132,8 @@ services:
     command: ["caddy", "run", "--config", "/etc/caddy/${MOSS_TLS:-internal}.Caddyfile", "--adapter", "caddyfile"]
     environment:
       MOSS_HTTPS_HOSTS: ${MOSS_HTTPS_HOSTS:-localhost}
+      # The certificate for clients that connect by IP address (they send no name): usually the LAN IP.
+      MOSS_HTTPS_DEFAULT_NAME: ${MOSS_HTTPS_DEFAULT_NAME:-localhost}
     ports:
       - "${MOSS_HTTPS_BIND:-0.0.0.0}:${MOSS_HTTPS_PORT:-443}:8443"
     volumes:
@@ -145,6 +145,8 @@ services:
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
+    # The caddy binary carries this file capability; without it in the bounding set it won't start.
+    cap_add: [NET_BIND_SERVICE]
     security_opt: ["no-new-privileges:true"]
     depends_on: [web]
 

@@ -6,6 +6,7 @@ matches what MOSS shows (Settings, HTTPS), the integration trusts that CA, so co
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from typing import Any
 
@@ -16,6 +17,8 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import MossApi, MossAuthError, MossCertError, MossError, fetch_ca, fingerprint, ssl_context
+_LOGGER = logging.getLogger(__name__)
+
 from .const import CONF_ASSIST_AGENT, CONF_CA_PEM, CONF_TOKEN, CONF_URL, CONF_VERIFY_SSL, DEFAULT_ASSIST_AGENT, DOMAIN
 
 
@@ -78,8 +81,12 @@ class MossConfigFlow(ConfigFlow, domain=DOMAIN):
                 await _check(self.hass, p[CONF_URL], p[CONF_TOKEN], True, p[CONF_CA_PEM])
             except MossAuthError:
                 errors["base"] = "invalid_auth"
-            except MossError:
+            except MossCertError as err:
+                _LOGGER.warning("MOSS's certificate still isn't trusted: %s", err)
                 errors["base"] = "cert_untrusted"
+            except MossError as err:
+                _LOGGER.warning("Can't reach MOSS: %s", err)
+                errors["base"] = "cannot_connect"
             else:
                 return self.async_create_entry(title="MOSS", data={**p, CONF_VERIFY_SSL: True})
         return self.async_show_form(

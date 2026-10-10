@@ -5,6 +5,8 @@
 	admin off
 	https_port 8443
 	auto_https disable_redirects
+	# Clients connecting by IP address (https://192.168.1.20) send no server name; they get this one's certificate.
+	default_sni {$MOSS_HTTPS_DEFAULT_NAME:localhost}
 	local_certs
 	skip_install_trust
 	pki {
@@ -27,4 +29,14 @@ import moss.caddy
 		file_server
 	}
 	import moss
+}
+
+# Inside Docker only (not published): the CA certificate for MOSS's web app, which shows its fingerprint.
+http://:8080 {
+	handle /moss-ca.crt {
+		root * /data/caddy/pki/authorities/local
+		rewrite * /root.crt
+		file_server
+	}
+	respond 404
 }

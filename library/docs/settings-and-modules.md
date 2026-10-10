@@ -48,6 +48,15 @@ Home Assistant is refused unless "Let Home Assistant resume agents" is ticked. T
 or revoked token" means make a new token; entities unavailable means Home Assistant can't reach MOSS's
 address (it must be reachable from Home Assistant, e.g. http://<MOSS host IP>:3000).
 
+## HTTPS
+New installs serve MOSS over HTTPS to the whole network (deploy/.env: COMPOSE_PROFILES=https,
+MOSS_SECURE_COOKIES=true). MOSS_TLS=internal (default): MOSS's own certificate authority; each device
+trusts it once by downloading /moss-ca.crt (Settings, HTTPS shows it, its SHA-256 fingerprint and steps for
+Windows, macOS, iOS, Android). MOSS_TLS=files: your own cert.pem (full chain) and key.pem in deploy/certs.
+MOSS_HTTPS_HOSTS lists the names and IPs the certificate covers; a browser warning about the name usually
+means the address used isn't in that list (add it and restart). The Home Assistant integration shows the
+fingerprint at setup and then trusts MOSS's CA. Backups include the CA.
+
 ## Upgrades
 On the host: sh deploy/upgrade.sh (newest release) or sh deploy/upgrade.sh <version>. It backs up, builds
 while the old version keeps running, migrates in one transaction and health-checks.

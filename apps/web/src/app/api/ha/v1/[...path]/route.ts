@@ -220,6 +220,11 @@ async function respond(req: Request, ctx: { params: Promise<{ path: string[] }> 
     return Response.json(await handle(req, path, method), { headers: { "cache-control": "no-store" } });
   } catch (err) {
     if (err instanceof ApiError) return Response.json({ error: err.message }, { status: err.status });
+    // Database and other internal errors stay in MOSS's log; the caller gets a plain message.
+    if (err instanceof Error && (err.message.startsWith("Failed query") || "cause" in err)) {
+      console.error("Home Assistant API error", err);
+      return Response.json({ error: "MOSS hit an internal error. Details are in its log." }, { status: 500 });
+    }
     return Response.json({ error: err instanceof Error ? err.message : "Something went wrong" }, { status: 400 });
   }
 }
