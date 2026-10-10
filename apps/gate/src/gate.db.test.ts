@@ -129,12 +129,16 @@ describe.skipIf(!TEST_DATABASE_URL)("policy gate (postgres)", () => {
   });
 
   it("denies off-limits and unknown networks without touching the toolbox", async () => {
-    for (const target of ["192.168.66.10", "10.9.1.1", "8.8.8.8"]) {
+    for (const target of ["192.168.66.10", "10.9.1.1", "172.16.9.9"]) {
       const res = await gate.handleToolCall({ agentId, tool: "ping", args: { target } });
       expect(res.allowed).toBe(false);
     }
     expect(toolboxCalls).toHaveLength(0);
     expect(await lastAudit()).toMatchObject({ action: "tool.denied", details: expect.objectContaining({ code: "target_not_allowed" }) });
+    // A scanner may not reach a public address; a light check may (below).
+    expect(await gate.handleToolCall({ agentId, tool: "nmap_scan", args: { targets: ["8.8.8.8"], profile: "ping" } })).toMatchObject({ allowed: false });
+    expect(toolboxCalls).toHaveLength(0);
+    expect(await gate.handleToolCall({ agentId, tool: "ping", args: { target: "8.8.8.8" } })).toMatchObject({ allowed: true });
   });
 
   it("rejects unknown tools, ungranted tools and invalid arguments", async () => {

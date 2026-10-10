@@ -68,7 +68,8 @@ describe.skipIf(!TEST_DATABASE_URL)("monitor checks (postgres)", () => {
     expect(res).toMatchObject({ ok: false, policyDenied: true, message: expect.stringMatching(/off-limits network 192\.168\.66\.0\/24/) });
     expect(calls.map((c) => c.tool)).toEqual(["dns_lookup"]); // never probed
 
-    const unknown = await monitor({ name: "Internet", kind: "tcp", target: "8.8.8.8", config: { port: 53 } });
+    // A private address outside the allowed networks is refused (a public one would be allowed).
+    const unknown = await monitor({ name: "Lab box", kind: "tcp", target: "172.16.5.5", config: { port: 22 } });
     expect(await gate.checkMonitor(unknown.id)).toMatchObject({ ok: false, policyDenied: true, message: expect.stringMatching(/not inside an allowed network/) });
 
     const denials = () => db.select().from(auditLog).where(and(eq(auditLog.action, "monitor.check_denied"), eq(auditLog.targetId, unknown.id)));

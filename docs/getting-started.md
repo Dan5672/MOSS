@@ -82,7 +82,8 @@ authenticator app. The **Getting started** checklist on the dashboard walks thro
 
 1. **Allow a network.** Go to **Settings → Networks** and add your home network, for example
    `192.168.1.0/24`, marked **allowed**.
-   - Agents can only touch networks you have allowed.
+   - Agents can only touch networks you have allowed. (Monitors and light checks such as ping or a web
+     check can reach a public internet address without this, so you can watch outside services.)
    - Mark anything they must never touch as **off limits**: a work VPN, a neighbour's network, your
      ISP's equipment.
    - Set the network's **DNS server** (usually your router), so devices are found by name rather

@@ -59,7 +59,7 @@ export default async function NetworksPage() {
     <>
       <PageHeader
         title="Networks"
-        description="Decide which networks your agents may work on. Anything not allowed is off limits: the policy gate refuses it."
+        description="Decide which networks your agents may work on. Anything not allowed is refused by the policy gate. Public internet addresses need no entry for monitors and light checks (ping, TCP, HTTP, TLS); scanning, signing in and changes always need an allowed network."
         actions={
           canManage && (
             <FormDialog label="Add a network" title="Add a network" description="Only add networks you own or are authorised to scan.">

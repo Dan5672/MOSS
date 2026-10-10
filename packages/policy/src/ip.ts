@@ -111,3 +111,26 @@ export function canonicalCidr(input: string): string | null {
   const prefix = bits - (size.toString(2).length - 1);
   return `${formatAddress(range.version, range.start)}/${prefix}`;
 }
+
+/**
+ * Private, internal and special-use addresses: RFC 1918, CGNAT (100.64/10), loopback, link-local, and the
+ * IPv6 equivalents (::1, fc00::/7, fe80::/10). Anything else is a public address on the internet.
+ */
+const PRIVATE_RANGES = [
+  "10.0.0.0/8",
+  "172.16.0.0/12",
+  "192.168.0.0/16",
+  "100.64.0.0/10",
+  "127.0.0.0/8",
+  "169.254.0.0/16",
+  "0.0.0.0/8",
+  "::1/128",
+  "fc00::/7",
+  "fe80::/10",
+  "::/128",
+].map((c) => parseRange(c)!);
+
+/** True if any part of the range is private or special-use (so a range straddling both counts as private). */
+export function isPrivateRange(range: IpRange): boolean {
+  return PRIVATE_RANGES.some((p) => p.version === range.version && overlaps(p, range));
+}

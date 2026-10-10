@@ -66,6 +66,9 @@ describe.skipIf(!TEST_DATABASE_URL)("monitoring (postgres)", () => {
     await expect(createMonitor(db, orgId, { name: "x", kind: "ping", target: "10.0.0.0/8" }, owner())).rejects.toThrow(MonitorValidationError);
     await expect(createMonitor(db, orgId, { name: "x", kind: "ping", target: "a b" }, owner())).rejects.toThrow(/IP address or hostname/);
     await expect(createMonitor(db, orgId, { name: "x", kind: "ping", target: "nas.lan", intervalSeconds: 5 }, owner())).rejects.toThrow(MonitorValidationError);
+    // A public address is checked at most once a minute; a private one can be checked more often.
+    await expect(createMonitor(db, orgId, { name: "x", kind: "ping", target: "1.1.1.1", intervalSeconds: 30 }, owner())).rejects.toThrow(/at most once a minute/);
+    expect(await createMonitor(db, orgId, { name: "x", kind: "ping", target: "192.168.1.1", intervalSeconds: 30 }, owner())).toMatchObject({ intervalSeconds: 30 });
     const ok = await createMonitor(db, orgId, { name: "x", kind: "ping", target: "nas.lan" }, owner());
     expect(ok).toMatchObject({ state: "pending", intervalSeconds: 60, failureThreshold: 3 });
   });

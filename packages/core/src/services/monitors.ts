@@ -17,7 +17,7 @@ import {
   type MonitorConfig,
   type MonitorResultSummary,
 } from "@moss/db";
-import { evaluateMonitorCheck, parseRange } from "@moss/policy";
+import { evaluateMonitorCheck, isPrivateRange, parseRange } from "@moss/policy";
 import { and, asc, desc, eq, gt, inArray, lt, lte, ne, sql } from "drizzle-orm";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
@@ -96,6 +96,11 @@ export const monitorInputSchema = z
       ctx.addIssue({ code: "custom", path: ["target"], message: "A DNS monitor resolves a hostname (or use record type PTR for an IP)" });
     }
     if (m.responderAgentId && m.responderUserId) ctx.addIssue({ code: "custom", path: ["responderUserId"], message: "Choose an agent or a user, not both" });
+    // Services on the internet are someone else's: check them at most once a minute.
+    const range = isHostIp(m.target) ? parseRange(m.target) : null;
+    if (range && !isPrivateRange(range) && m.intervalSeconds < 60) {
+      ctx.addIssue({ code: "custom", path: ["intervalSeconds"], message: "A public address is checked at most once a minute" });
+    }
   });
 
 export type MonitorInput = z.input<typeof monitorInputSchema>;
@@ -144,7 +149,7 @@ function parseInput(input: unknown) {
 export async function monitorTargetWarning(db: Database, orgId: string, target: string): Promise<string | null> {
   if (!isHostIp(target)) return null;
   const rules = await db.select({ cidr: networks.cidr, status: networks.status }).from(networks).where(eq(networks.orgId, orgId));
-  const decision = evaluateMonitorCheck({ tool: "ping", args: { target } }, { name: "ping", class: "read", targetArgs: ["target"] }, rules);
+  const decision = evaluateMonitorCheck({ tool: "ping", args: { target } }, { name: "ping", class: "read", targetArgs: ["target"], publicTargets: true }, rules);
   return decision.allow ? null : decision.reason;
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { evaluate, evaluateMonitorCheck, type PolicyContext, type ToolCall, type ToolManifest } from "./evaluate.js";
-import { contains, parseRange } from "./ip.js";
+import { contains, isPrivateRange, parseRange } from "./ip.js";
 
 const nmap: ToolManifest = { name: "nmap_scan", class: "read", targetArgs: ["targets"] };
 const sshExec: ToolManifest = { name: "ssh_exec", class: "write", targetArgs: ["host"] };
@@ -212,5 +212,33 @@ describe("evaluateMonitorCheck", () => {
     const call = { tool: "ssh_exec", args: { host: "192.168.1.1" } };
     expect(evaluateMonitorCheck(call, sshExec, networks)).toMatchObject({ allow: false, code: "change_required" });
     expect(evaluateMonitorCheck({ tool: "factory_reset", args: { host: "192.168.1.1" } }, wipe, networks)).toMatchObject({ allow: false });
+  });
+});
+
+describe("public addresses", () => {
+  const ping: ToolManifest = { name: "ping", class: "read", targetArgs: ["target"], publicTargets: true };
+  const grants = new Set(["nmap_scan", "ping"]);
+  const call = (tool: string, target: string): ToolCall => ({ tool, args: tool === "nmap_scan" ? { targets: [target] } : { target } });
+
+  it("knows private, internal and special-use ranges", () => {
+    for (const p of ["10.1.2.3", "172.20.0.1", "192.168.0.1", "100.64.1.1", "127.0.0.1", "169.254.1.1", "::1", "fd00::1", "fe80::1"]) {
+      expect(isPrivateRange(parseRange(p)!), p).toBe(true);
+    }
+    for (const p of ["8.8.8.8", "1.1.1.1", "172.32.0.1", "100.128.0.1", "2606:4700::1111"]) expect(isPrivateRange(parseRange(p)!), p).toBe(false);
+    expect(isPrivateRange(parseRange("192.0.0.0/2")!)).toBe(true); // straddles 192.168/16
+  });
+
+  it("lets light checks reach a single public address, but not scanners, ranges or off-limits ones", () => {
+    const c = ctx({}, { toolGrants: grants });
+    expect(evaluate(call("ping", "8.8.8.8"), ping, c)).toMatchObject({ allow: true });
+    expect(evaluate(call("ping", "2606:4700::1111"), ping, c)).toMatchObject({ allow: true });
+    expect(evaluate(call("ping", "8.8.8.0/24"), ping, c)).toMatchObject({ allow: false, code: "target_not_allowed" });
+    expect(evaluate(call("nmap_scan", "8.8.8.8"), nmap, c)).toMatchObject({ allow: false, code: "target_not_allowed" });
+    // Private addresses still need an allowed network, even for light checks.
+    expect(evaluate(call("ping", "192.168.50.5"), ping, c)).toMatchObject({ allow: false, code: "target_not_allowed" });
+    expect(evaluate(call("ping", "172.16.9.9"), ping, c)).toMatchObject({ allow: false, code: "target_not_allowed" });
+    const blocked = ctx({ networks: [{ cidr: "8.8.8.0/24", status: "off_limits" }] }, { toolGrants: grants });
+    expect(evaluate(call("ping", "8.8.8.8"), ping, blocked)).toMatchObject({ allow: false, code: "target_off_limits" });
+    expect(evaluateMonitorCheck(call("ping", "1.1.1.1"), ping, [])).toMatchObject({ allow: true });
   });
 });

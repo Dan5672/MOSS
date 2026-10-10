@@ -19,7 +19,10 @@ A refused call is logged as tool.denied with a code and a reason; the agent sees
 - agent_inactive: the agent is paused or fired.
 - over_budget: the agent hit its hard budget; raise it on the agent's page.
 - tool_not_granted: give the agent the skill, or grant the tool on Agents > Tool access.
-- target_not_allowed: the target isn't in an allowed network; add or allow it on Networks.
+- target_not_allowed: the target isn't in an allowed network; add or allow it on Networks. Exception: monitors and
+  light checks (ping, tcp_connect, http_probe, tls_inspect) may reach a single public (non-private) address
+  without a network entry. Private ranges (RFC 1918, CGNAT 100.64/10, loopback, link-local, IPv6 fc00::/7 and
+  fe80::/10) always need an allowed network, as do scanners, address ranges and anything that signs in.
 - target_off_limits: the network is marked off-limits, on purpose.
 - invalid_target: the target isn't an IP or CIDR (hostnames must be resolved first).
 - change_required: a write tool needs an approved change request.

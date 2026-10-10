@@ -39,7 +39,7 @@ export const arpScan = tool(
 );
 
 export const ping = tool(
-  { name: "ping", class: "read", targetArgs: ["target"] },
+  { name: "ping", class: "read", targetArgs: ["target"], publicTargets: true },
   "Send ICMP echo requests to a single host and report packet loss and round-trip time.",
   z.object({ target: ipOrCidr, count: z.number().int().min(1).max(10).default(3) }),
 );
@@ -81,13 +81,13 @@ const port = z.number().int().min(1).max(65535);
 const timeoutMs = z.number().int().min(500).max(30_000).default(10_000);
 
 export const tcpConnect = tool(
-  { name: "tcp_connect", class: "read", targetArgs: ["target"] },
+  { name: "tcp_connect", class: "read", targetArgs: ["target"], publicTargets: true },
   "Open a TCP connection to one port on a host and report whether it was accepted and how long it took. Sends no data.",
   z.object({ target: hostIp, port, timeoutMs }),
 );
 
 export const httpProbe = tool(
-  { name: "http_probe", class: "read", targetArgs: ["target"] },
+  { name: "http_probe", class: "read", targetArgs: ["target"], publicTargets: true },
   "Make one HTTP(S) request to a host and report the status code, latency and whether an optional keyword appears in the " +
     "first 256 KB of the body. Does not follow redirects. Use hostHeader for virtual hosts (also used as TLS SNI).",
   z.object({
@@ -109,7 +109,7 @@ export const httpProbe = tool(
 );
 
 export const tlsInspect = tool(
-  { name: "tls_inspect", class: "read", targetArgs: ["target"] },
+  { name: "tls_inspect", class: "read", targetArgs: ["target"], publicTargets: true },
   "Fetch the TLS certificate a host presents and report its subject, issuer, names, expiry and whether the chain is trusted.",
   z.object({ target: hostIp, port: port.default(443), servername: hostname.optional(), timeoutMs }),
 );

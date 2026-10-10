@@ -689,6 +689,18 @@ test("monitoring: add checks, and warn about targets outside allowed networks", 
   await page.getByLabel("Target", { exact: true }).fill("8.8.8.8");
   await page.getByLabel("Port", { exact: true }).fill("53");
   await page.getByRole("button", { name: "Add monitor" }).click();
+  // A public address needs no network entry for a monitor.
+  await expect(page.getByRole("heading", { name: "Cloud DNS" })).toBeVisible();
+  await expect(page.getByText("MOSS will not check this target")).toHaveCount(0);
+
+  // A private address outside the allowed networks does.
+  await page.goto("/monitoring");
+  await page.getByRole("button", { name: "Add a monitor" }).click();
+  await page.getByLabel("Name", { exact: true }).fill("Lab box");
+  await page.getByRole("combobox", { name: /^Check type/ }).selectOption("tcp");
+  await page.getByLabel("Target", { exact: true }).fill("172.16.5.5");
+  await page.getByLabel("Port", { exact: true }).fill("22");
+  await page.getByRole("button", { name: "Add monitor" }).click();
   await expect(page.getByText("MOSS will not check this target")).toBeVisible();
   await expect(page.getByText(/not inside an allowed network/)).toBeVisible();
   await page.getByRole("button", { name: "Pause", exact: true }).click();
