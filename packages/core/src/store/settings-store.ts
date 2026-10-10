@@ -19,6 +19,8 @@ export const SETTING_DEFAULTS = {
   "moss.announced_version": "" as string,
   /** The password policy (see auth/password-policy.ts); empty means the defaults. */
   "auth.password_policy": {} as Record<string, unknown>,
+  /** The certificate uploaded in Settings → HTTPS (subject, expiry, fingerprint, reminders sent); empty when MOSS's own CA is in use. */
+  "https.certificate": {} as Record<string, unknown>,
 } satisfies Record<string, unknown>;
 
 export type SettingKey = keyof typeof SETTING_DEFAULTS;
@@ -53,4 +55,6 @@ export const SETTING_DESCRIPTIONS = {
   "moss.announced_version": "The newest version Moss has announced in #general (What's new, from library/docs/changelog.md).",
   "auth.password_policy":
     "The password policy (Settings → Security): minimum length (12 by default), required kinds of character, how many old passwords can't be reused, maximum age, who must use two-factor sign-in, and an optional check against known-breached passwords.",
+  "https.certificate":
+    "The certificate uploaded in Settings → HTTPS, if any: who it's for, when it expires and its fingerprint. Moss reminds everyone in #general 30 and 7 days before it runs out. Empty when MOSS uses its own certificate authority.",
 } satisfies Record<SettingKey, string>;

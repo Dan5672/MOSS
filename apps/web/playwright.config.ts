@@ -1,6 +1,12 @@
 // End-to-end tests: a real browser against `next start`, backed by a fresh test database.
 // Needs MOSS_TEST_DATABASE_URL (the suite uses <db>_web_e2e). Build first: `pnpm build`.
 import { defineConfig, devices } from "@playwright/test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+/** Settings → HTTPS writes here; global-setup stands in for Caddy's admin socket. */
+export const E2E_TLS_DIR = join(tmpdir(), "moss-e2e-tls");
+export const E2E_CADDY_ADMIN = process.platform === "win32" ? "\\\\.\\pipe\\moss-e2e-caddy" : join(E2E_TLS_DIR, "admin.sock");
 
 const base = process.env.MOSS_TEST_DATABASE_URL;
 if (!base) throw new Error("Set MOSS_TEST_DATABASE_URL to run the e2e tests");
@@ -34,6 +40,13 @@ export default defineConfig({
       // Stand-in for the gate's secrets API, started by global-setup.
       GATE_URL: `http://127.0.0.1:${E2E_GATE_PORT}`,
       MOSS_LIBRARY_DIR: "../../library",
+      // HTTPS with MOSS's own CA, as a default install has (the CA itself isn't reachable here).
+      MOSS_TLS: "internal",
+      MOSS_CA_URL: "http://127.0.0.1:9/moss-ca.crt",
+      MOSS_HTTPS_HOSTS: "localhost, moss.test, 10.0.0.5",
+      MOSS_TLS_DIR: E2E_TLS_DIR,
+      MOSS_CADDY_ADMIN: E2E_CADDY_ADMIN,
+      MOSS_CADDY_CONFIG: "../../deploy/https/internal.Caddyfile",
       NEXT_TELEMETRY_DISABLED: "1",
     },
   },

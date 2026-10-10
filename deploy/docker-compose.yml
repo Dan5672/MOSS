@@ -89,11 +89,17 @@ services:
       WEB_TOKEN_FILE: /run/secrets/web_token
       MOSS_APP_KEY_FILE: /run/secrets/app_key
       MOSS_SECURE_COOKIES: ${MOSS_SECURE_COOKIES:-false}
-      # HTTPS mode (empty when off), so Settings can show how to trust MOSS's certificate.
+      # HTTPS mode (empty when off), so Settings can show how to trust MOSS's certificate or upload one.
       MOSS_TLS: ${MOSS_TLS:-}
+      MOSS_HTTPS_HOSTS: ${MOSS_HTTPS_HOSTS:-}
       # Same zone as the worker, which runs agent schedules in it, so times on screen match.
       TZ: ${TZ:-UTC}
     secrets: [web_token, app_key]
+    volumes:
+      # Settings → HTTPS writes an uploaded certificate here for the https service, and reloads it through
+      # the admin socket there with the HTTPS config (read-only).
+      - tls:/tls
+      - ./https:/caddy:ro
     ports:
       - "${MOSS_WEB_BIND:-127.0.0.1}:3000:3000"
     networks: [backend]
@@ -129,7 +135,12 @@ services:
     image: caddy:2-alpine
     profiles: [https]
     restart: unless-stopped
-    command: ["caddy", "run", "--config", "/etc/caddy/${MOSS_TLS:-internal}.Caddyfile", "--adapter", "caddyfile"]
+    # /tls/web is shared with the web app (which writes the uploaded certificate and the choice of certificate);
+    # it starts out as "MOSS's own CA".
+    command:
+      - sh
+      - -c
+      - mkdir -p /tls/web && chmod 0777 /tls/web && { [ -f /tls/web/tls.caddy ] || echo "tls internal" > /tls/web/tls.caddy; } && exec caddy run --config "/etc/caddy/${MOSS_TLS:-internal}.Caddyfile" --adapter caddyfile
     environment:
       MOSS_HTTPS_HOSTS: ${MOSS_HTTPS_HOSTS:-localhost}
       # The certificate for clients that connect by IP address (they send no name): usually the LAN IP.
@@ -141,6 +152,7 @@ services:
       - ./certs:/certs:ro
       - caddy_data:/data
       - caddy_config:/config
+      - tls:/tls
     networks: [backend]
     read_only: true
     tmpfs: [/tmp]
@@ -170,3 +182,5 @@ volumes:
   # device has to trust a new CA).
   caddy_data:
   caddy_config:
+  # A certificate uploaded in Settings → HTTPS, and which certificate Caddy uses.
+  tls:

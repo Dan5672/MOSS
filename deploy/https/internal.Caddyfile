@@ -1,8 +1,10 @@
-# HTTPS with MOSS's own certificate authority (the default). Caddy creates a private CA the first time it
-# starts and issues certificates from it for the names and addresses in MOSS_HTTPS_HOSTS. Devices trust it
-# once by installing the CA certificate, served at /moss-ca.crt. Nothing is sent to the internet.
+# HTTPS managed from MOSS (the default). Either MOSS's own certificate authority (Caddy creates a private
+# CA the first time it starts and issues certificates for the names and addresses in MOSS_HTTPS_HOSTS;
+# devices trust it once via /moss-ca.crt), or a certificate uploaded in Settings → HTTPS. Which one is in
+# /tls/web/tls.caddy, written by the web app; it restarts Caddy through the admin socket beside it, which
+# only the web app and Caddy can reach. Nothing is sent to the internet.
 {
-	admin off
+	admin "unix//tls/web/admin.sock|0666"
 	https_port 8443
 	auto_https disable_redirects
 	# Clients connecting by IP address (https://192.168.1.20) send no server name; they get this one's certificate.
@@ -16,10 +18,10 @@
 	}
 }
 
-import moss.caddy
+import /etc/caddy/moss.caddy
 
 {$MOSS_HTTPS_HOSTS:localhost} {
-	tls internal
+	import /tls/web/tls.caddy
 	# The CA certificate, for devices to trust once (it's public; it's what makes the padlock work).
 	handle /moss-ca.crt {
 		root * /data/caddy/pki/authorities/local

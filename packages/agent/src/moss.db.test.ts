@@ -1,6 +1,6 @@
 // Moss: hired automatically once there's a model, can't be fired, answers from the docs and the config,
 // and other agents consult it with ask_moss.
-import { bootstrapOrg, getConversation, listConversations, writeAudit } from "@moss/core";
+import { bootstrapOrg, getConversation, listConversations, writeAudit, setSetting } from "@moss/core";
 import { agents, agentSkills, models, orgs, providers, skills, users, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { eq } from "drizzle-orm";
@@ -13,6 +13,7 @@ import { loadDocs, searchDocs } from "./moss-tools.js";
 import { PLATFORM_TOOL_MAP } from "./platform-tools.js";
 import { welcomeFromMoss } from "./welcome.js";
 import { announceWhatsNew, latestChanges } from "./whats-new.js";
+import { remindCertificateExpiry } from "./certificate-reminders.js";
 
 const LIBRARY_DIR = fileURLToPath(new URL("../../../library", import.meta.url));
 
@@ -108,5 +109,20 @@ describe.skipIf(!TEST_DATABASE_URL)("Moss (postgres)", () => {
     const msgs = (await getConversation(db, orgId, general.id, ownerId)).messages;
     expect(msgs.at(-1)!.body).toBe(["**What's new in MOSS 0.4.0**", "", "- Charts.", "", "Ask me about any of it."].join("\n"));
     expect(await announceWhatsNew(db, orgId, next)).toBeNull();
+  });
+
+  it("reminds about an uploaded certificate 30 and 7 days before it runs out, once each", async () => {
+    expect(await remindCertificateExpiry(db, orgId)).toBeNull(); // nothing uploaded
+    const notAfter = new Date("2030-02-01T00:00:00Z");
+    await setSetting(db, orgId, "https.certificate", { subject: "CN=moss.home", notAfter: notAfter.toISOString(), fingerprint: "AB:CD", reminded: [] });
+    expect(await remindCertificateExpiry(db, orgId, new Date("2029-12-01"))).toBeNull();
+    expect(await remindCertificateExpiry(db, orgId, new Date("2030-01-05"))).toBe(30);
+    expect(await remindCertificateExpiry(db, orgId, new Date("2030-01-06"))).toBeNull();
+    expect(await remindCertificateExpiry(db, orgId, new Date("2030-01-29"))).toBe(7);
+    expect(await remindCertificateExpiry(db, orgId, new Date("2030-01-31"))).toBeNull();
+    const general = (await listConversations(db, orgId, ownerId)).find((c) => c.title === "#general")!;
+    const last = (await getConversation(db, orgId, general.id, ownerId)).messages.at(-1)!.body;
+    expect(last.startsWith("**MOSS's HTTPS certificate runs out in 3 days**")).toBe(true);
+    expect(last).toContain("CN=moss.home");
   });
 });

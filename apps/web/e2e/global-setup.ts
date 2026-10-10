@@ -4,7 +4,9 @@ import { parseMasterKey } from "@moss/core";
 import { createDb } from "@moss/db";
 import { createTestDb } from "@moss/db/testing";
 import { createServer } from "node:http";
-import { E2E_DATABASE_URL, E2E_GATE_PORT, E2E_MASTER_KEY_HEX, E2E_WEB_TOKEN } from "../playwright.config";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { E2E_CADDY_ADMIN, E2E_DATABASE_URL, E2E_GATE_PORT, E2E_MASTER_KEY_HEX, E2E_TLS_DIR, E2E_WEB_TOKEN } from "../playwright.config";
 
 interface GateBackupsApi {
   readBackup(db: ReturnType<typeof createDb>, masterKey: Buffer, id: string, userId: string): Promise<{ filename: string; contentType: string; content: Buffer } | null>;
@@ -79,7 +81,20 @@ export default async function globalSetup() {
     });
   });
   await new Promise<void>((resolve) => server.listen(E2E_GATE_PORT, "127.0.0.1", resolve));
+
+  // Stand-in for the https service: the shared folder starting on MOSS's own CA, and an admin socket that
+  // accepts a config load (the real Caddy's behaviour is tested against Caddy itself).
+  rmSync(E2E_TLS_DIR, { recursive: true, force: true });
+  mkdirSync(E2E_TLS_DIR, { recursive: true });
+  writeFileSync(join(E2E_TLS_DIR, "tls.caddy"), "tls internal\n");
+  if (process.platform !== "win32") rmSync(E2E_CADDY_ADMIN, { force: true });
+  const caddy = createServer((req, res) => {
+    req.resume();
+    req.on("end", () => res.writeHead(req.method === "POST" && req.url === "/load" ? 200 : 404).end());
+  });
+  await new Promise<void>((resolve) => caddy.listen(E2E_CADDY_ADMIN, resolve));
   return async () => {
+    caddy.close();
     server.close();
     await db.$client.end();
   };

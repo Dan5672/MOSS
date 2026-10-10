@@ -39,6 +39,10 @@ cp .env "$work/env"
 if dc exec -T https test -d /data/caddy/pki >/dev/null 2>&1; then
   dc exec -T https tar -C /data -cf - caddy/pki >"$work/https-pki.tar" || warn "could not copy the HTTPS certificate authority"
 fi
+# A certificate uploaded in Settings → HTTPS, and which certificate is in use.
+if dc exec -T https test -f /tls/web/tls.caddy >/dev/null 2>&1; then
+  dc exec -T https tar -C /tls -cf - --exclude web/admin.sock web >"$work/https-tls.tar" || warn "could not copy the uploaded HTTPS certificate"
+fi
 
 migrations=$(psql_moss 'select count(*) from drizzle.__drizzle_migrations' 2>/dev/null || echo unknown)
 commit=$(git_repo rev-parse HEAD 2>/dev/null || echo unknown)

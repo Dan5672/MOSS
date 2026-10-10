@@ -17,6 +17,7 @@ import {
   ensureCoreSkills,
   welcomeFromMoss,
   announceWhatsNew,
+  remindCertificateExpiry,
   type ClaudeCodeConfig,
   type GateClient,
   type ProviderFactory,
@@ -308,6 +309,9 @@ export async function startWorker(cfg: WorkerConfig) {
           const v = await announceWhatsNew(db, org.id, changelog);
           if (v) log("Moss announced what's new", { orgId: org.id, version: v });
         }
+        // An uploaded HTTPS certificate: reminders 30 and 7 days before it runs out.
+        const due = await remindCertificateExpiry(db, org.id);
+        if (due) log("Moss reminded about the HTTPS certificate", { orgId: org.id, daysAhead: due });
       }
       const res = await syncSchedules(db, boss);
       if (res.added || res.removed) log("schedules synced", res);

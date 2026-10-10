@@ -99,4 +99,9 @@ if [ -f "$work/https-pki.tar" ] && dc ps --services 2>/dev/null | grep -qx https
   dc exec -T https sh -c 'rm -rf /data/caddy/pki && tar -C /data -xf -' <"$work/https-pki.tar" && dc restart https >/dev/null 2>&1 ||
     warn "could not restore the HTTPS certificate authority; devices will need to trust the new one"
 fi
+if [ -f "$work/https-tls.tar" ] && dc ps --services 2>/dev/null | grep -qx https; then
+  info "Restoring the uploaded HTTPS certificate"
+  dc exec -T https sh -c 'tar -C /tls -xf - && chmod 0777 /tls/web' <"$work/https-tls.tar" && dc restart https >/dev/null 2>&1 ||
+    warn "could not restore the uploaded HTTPS certificate; MOSS uses its own until you upload it again"
+fi
 info "Restore complete"

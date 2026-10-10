@@ -4,7 +4,9 @@ import { agentRuns, agents, configBackups, createDb, type Database } from "@moss
 import { expect, test, type Page } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import { E2E_DATABASE_URL, E2E_MASTER_KEY_HEX } from "../playwright.config";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { E2E_DATABASE_URL, E2E_MASTER_KEY_HEX, E2E_TLS_DIR } from "../playwright.config";
 
 test.describe.configure({ mode: "serial" });
 
@@ -1136,6 +1138,33 @@ test("security: change your password; the policy refuses weak ones and can requi
   await policy.getByLabel("Two-factor sign-in").selectOption("none");
   await policy.getByRole("button", { name: "Save policy" }).click();
   await expect(page.getByText(/^Password policy saved/)).toBeVisible();
+});
+
+test("https: upload your own certificate (checked first), then go back to MOSS's own", async () => {
+  const fixture = (name: string) => `../../packages/core/src/fixtures/tls/${name}`;
+  await page.goto("/settings");
+  const card = page.locator("#https");
+  await card.getByRole("button", { name: "Upload a certificate" }).click();
+  const upload = page.getByRole("dialog", { name: "Use your own certificate" });
+  await upload.getByLabel("Certificate").setInputFiles(fixture("server.crt"));
+  await upload.getByLabel("Private key").setInputFiles(fixture("other.key"));
+  await upload.getByRole("button", { name: "Check and use" }).click();
+  await expect(upload.getByRole("alert")).toContainText("The private key doesn't belong to this certificate");
+  expect(readFileSync(join(E2E_TLS_DIR, "tls.caddy"), "utf8")).toBe("tls internal\n");
+
+  await upload.getByLabel("Private key").setInputFiles(fixture("server.key"));
+  await upload.getByRole("button", { name: "Check and use" }).click();
+  await expect(page.getByText(/^MOSS now uses your certificate\. Only the server's certificate was uploaded/)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(card).toContainText("MOSS uses a certificate you uploaded for CN=moss.test");
+  expect(readFileSync(join(E2E_TLS_DIR, "tls.caddy"), "utf8")).toMatch(/^tls \S+uploaded-cert\.pem \S+uploaded-key\.pem/);
+
+  page.once("dialog", (d) => d.accept());
+  await card.getByRole("button", { name: "Use MOSS's own certificate" }).click();
+  await expect(page.getByText(/^MOSS is back on its own certificate authority/)).toBeVisible();
+  await expect(card.getByRole("button", { name: "Upload a certificate" })).toBeVisible();
+  expect(readFileSync(join(E2E_TLS_DIR, "tls.caddy"), "utf8")).toBe("tls internal\n");
+  expect(existsSync(join(E2E_TLS_DIR, "uploaded-key.pem"))).toBe(false);
 });
 
 test("audit: the log is intact after all of that", async () => {

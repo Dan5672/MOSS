@@ -1,6 +1,15 @@
 # What's new
 Newest first. After an upgrade, Moss posts the newest section in #general.
 
+## 0.3.0
+- **Public addresses**: monitors and read-only checks (ping, TCP, HTTP, TLS, DNS) can reach a single
+  public address without adding a network. Scanners and anything that signs in still need one.
+- **Passwords**: change your own in Settings → Security. Admins set the password policy there: length,
+  kinds of character, no reusing old ones, maximum age, required two-factor, and a breached-password
+  check.
+- **Your own HTTPS certificate**: upload it in Settings → HTTPS. It's checked before use, switches over
+  without a restart, and Moss reminds everyone before it runs out.
+
 ## 0.2.0
 - **Moss**, the MOSS expert, is on every install and welcomes each person with a quick tour. Ask it
   anything about how MOSS works.

@@ -63,7 +63,13 @@ People who sign in with SSO have no MOSS password and are left out.
 New installs serve MOSS over HTTPS to the whole network (deploy/.env: COMPOSE_PROFILES=https,
 MOSS_SECURE_COOKIES=true). MOSS_TLS=internal (default): MOSS's own certificate authority; each device
 trusts it once by downloading /moss-ca.crt (Settings, HTTPS shows it, its SHA-256 fingerprint and steps for
-Windows, macOS, iOS, Android). MOSS_TLS=files: your own cert.pem (full chain) and key.pem in deploy/certs.
+Windows, macOS, iOS, Android). With settings.manage you can upload your own certificate there instead (PEM:
+the full chain and an unencrypted key; a .pfx converts with openssl pkcs12 -nodes). It's checked first (key
+matches, in date, chain in order, covers at least one of MOSS_HTTPS_HOSTS; uncovered names and a missing
+chain are warnings), then the https service switches to it without a restart. If the service refuses it,
+nothing changes. "Use MOSS's own certificate" switches back and deletes the uploaded key. Moss reminds
+everyone in #general 30 and 7 days before an uploaded certificate runs out. Backups include it.
+MOSS_TLS=files (older option): your own cert.pem (full chain) and key.pem in deploy/certs.
 MOSS_HTTPS_HOSTS lists the names and IPs the certificate covers; a browser warning about the name usually
 means the address used isn't in that list (add it and restart). The Home Assistant integration shows the
 fingerprint at setup and then trusts MOSS's CA. Backups include the CA.

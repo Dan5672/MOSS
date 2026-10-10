@@ -64,7 +64,7 @@ export default async function SettingsPage() {
         </Alert>
       )}
       <div className="grid gap-6 lg:grid-cols-2">
-        <HttpsCard />
+        <HttpsCard orgId={user.orgId} canManage={user.permissions.has("settings.manage")} />
         <Card>
           <CardHeader>
             <CardTitle>Display</CardTitle>

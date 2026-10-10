@@ -62,11 +62,13 @@ connection isn't trusted. To fix that once per device:
 After that, there are no more warnings on that device.
 
 **Already have a certificate?** If you have a domain with a Let's Encrypt certificate, a Tailscale
-certificate (`tailscale cert`) or a company certificate authority:
+certificate (`tailscale cert`) or a company certificate authority, upload it in **Settings → HTTPS**:
+the full chain and the private key, as PEM files. MOSS checks them before switching (the key matches,
+the certificate is in date and covers MOSS's names), and switches back to its own certificate with
+one button. Moss reminds everyone 30 and 7 days before an uploaded certificate runs out.
 
-1. Put `cert.pem` (the full chain) and `key.pem` in `deploy/certs/`.
-2. Set `MOSS_TLS=files` in `deploy/.env`.
-3. Restart MOSS.
+You can also put `cert.pem` (the full chain) and `key.pem` in `deploy/certs/`, set
+`MOSS_TLS=files` in `deploy/.env` and restart MOSS. Renewals are then up to you.
 
 **Names and addresses.** MOSS's certificate covers the names in `MOSS_HTTPS_HOSTS` in
 `deploy/.env`. If you reach MOSS by another name or address, add it there and restart.
