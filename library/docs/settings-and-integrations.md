@@ -206,6 +206,16 @@ password has expired is sent to Settings > Security. Requiring two-factor needs 
 policy first, so they can't lock themselves out, and it can't then be turned off by someone it applies to.
 People who sign in with SSO have no MOSS password and are left out.
 
+## The PagerDuty integration
+Business (needs a licence covering PagerDuty). Settings > Integrations > PagerDuty. Connection: an Events API
+V2 integration key from the PagerDuty service that should be paged (secret:pagerduty-routing-key; it can only
+send events to that service). Test connection sends a change event (on the service's timeline; it pages
+nobody). Once on, every new MOSS incident from P1 up to the chosen priority (P2 by default) pages the on-call
+person, keyed by the MOSS incident so the two stay matched, and the page is resolved when the MOSS incident
+is. The incident notes "Paged the on-call person in PagerDuty", or why paging failed. Optional: a read-only
+REST API key (secret:pagerduty-api-key) and the Acknowledgements feature (every 2 minutes) note on the MOSS
+incident who acknowledged or resolved its page. Agents can't page anyone directly.
+
 ## The Slack integration
 Business (needs a licence covering Slack). Settings > Integrations > Slack: the same as Telegram and Discord
 (alerts, Approve and Reject buttons, and agents to talk to, in direct messages with the MOSS app), through a

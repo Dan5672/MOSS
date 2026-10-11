@@ -49,6 +49,10 @@ export interface IntegrationOp {
   tool: string;
   /** Extra arguments for this operation, from the config. */
   args?: (c: IntegrationConfig) => Record<string, unknown>;
+  /** Arguments the caller (the worker) may give, by name; nothing else it sends is used. */
+  callerArgs?: string[];
+  /** A different stored secret for this operation, instead of the integration's credential (PagerDuty's REST key). */
+  secret?: { name: string; arg: string; label: string };
 }
 
 export interface IntegrationDef {

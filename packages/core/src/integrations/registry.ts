@@ -8,10 +8,11 @@ import { NUT } from "./nut.js";
 import { TAILSCALE } from "./tailscale.js";
 import { GOOGLE_WORKSPACE } from "./google-workspace.js";
 import { M365 } from "./m365.js";
+import { PAGERDUTY } from "./pagerduty.js";
 import { PROXMOX, PROXMOX_BACKUP } from "./proxmox.js";
 import type { IntegrationDef } from "./types.js";
 
-export const INTEGRATIONS: IntegrationDef[] = [PROXMOX, PROXMOX_BACKUP, DOCKER, OPNSENSE, PFSENSE, NUT, TAILSCALE, CLOUDFLARE, PIHOLE, ADGUARD, M365, GOOGLE_WORKSPACE];
+export const INTEGRATIONS: IntegrationDef[] = [PROXMOX, PROXMOX_BACKUP, DOCKER, OPNSENSE, PFSENSE, NUT, TAILSCALE, CLOUDFLARE, PIHOLE, ADGUARD, M365, GOOGLE_WORKSPACE, PAGERDUTY];
 
 export function getIntegration(key: string): IntegrationDef | null {
   return INTEGRATIONS.find((d) => d.key === key) ?? null;

@@ -40,9 +40,20 @@ export async function runIntegrationOp(
     if (manual && !feature) return { ok: false, error: "Unknown feature" };
   }
   if (!integrationConfigured(def, config)) return { ok: false, error: `Set ${def.name}'s address first` };
-  const secret = def.credential ? { name: def.credential.secretName, arg: def.credential.arg, optional: def.credential.optional } : undefined;
+  // An operation may use its own secret instead of the integration's credential.
+  const secret = op.secret ? { name: op.secret.name, arg: op.secret.arg } : def.credential ? { name: def.credential.secretName, arg: def.credential.arg, optional: def.credential.optional } : undefined;
+  const baseArgs = (at?: { host: string; port: number }) => {
+    const a = integrationArgs(def, config, at);
+    if (op.secret && def.credential) {
+      delete a[def.credential.arg];
+      a[op.secret.arg] = `secret:${op.secret.name}`;
+    }
+    return a;
+  };
+  // Only the arguments this operation lets a caller give (never an address or a credential).
+  const callerArgs = Object.fromEntries(Object.entries(req.args ?? {}).filter(([k]) => op.callerArgs?.includes(k)));
   const one = (at?: { host: string; port: number }) =>
-    systemToolCall(deps, { orgId: req.orgId, tool: op.tool, args: { ...integrationArgs(def, config, at), ...op.args?.(config), ...req.args }, secret, label: def.name });
+    systemToolCall(deps, { orgId: req.orgId, tool: op.tool, args: { ...baseArgs(at), ...op.args?.(config), ...callerArgs }, secret, label: op.secret ? `${def.name} (${op.secret.label})` : def.name });
 
   // Several hosts: each in turn; the feature gets every host's answer (or error).
   if (def.connection.multipleHosts) {

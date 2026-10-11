@@ -11,6 +11,7 @@ import { dockerApiContainers } from "./docker-api.js";
 import { gworkspaceAlerts, gworkspaceDevices, gworkspaceUsers } from "./google.js";
 import { m365Devices, m365ServiceHealth, m365Users } from "./microsoft.js";
 import { oidcExchange, oidcKeys } from "./oidc.js";
+import { pagerdutyChange, pagerdutyEvent, pagerdutyIncidents } from "./pagerduty.js";
 import { nutStatus } from "./nut.js";
 import { opnsenseBlock, opnsenseStatus, pfsenseBlock, pfsenseStatus } from "./firewalls.js";
 import { adguardClients, adguardStats, HomelabError, homeassistantStates, pbsStatus, piholeClients, piholeSummary, proxmoxInventory, proxmoxStatus, synologyStatus, truenasStatus } from "./homelab.js";
@@ -297,6 +298,12 @@ async function runToolInner(
       return gworkspaceDevices(args as never);
     case "gworkspace_alerts":
       return gworkspaceAlerts(args as never);
+    case "pagerduty_event":
+      return pagerdutyEvent(args as never);
+    case "pagerduty_change":
+      return pagerdutyChange(args as never);
+    case "pagerduty_incidents":
+      return pagerdutyIncidents(args as never);
     case "oidc_exchange":
       return oidcExchange(args as never);
     case "oidc_keys":

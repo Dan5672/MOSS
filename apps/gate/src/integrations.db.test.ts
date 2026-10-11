@@ -60,6 +60,9 @@ describe.skipIf(!TEST_DATABASE_URL)("integration calls (gate)", () => {
     const [audit] = await db.select().from(auditLog).orderBy(desc(auditLog.id)).limit(1);
     expect(audit).toMatchObject({ action: "module.call", targetId: "pihole", details: { op: "sync:inventory", args: { password: "secret:pihole-password" } } });
     expect(await gate.integration({ orgId, key: "nope", op: "test" })).toEqual({ ok: false, error: "Unknown integration" });
+    // A caller can't point a call elsewhere or swap its credential: only arguments the operation lists are used.
+    await gate.integration({ orgId, key: "pihole", op: "summary", args: { target: "192.168.66.6", password: "secret:other" } });
+    expect(calls.at(-1)!.args).toMatchObject({ target: "192.168.1.14", password: PASSWORD });
   });
 
   it("applies the network policy and the credential's own scope, and never returns the password", async () => {

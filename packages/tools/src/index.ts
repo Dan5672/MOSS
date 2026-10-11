@@ -968,6 +968,37 @@ export const homeassistantPublish = tool(
   }),
 );
 
+// PagerDuty: MOSS paging the on-call person for its incidents (never agents).
+const pdRoutingKey = secretHandle.describe("The service's Events API V2 integration key, stored as a secret");
+
+export const pagerdutyEvent = tool(
+  { name: "pagerduty_event", class: "read", targetArgs: [], secretArgs: ["routingKey"] },
+  "Trigger or resolve a PagerDuty alert for a MOSS incident.",
+  z
+    .object({
+      routingKey: pdRoutingKey,
+      action: z.enum(["trigger", "acknowledge", "resolve"]),
+      dedupKey: z.uuid(),
+      summary: z.string().min(1).max(1024).optional(),
+      severity: z.enum(["critical", "error", "warning", "info"]).default("error"),
+      source: z.string().min(1).max(255).default("MOSS"),
+      timeoutMs,
+    })
+    .strict(),
+);
+
+export const pagerdutyChange = tool(
+  { name: "pagerduty_change", class: "read", targetArgs: [], secretArgs: ["routingKey"] },
+  "Send a PagerDuty change event (shown on the service's timeline; pages nobody). Used to test the connection.",
+  z.object({ routingKey: pdRoutingKey, summary: z.string().min(1).max(1024), timeoutMs }).strict(),
+);
+
+export const pagerdutyIncidents = tool(
+  { name: "pagerduty_incidents", class: "read", targetArgs: [], secretArgs: ["apiKey"] },
+  "List PagerDuty incidents from the last day that MOSS raised, with who acknowledged or resolved them.",
+  z.object({ apiKey: secretHandle.describe("A read-only PagerDuty REST API key, stored as a secret"), timeoutMs }).strict(),
+);
+
 // Single sign-on, only ever called by the gate for a person signing in (never by agents).
 const ssoProvider = z.enum(["microsoft", "google"]);
 
@@ -995,7 +1026,7 @@ export const oidcKeys = tool(
 );
 
 export const SYSTEM_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
-  [homeassistantNotify, homeassistantPublish, oidcExchange, oidcKeys].map((t) => [t.manifest.name, t as unknown as ToolDefinition]),
+  [homeassistantNotify, homeassistantPublish, oidcExchange, oidcKeys, pagerdutyEvent, pagerdutyChange, pagerdutyIncidents].map((t) => [t.manifest.name, t as unknown as ToolDefinition]),
 );
 
 /** The JSON Schema handed to the LLM for a tool's input. */

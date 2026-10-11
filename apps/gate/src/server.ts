@@ -139,7 +139,7 @@ export function buildGateServer(gate: Gate, opts: GateServerOptions) {
     if (op === "test" || op.startsWith("sync:")) return reply.code(404).send({ error: "unknown operation" });
     const orgId = req.body?.orgId;
     if (!orgId || !UUID.test(orgId)) return reply.code(400).send({ error: "orgId (uuid) is required" });
-    return gate.integration({ orgId, key, op });
+    return gate.integration({ orgId, key, op, ...(req.body?.args ? { args: req.body.args } : {}) });
   });
 
   // The worker's Home Assistant calls: health checks, inventory sync, notifications, MOSS's sensors.

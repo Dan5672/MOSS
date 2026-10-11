@@ -43,7 +43,7 @@ import { createProvider } from "@moss/llm";
 import { and, desc, eq, gt, inArray, notInArray } from "drizzle-orm";
 import { PgBoss } from "pg-boss";
 import { notifyIncident, runHomeAssistantTick, type HaCaller } from "./home-assistant.js";
-import { runIntegrationsTick, type IntegrationCaller } from "./integrations.js";
+import { pagerdutyIncident, runIntegrationsTick, type IntegrationCaller } from "./integrations.js";
 import { handleMonitorEvent, pruneAllMonitorResults, runDueChecks, type MonitorChecker } from "./monitor-runner.js";
 
 export { enqueueRun, RUN_QUEUE, SCHEDULE_QUEUE };
@@ -163,7 +163,12 @@ export async function unansweredIncidentComments(db: Database, agentId: string) 
 }
 
 /** Turns domain events into agent runs. Tasks reference tickets by id; the agent reads them with its tools. */
-export async function handleEvent(db: Database, boss: PgBoss, event: StoredEvent, opts: { homeAssistant?: HaCaller; log?: (msg: string, extra?: Record<string, unknown>) => void } = {}): Promise<void> {
+export async function handleEvent(
+  db: Database,
+  boss: PgBoss,
+  event: StoredEvent,
+  opts: { homeAssistant?: HaCaller; integrations?: IntegrationCaller; log?: (msg: string, extra?: Record<string, unknown>) => void } = {},
+): Promise<void> {
   const p = event.payload as Record<string, string | undefined>;
   switch (event.type) {
     case "incident.created": {
@@ -172,6 +177,16 @@ export async function handleEvent(db: Database, boss: PgBoss, event: StoredEvent
       if (opts.homeAssistant && p.incidentId) {
         const call = opts.homeAssistant;
         void notifyIncident(db, call, p.incidentId).catch((err) => opts.log?.("home assistant notification failed", { error: (err as Error).message }));
+      }
+      // PagerDuty, for priorities that page. Not awaited, for the same reason.
+      if (opts.integrations && p.incidentId) {
+        void pagerdutyIncident(db, opts.integrations, p.incidentId, "trigger", opts.log).catch((err) => opts.log?.("PagerDuty page failed", { error: (err as Error).message }));
+      }
+      return;
+    }
+    case "incident.resolved": {
+      if (opts.integrations && p.incidentId) {
+        void pagerdutyIncident(db, opts.integrations, p.incidentId, "resolve", opts.log).catch((err) => opts.log?.("PagerDuty resolve failed", { error: (err as Error).message }));
       }
       return;
     }
@@ -361,7 +376,7 @@ export async function startWorker(cfg: WorkerConfig) {
     if (dispatching) return;
     dispatching = true;
     try {
-      await dispatchEvents(db, (e) => handleEvent(db, boss, e, { homeAssistant: cfg.homeAssistant, log }), 50);
+      await dispatchEvents(db, (e) => handleEvent(db, boss, e, { homeAssistant: cfg.homeAssistant, integrations: cfg.integrations, log }), 50);
     } catch (err) {
       log("event dispatch failed", { error: (err as Error).message });
     } finally {

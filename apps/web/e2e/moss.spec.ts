@@ -1523,6 +1523,20 @@ test("business: Microsoft 365 locked without a licence; with one, people in MOSS
   await page.getByRole("button", { name: "Switch integration off" }).click();
   await expect(page.getByText(/^Slack is off/)).toBeVisible();
 
+  // PagerDuty: the integration key, and the optional read-only REST API key for acknowledgements.
+  await page.goto("/settings/integrations/pagerduty");
+  await page.getByLabel("Integration key").fill("R".repeat(32));
+  await page.getByRole("button", { name: "Save connection" }).click();
+  await expect(page.getByText("Saved the connection and the credential.")).toBeVisible();
+  const acks = page.locator("#acknowledgements");
+  await acks.getByLabel("Read-only REST API key").fill("nope");
+  await acks.getByRole("button", { name: "Save API key" }).click();
+  await expect(acks.getByRole("alert")).toContainText("That doesn't look like a PagerDuty API key.");
+  await acks.getByLabel("Read-only REST API key").fill("u+AbCdEfGhIjKlMnOpQrSt");
+  await acks.getByRole("button", { name: "Save API key" }).click();
+  await expect(page.getByText("Saved the API key.")).toBeVisible();
+  await expect(acks).toContainText("Key saved");
+
   // Leave things as they were for the tests after this one.
   await page.goto("/settings/integrations/m365");
   await page.locator("#sso").getByRole("button", { name: "Allow passwords again" }).click();
