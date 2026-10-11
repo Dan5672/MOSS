@@ -7,7 +7,7 @@ import { CheckboxField, SelectField, TextAreaField, TextField } from "@/componen
 import { NoPermission, PageHeader, timeAgo } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { requireUser } from "@/server/auth";
+import { isOwner, requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { integrationOrNull, integrationPage } from "@/server/integrations";
 import { CloudflareExposureCard } from "./cloudflare-exposure";
@@ -210,7 +210,7 @@ export default async function IntegrationSettingsPage({ params }: PageProps<"/se
             provider={def.key === "m365" ? "microsoft" : "google"}
             config={c}
             enabled={p.enabled}
-            canManage={user.permissions.has("settings.manage") && canSecrets}
+            canManage={user.permissions.has("settings.manage") && canSecrets && (await isOwner(user.id))}
           />
         )}
         {def.key === "pagerduty" && <PagerdutyApiKeyCard orgId={user.orgId} canManage={canSecrets} />}

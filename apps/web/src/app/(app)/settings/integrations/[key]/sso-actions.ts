@@ -5,7 +5,7 @@ import { secrets } from "@moss/db";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { act, formObject, type ActionState } from "@/server/action";
-import { PermissionError, requirePermission } from "@/server/auth";
+import { isOwner, PermissionError, requirePermission } from "@/server/auth";
 import { db } from "@/server/db";
 import { storeSecret } from "@/server/services";
 
@@ -15,7 +15,9 @@ const KEY: Record<SsoProvider, string> = { microsoft: "m365", google: "google_wo
 export async function saveSsoAction(provider: SsoProvider, _: ActionState, form: FormData): Promise<ActionState> {
   return act(async () => {
     const user = await requirePermission("integrations.manage");
-    // Who can sign in, and the client secret: it takes managing settings and secrets too.
+    // Who can sign in decides who can become whom, so only owners change it (an admin pointing sign-in at a
+    // directory they control could sign in as anyone added without a password).
+    if (!(await isOwner(user.id))) throw new Error("Only an owner can change single sign-on.");
     if (!user.permissions.has("settings.manage")) throw new PermissionError("settings.manage");
     if (!user.permissions.has("secrets.manage")) throw new PermissionError("secrets.manage");
     const def = getIntegration(KEY[provider])!;
@@ -59,6 +61,7 @@ const anySso = (orgId: string) => anySsoAvailable(db(), orgId);
 export async function setSsoOnlyAction(on: boolean, _: ActionState): Promise<ActionState> {
   return act(async () => {
     const user = await requirePermission("settings.manage");
+    if (!(await isOwner(user.id))) throw new Error("Only an owner can change single sign-on.");
     if (on && !(await anySso(user.orgId))) throw new Error("Switch on signing in with Microsoft or Google first.");
     await setSetting(db(), user.orgId, "auth.sso_only", on);
     await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "setting.update", targetType: "setting", targetId: "auth.sso_only", details: { value: on } });

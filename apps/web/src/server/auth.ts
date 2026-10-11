@@ -206,7 +206,7 @@ export async function login(email: string, password: string, totpCode?: string):
   return { ok: true };
 }
 
-async function isOwner(userId: string): Promise<boolean> {
+export async function isOwner(userId: string): Promise<boolean> {
   const rows = await db().select({ key: roles.key }).from(userRoles).innerJoin(roles, eq(roles.id, userRoles.roleId)).where(eq(userRoles.userId, userId));
   return rows.some((r) => r.key === "owner");
 }
@@ -220,4 +220,24 @@ export async function verifyUserTotp(userId: string, code: string): Promise<bool
 
 export function sealTotpSecret(userId: string, secret: string): string {
   return JSON.stringify(encryptSecret(config.appKey(), userId, secret));
+}
+
+/**
+ * Re-checks a signed-in person's password before a sensitive step (setting up two-factor, linking a sign-in
+ * account, changing the password). Throttled per person like signing in, so a stolen session can't guess it, and
+ * failures are audited. False for a wrong password or someone without one.
+ */
+export async function confirmPassword(user: { id: string; orgId: string }, password: string, step: string): Promise<boolean> {
+  const key = `confirm|${user.id}`;
+  const now = Date.now();
+  const e = attempts.get(key);
+  if (e && e.resetAt > now && e.count >= MAX_ATTEMPTS) throw new Error("Too many attempts. Try again in a few minutes.");
+  const [row] = await db().select({ hash: users.passwordHash }).from(users).where(eq(users.id, user.id));
+  if (row?.hash && (await verifyPassword(password, row.hash))) {
+    attempts.delete(key);
+    return true;
+  }
+  attempts.set(key, e && e.resetAt > now ? { count: e.count + 1, resetAt: e.resetAt } : { count: 1, resetAt: now + WINDOW_MS });
+  await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "auth.password_check_failed", targetType: "user", targetId: user.id, details: { step } });
+  return false;
 }

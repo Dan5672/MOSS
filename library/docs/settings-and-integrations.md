@@ -229,7 +229,7 @@ agent <name>). Messages in channels are ignored. Without a licence, the bot stop
 
 ## Signing in with Microsoft or Google (single sign-on)
 Business (needs a licence covering the Microsoft 365 or Google Workspace integration). On the integration's
-page, Sign in with Microsoft / Google (settings.manage and secrets.manage): it shows the redirect URI to
+page, Sign in with Microsoft / Google (owners only, since it decides who can sign in as whom): it shows the redirect URI to
 register (the address you opened MOSS with; people must sign in through the same address). Microsoft: uses
 the integration's app registration (add a Web platform with the redirect URI). Google: its own OAuth client
 (client ID, client secret stored as secret:google-oauth-secret, usable only for signing in) and the
@@ -239,13 +239,14 @@ shows the button while the integration is licensed, on and set up. Only people a
 People added without a password (for single sign-on) are matched by email the first time (Microsoft: in your
 tenant only; Google: a verified email in an allowed domain), then by their account id. Anyone with a MOSS
 password is never claimed by email: they link their account in Settings > General > Sign-in accounts,
-confirming their password (and can unlink it there). Nobody new is created; anyone else is refused
+confirming their password (and can unlink it there). Password re-checks (linking, two-factor, changing
+the password) are throttled like signing in, and failures are audited. Nobody new is created; anyone else is refused
 (audited). MOSS doesn't ask for its own two-factor code on these sign-ins: require MFA in Microsoft's or
 Google's sign-in policies (MOSS doesn't check that the provider did). Their sessions end when signing in that
 way stops (switched off, licence lapsed). Setting up MOSS two-factor needs the password, or for someone
 without one, a sign-in in the last 10 minutes; an existing two-factor can only be replaced by turning it off
 with the password first. Changing Microsoft 365's directory or application ID switches sign-in off until
-someone who manages settings switches it back on. Adding a
+an owner switches it back on. Adding a
 person in Users: the password is optional while single sign-on is on. Single sign-on only (on the same
 card): only owners can sign in with a password; everyone else with Microsoft or Google. It applies only
 while a sign-in method works: if the licence lapses or the integration is switched off, passwords work again.

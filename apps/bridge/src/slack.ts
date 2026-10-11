@@ -13,14 +13,17 @@ export function slackCommand(text: string): string {
   return /^(link|agents?|help|start)\b/i.test(t) ? `/${t}` : t;
 }
 
-/** MOSS's text (Markdown-ish) as Slack mrkdwn: escaped, **bold** as *bold*, [text](url) as <url|text>. */
+/**
+ * MOSS's text (Markdown-ish) as Slack mrkdwn: escaped, **bold** as *bold*, and [text](url) as "text (<url>)": the
+ * address stays visible, since the text can come from a monitored system or a webhook.
+ */
 export function toMrkdwn(text: string): string {
   return text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/\*\*(.+?)\*\*/g, "*$1*")
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "<$2|$1>");
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1 (<$2>)");
 }
 
 export class SlackBot implements Bot {
@@ -81,7 +84,12 @@ export class SlackBot implements Bot {
 
   /** One Socket Mode envelope; exported for tests. Acknowledged first, as Slack expects within 3 seconds. */
   async onFrame(raw: string) {
-    const env = JSON.parse(raw) as Envelope;
+    let env: Envelope;
+    try {
+      env = JSON.parse(raw) as Envelope;
+    } catch {
+      return this.handlers.log("slack sent a frame that isn't JSON; ignored", {});
+    }
     if (env.envelope_id) this.ws?.send(JSON.stringify({ envelope_id: env.envelope_id }));
     if (env.type === "disconnect") return this.ws?.close(); // Slack asks for a fresh connection now and then
     try {

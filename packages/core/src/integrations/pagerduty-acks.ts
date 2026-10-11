@@ -23,7 +23,9 @@ export async function notePagerdutyChanges(db: Database, orgId: string): Promise
     if (!inc || inc.orgId !== orgId) continue;
     noted[p.key] = p.status;
     const who = p.by ? ` by ${p.by}` : "";
-    await addIncidentComment(db, orgId, inc.id, `${p.status === "acknowledged" ? "Acknowledged" : "Resolved"} in PagerDuty${who}.${p.url ? ` ${p.url}` : ""}`, { type: "system", id: null });
+    // Only a link to PagerDuty itself.
+    const url = p.url && /^https:\/\/[a-z0-9-]+\.pagerduty\.com\/\S*$/i.test(p.url) ? ` ${p.url}` : "";
+    await addIncidentComment(db, orgId, inc.id, `${p.status === "acknowledged" ? "Acknowledged" : "Resolved"} in PagerDuty${who}.${url}`, { type: "system", id: null });
     added++;
   }
   // Keep the record small: only pages PagerDuty still lists.

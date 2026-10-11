@@ -1,11 +1,11 @@
 "use server";
 
-import { passwordPolicySchema, PasswordPolicyError, setSetting, setUserPassword, verifyPassword, writeAudit } from "@moss/core";
+import { passwordPolicySchema, PasswordPolicyError, setSetting, setUserPassword, writeAudit } from "@moss/core";
 import { users } from "@moss/db";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { act, type ActionState } from "@/server/action";
-import { requirePermission, requireUser } from "@/server/auth";
+import { confirmPassword, requirePermission, requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 
 const on = (v: FormDataEntryValue | null) => v === "on" || v === "true";
@@ -19,7 +19,7 @@ export async function changePasswordAction(_: ActionState, form: FormData): Prom
     if (next !== String(form.get("confirm") ?? "")) throw new Error("The new passwords don't match.");
     const [row] = await db().select({ hash: users.passwordHash }).from(users).where(eq(users.id, user.id));
     if (!row?.hash) throw new Error("You sign in through your organisation's single sign-on, so there's no MOSS password to change.");
-    if (!(await verifyPassword(current, row.hash))) throw new Error("Your current password isn't right.");
+    if (!(await confirmPassword(user, current, "change_password"))) throw new Error("Your current password isn't right.");
     try {
       await setUserPassword(db(), user.orgId, user.id, next);
     } catch (err) {

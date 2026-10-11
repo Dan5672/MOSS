@@ -77,6 +77,7 @@ export async function runIntegrationOp(
     return { ok: false, error: res.error };
   }
   // Routine background reads aren't audited when they work; people's calls are.
-  if (req.userId) await audit(true, { args: res.args });
+  // Calls a caller shaped (a page sent) are audited too.
+  if (req.userId || Object.keys(callerArgs).length) await audit(true, { args: res.args });
   return { ok: true, result: res.result };
 }

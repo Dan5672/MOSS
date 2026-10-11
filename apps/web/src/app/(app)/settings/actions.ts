@@ -1,12 +1,12 @@
 "use server";
 
-import { generateTotpSecret, getPasswordPolicy, mustEnrolTotp, setSetting, verifyPassword, verifyTotp, writeAudit, type SettingKey } from "@moss/core";
+import { generateTotpSecret, getPasswordPolicy, mustEnrolTotp, setSetting, verifyTotp, writeAudit, type SettingKey } from "@moss/core";
 import { roles, userRoles, users } from "@moss/db";
 import { eq } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { act, type ActionState } from "@/server/action";
-import { requirePermission, requireUser, sealTotpSecret } from "@/server/auth";
+import { confirmPassword, requirePermission, requireUser, sealTotpSecret } from "@/server/auth";
 import { db } from "@/server/db";
 
 const TOGGLES: SettingKey[] = ["agents.kill_switch", "tools.allow_dangerous", "changes.allow_emergency", "changes.require_separate_approver"];
@@ -62,8 +62,7 @@ export async function confirmTotpAction(_: ActionState, form: FormData): Promise
     // password, or for someone without one (they sign in with Microsoft or Google) a sign-in in the last 10 minutes.
     if (user.totpEnabled) throw new Error("Two-factor is already on. Turn it off first (with your password) to set up a new one.");
     if (user.hasPassword) {
-      const [row] = await db().select({ hash: users.passwordHash }).from(users).where(eq(users.id, user.id));
-      if (!row?.hash || !(await verifyPassword(String(form.get("password") ?? ""), row.hash))) throw new Error("Incorrect password.");
+      if (!(await confirmPassword(user, String(form.get("password") ?? ""), "enrol_totp"))) throw new Error("Incorrect password.");
     } else if (Date.now() - user.session.createdAt.getTime() > 10 * 60_000) {
       throw new Error("Sign out and sign in again with Microsoft or Google, then set up two-factor within 10 minutes.");
     }
@@ -82,8 +81,7 @@ export async function confirmTotpAction(_: ActionState, form: FormData): Promise
 export async function disableTotpAction(_: ActionState, form: FormData): Promise<ActionState> {
   return act(async () => {
     const user = await requireUser();
-    const [row] = await db().select().from(users).where(eq(users.id, user.id));
-    if (!row?.passwordHash || !(await verifyPassword(String(form.get("password") ?? ""), row.passwordHash))) throw new Error("Incorrect password.");
+    if (!(await confirmPassword(user, String(form.get("password") ?? ""), "disable_totp"))) throw new Error("Incorrect password.");
     const roleKeys = (await db().select({ key: roles.key }).from(userRoles).innerJoin(roles, eq(roles.id, userRoles.roleId)).where(eq(userRoles.userId, user.id))).map((r) => r.key);
     if (mustEnrolTotp(await getPasswordPolicy(db(), user.orgId), { totpEnabled: false, hasPassword: true, roles: roleKeys })) {
       throw new Error("The password policy requires two-factor for you, so it can't be turned off.");

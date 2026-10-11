@@ -90,9 +90,10 @@ describe("Discord", () => {
 });
 
 describe("Slack", () => {
-  it("turns typed commands into MOSS's, and MOSS's text into Slack's", () => {
+  it("turns typed commands into MOSS's, and MOSS's text into Slack's", async () => {
     expect([slackCommand("link AB12CD34"), slackCommand("agents"), slackCommand("agent Nina"), slackCommand("linked in?")]).toEqual(["/link AB12CD34", "/agents", "/agent Nina", "linked in?"]);
-    expect(toMrkdwn("**CR-3** needs approval: [open it](https://moss.lan/changes/1) <now> & then")).toBe("*CR-3* needs approval: <https://moss.lan/changes/1|open it> &lt;now&gt; &amp; then");
+    expect(toMrkdwn("**CR-3** needs approval: [open it](https://moss.lan/changes/1) <now> & then")).toBe("*CR-3* needs approval: open it (<https://moss.lan/changes/1>) &lt;now&gt; &amp; then");
+    expect(await new SlackBot("x", "y", handlers()).onFrame("not json")).toBeUndefined();
   });
 
   it("acknowledges every envelope, answers DMs only, and updates the message on a button press", async () => {
