@@ -324,7 +324,7 @@ export async function startWorker(cfg: WorkerConfig) {
     if (!job) return;
     const [s] = await db.select().from(agentSchedules).where(eq(agentSchedules.id, job.data.scheduleId));
     if (!s?.enabled) return;
-    await enqueueRun(boss, { agentId: s.agentId, task: s.task, trigger: "schedule", triggerRef: s.id });
+    await enqueueRun(boss, { agentId: s.agentId, task: s.task, trigger: "schedule", triggerRef: s.id, requestedByUserId: s.requestedByUserId ?? undefined });
   });
 
   const sync = async () => {

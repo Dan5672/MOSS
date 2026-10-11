@@ -1,6 +1,6 @@
 // Write-only secrets API for the web app. Values go in; they never come back out.
 // The gate is the only service holding the master key, so encryption happens here.
-import { encryptSecret, writeAudit } from "@moss/core";
+import { encryptSecret, userPermissions, writeAudit } from "@moss/core";
 import { secrets, users, type Database } from "@moss/db";
 import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -23,6 +23,8 @@ export type SecretWrite = z.infer<typeof secretWriteSchema>;
 export async function writeSecret(db: Database, masterKey: Buffer, input: SecretWrite): Promise<{ id: string; created: boolean }> {
   const [user] = await db.select().from(users).where(eq(users.id, input.userId));
   if (!user || user.status !== "active") throw new Error("Unknown user");
+  // Checked here as well as in the web app: the web token alone must not be enough to change secrets.
+  if (!(await userPermissions(db, user.id)).has("secrets.manage")) throw new Error("That user can't manage secrets");
   const orgId = user.orgId;
 
   const [existing] = await db.select({ id: secrets.id }).from(secrets).where(and(eq(secrets.orgId, orgId), eq(secrets.name, input.name)));

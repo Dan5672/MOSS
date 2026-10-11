@@ -12,7 +12,7 @@ import {
   hashToken,
   userPermissions,
   verifyPassword,
-  verifyTotp,
+  totpStep,
   writeAudit,
   type Permission,
 } from "@moss/core";
@@ -23,6 +23,7 @@ import { redirect } from "next/navigation";
 import { cache } from "react";
 import { config } from "./config";
 import { db } from "./db";
+import { createThrottle } from "./throttle";
 
 export const SESSION_COOKIE = "moss_session";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -154,10 +155,9 @@ export async function endSession() {
   store.delete(SESSION_COOKIE);
 }
 
-// --- Login throttling: in-memory, per email+IP. Good enough for a single web instance. ---
-const attempts = new Map<string, { count: number; resetAt: number }>();
-const MAX_ATTEMPTS = 5;
-const WINDOW_MS = 15 * 60 * 1000;
+// --- Login throttling: per email+IP for signing in, per person for re-checks. ---
+const attempts = createThrottle();
+const TOO_MANY = "Too many attempts. Try again in a few minutes.";
 
 function throttleKey(email: string, ip: string | null) {
   return `${email.toLowerCase()}|${ip ?? "?"}`;
@@ -168,14 +168,8 @@ export type LoginResult = { ok: true } | { ok: false; error: string; needTotp?: 
 export async function login(email: string, password: string, totpCode?: string): Promise<LoginResult> {
   const ip = await clientIp();
   const key = throttleKey(email, ip);
-  const now = Date.now();
-  const entry = attempts.get(key);
-  if (entry && entry.resetAt > now && entry.count >= MAX_ATTEMPTS) {
-    return { ok: false, error: "Too many attempts. Try again in a few minutes." };
-  }
+  if (!attempts.take(key)) return { ok: false, error: TOO_MANY };
   const fail = async (orgId: string | null, userId: string | null, reason: string): Promise<LoginResult> => {
-    const e = attempts.get(key);
-    attempts.set(key, e && e.resetAt > now ? { count: e.count + 1, resetAt: e.resetAt } : { count: 1, resetAt: now + WINDOW_MS });
     if (orgId) await writeAudit(db(), { orgId, actorType: "user", actorId: userId, action: "auth.login_failed", details: { email, ip, reason } });
     return { ok: false, error: "Incorrect email, password or code." };
   };
@@ -188,19 +182,23 @@ export async function login(email: string, password: string, totpCode?: string):
   // Single sign-on only: owners keep their password (and two-factor) in case sign-in breaks.
   // Only while signing in with Microsoft or Google works: a lapsed licence or a switched-off integration can't lock people out.
   if ((await getSetting(db(), user.orgId, "auth.sso_only")) && !(await isOwner(user.id)) && (await anySsoAvailable(db(), user.orgId))) {
+    attempts.refund(key);
     return { ok: false, error: "Sign in with Microsoft or Google: your organisation doesn't use MOSS passwords." };
   }
 
   if (user.totpSecretRef) {
-    if (!totpCode) return { ok: false, error: "Enter the code from your authenticator app.", needTotp: true };
+    if (!totpCode) {
+      attempts.refund(key);
+      return { ok: false, error: "Enter the code from your authenticator app.", needTotp: true };
+    }
     const secret = decryptSecret(config.appKey(), user.id, JSON.parse(user.totpSecretRef));
-    if (!verifyTotp(secret, totpCode.replace(/\s/g, ""))) {
+    if (!acceptTotp(user.id, secret, totpCode)) {
       const r = await fail(user.orgId, user.id, "totp");
       return { ...r, needTotp: true } as LoginResult;
     }
   }
 
-  attempts.delete(key);
+  attempts.clear(key);
   await startSession(user.id);
   await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "auth.login", details: { ip } });
   return { ok: true };
@@ -211,11 +209,29 @@ export async function isOwner(userId: string): Promise<boolean> {
   return rows.some((r) => r.key === "owner");
 }
 
-/** Checks a code from someone's authenticator app (for steps that need a fresh one, like downloading a MOSS backup). */
+// The last time step each person's code was accepted at, so a code works only once. In memory, like the throttle.
+const usedTotpSteps = new Map<string, number>();
+
+function acceptTotp(userId: string, secret: string, code: string): boolean {
+  const step = totpStep(secret, code.replace(/\s/g, ""));
+  if (step === null || step <= (usedTotpSteps.get(userId) ?? -1)) return false;
+  usedTotpSteps.set(userId, step);
+  return true;
+}
+
+/**
+ * Checks a code from someone's authenticator app (for steps that need a fresh one, like downloading a MOSS backup).
+ * Throttled per person like signing in, so a stolen session can't guess its way through.
+ */
 export async function verifyUserTotp(userId: string, code: string): Promise<boolean> {
+  const key = `totp|${userId}`;
+  if (!attempts.take(key)) throw new Error(TOO_MANY);
   const [row] = await db().select({ ref: users.totpSecretRef }).from(users).where(eq(users.id, userId));
-  if (!row?.ref) return false;
-  return verifyTotp(decryptSecret(config.appKey(), userId, JSON.parse(row.ref)), code.replace(/\s/g, ""));
+  if (row?.ref && acceptTotp(userId, decryptSecret(config.appKey(), userId, JSON.parse(row.ref)), code)) {
+    attempts.clear(key);
+    return true;
+  }
+  return false;
 }
 
 export function sealTotpSecret(userId: string, secret: string): string {
@@ -229,15 +245,12 @@ export function sealTotpSecret(userId: string, secret: string): string {
  */
 export async function confirmPassword(user: { id: string; orgId: string }, password: string, step: string): Promise<boolean> {
   const key = `confirm|${user.id}`;
-  const now = Date.now();
-  const e = attempts.get(key);
-  if (e && e.resetAt > now && e.count >= MAX_ATTEMPTS) throw new Error("Too many attempts. Try again in a few minutes.");
+  if (!attempts.take(key)) throw new Error(TOO_MANY);
   const [row] = await db().select({ hash: users.passwordHash }).from(users).where(eq(users.id, user.id));
   if (row?.hash && (await verifyPassword(password, row.hash))) {
-    attempts.delete(key);
+    attempts.clear(key);
     return true;
   }
-  attempts.set(key, e && e.resetAt > now ? { count: e.count + 1, resetAt: e.resetAt } : { count: 1, resetAt: now + WINDOW_MS });
   await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "auth.password_check_failed", targetType: "user", targetId: user.id, details: { step } });
   return false;
 }

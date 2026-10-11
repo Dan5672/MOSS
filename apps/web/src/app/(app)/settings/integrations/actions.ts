@@ -340,9 +340,9 @@ export async function saveHomeAssistantLogReviewAction(_: ActionState, form: For
     let scheduleId = config.logReview.scheduleId;
     const [existing] = scheduleId ? await db().select({ id: agentSchedules.id }).from(agentSchedules).where(and(eq(agentSchedules.id, scheduleId), eq(agentSchedules.orgId, user.orgId))) : [];
     if (existing) {
-      await db().update(agentSchedules).set({ agentId: agent.id, cron, task: LOG_REVIEW_TASK, enabled: true }).where(eq(agentSchedules.id, existing.id));
+      await db().update(agentSchedules).set({ agentId: agent.id, cron, task: LOG_REVIEW_TASK, enabled: true, requestedByUserId: user.id }).where(eq(agentSchedules.id, existing.id));
     } else {
-      const [row] = await db().insert(agentSchedules).values({ orgId: user.orgId, agentId: agent.id, cron, task: LOG_REVIEW_TASK, enabled: true }).returning({ id: agentSchedules.id });
+      const [row] = await db().insert(agentSchedules).values({ orgId: user.orgId, agentId: agent.id, cron, task: LOG_REVIEW_TASK, enabled: true, requestedByUserId: user.id }).returning({ id: agentSchedules.id });
       scheduleId = row!.id;
     }
     await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "agent.skill_add", targetType: "agent", targetId: agent.id, details: { skill: HA_SKILL, reason: "Home Assistant log review", cron } });

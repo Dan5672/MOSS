@@ -1,6 +1,6 @@
 // Write-only secrets API against Postgres. Run with MOSS_TEST_DATABASE_URL set.
 import { bootstrapOrg, decryptSecret, generateMasterKey } from "@moss/core";
-import { auditLog, secrets, type Database } from "@moss/db";
+import { auditLog, secrets, users, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -61,6 +61,12 @@ describe.skipIf(!TEST_DATABASE_URL)("gate secrets API (postgres)", () => {
     expect((await post(WEB_TOKEN, { userId: "00000000-0000-0000-0000-000000000000", name: "k", type: "api_token", value: "x" })).json()).toEqual({
       error: "Unknown user",
     });
+  });
+
+  it("refuses a user without secrets.manage, even with the web token", async () => {
+    const [viewer] = await db.insert(users).values({ orgId: (await db.select().from(users))[0]!.orgId, email: "v@x.test", displayName: "V", passwordHash: "x" }).returning();
+    expect((await post(WEB_TOKEN, { userId: viewer!.id, name: "k", type: "api_token", value: "x" })).json()).toEqual({ error: "That user can't manage secrets" });
+    await db.delete(users).where(eq(users.id, viewer!.id));
   });
 
   it("rejects configurations where the two tokens are the same", () => {

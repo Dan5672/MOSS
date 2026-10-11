@@ -104,7 +104,7 @@ async function hire(db: Database, actor: Actor, spec: HireSpec) {
       await tx.insert(agentSkills).values(skillRows.map((s) => ({ agentId: row!.id, skillId: s.id, grantedBy: actor.userId })));
     }
     if (spec.schedules.length) {
-      await tx.insert(agentSchedules).values(spec.schedules.map((s) => ({ orgId: actor.orgId, agentId: row!.id, cron: s.cron, task: s.task })));
+      await tx.insert(agentSchedules).values(spec.schedules.map((s) => ({ orgId: actor.orgId, agentId: row!.id, cron: s.cron, task: s.task, requestedByUserId: actor.userId })));
     }
     return row!;
   });

@@ -236,6 +236,8 @@ export const agentSchedules = pgTable("agent_schedules", {
   cron: text("cron").notNull(),
   task: text("task").notNull(),
   enabled: boolean("enabled").notNull().default(true),
+  /** The person who last set this task: its runs act on their request (and they can't separately approve its changes). */
+  requestedByUserId: uuid("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
 });
 
 // Per-agent tool overrides on top of what the agent's skills grant: granted = true adds a tool the skills

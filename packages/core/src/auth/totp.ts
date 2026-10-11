@@ -50,14 +50,18 @@ export function totpCode(secret: string, time = Date.now(), digits = 6, stepSeco
   return String(binary % 10 ** digits).padStart(digits, "0");
 }
 
-/** Accepts the current code or one step either side, to tolerate clock drift. */
-export function verifyTotp(secret: string, code: string, time = Date.now()): boolean {
-  if (!/^\d{6}$/.test(code)) return false;
-  for (const drift of [-1, 0, 1]) {
-    const expected = totpCode(secret, time + drift * 30_000);
-    if (timingSafeEqual(Buffer.from(expected), Buffer.from(code))) return true;
+/** The time step a code matches: the current one or one either side, to tolerate clock drift. Null if none. */
+export function totpStep(secret: string, code: string, time = Date.now()): number | null {
+  if (!/^\d{6}$/.test(code)) return null;
+  const now = Math.floor(time / 30_000);
+  for (const step of [now - 1, now, now + 1]) {
+    if (timingSafeEqual(Buffer.from(totpCode(secret, step * 30_000)), Buffer.from(code))) return step;
   }
-  return false;
+  return null;
+}
+
+export function verifyTotp(secret: string, code: string, time = Date.now()): boolean {
+  return totpStep(secret, code, time) !== null;
 }
 
 export function totpUri(secret: string, account: string, issuer = "MOSS"): string {

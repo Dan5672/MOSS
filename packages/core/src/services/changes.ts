@@ -126,6 +126,8 @@ export interface NewChange {
   manual?: boolean;
   /** An agent's access request (see requestAccess): no tool calls; approval grants exactly this. */
   accessGrant?: AccessGrant;
+  /** The person whose request made the agent raise this change, so they can't also be its separate approver. */
+  promptedByUserId?: string;
 }
 
 export async function createChangeRequest(db: Database, orgId: string, input: NewChange, actor: Actor, opts: ChangeOptions = {}) {
@@ -189,7 +191,7 @@ export async function createChangeRequest(db: Database, orgId: string, input: Ne
         verificationPlan: input.verificationPlan,
         standardTemplateKey: input.standardTemplateKey ?? null,
         incidentId: input.incidentId ?? null,
-        requestedByUserId: actor.type === "user" ? actor.id : null,
+        requestedByUserId: actor.type === "user" ? actor.id : actor.type === "agent" ? (input.promptedByUserId ?? null) : null,
         requestedByAgentId: actor.type === "agent" ? actor.id : (input.forAgentId ?? null),
         windowStart: input.windowStart ?? null,
         windowEnd: input.windowEnd ?? null,
@@ -360,7 +362,7 @@ export interface AccessRequest {
  * runs, and approving it grants exactly what was asked for. `knownTools` are the built-in and MOSS
  * tools an agent may be given; enabled custom tools are looked up here.
  */
-export async function requestAccess(db: Database, orgId: string, agentId: string, req: AccessRequest, knownTools: ReadonlySet<string>) {
+export async function requestAccess(db: Database, orgId: string, agentId: string, req: AccessRequest, knownTools: ReadonlySet<string>, promptedByUserId?: string) {
   const [agent] = await db.select({ name: agents.name, status: agents.status }).from(agents).where(and(eq(agents.id, agentId), eq(agents.orgId, orgId)));
   if (!agent || agent.status === "fired") throw new ChangeError("Unknown agent");
   const wanted = [...new Set(req.tools ?? [])];
@@ -393,6 +395,7 @@ export async function requestAccess(db: Database, orgId: string, agentId: string
       verificationPlan: "",
       incidentId: req.incidentId,
       accessGrant: { tools, secretIds: newSecrets.map((f) => f.id) },
+      promptedByUserId,
     },
     { type: "agent", id: agentId },
   );
@@ -506,6 +509,9 @@ export async function recordManualResult(db: Database, orgId: string, changeId: 
 export async function cancelChange(db: Database, orgId: string, changeId: string, actor: Actor, reason?: string) {
   const change = await loadChange(db, orgId, changeId);
   if (actor.type === "agent" && change.requestedByAgentId !== actor.id) throw new ChangeError("Agents can only cancel their own changes");
+  if (actor.type === "user" && change.requestedByUserId !== actor.id && !(await userPermissions(db, actor.id!)).has("changes.approve")) {
+    throw new ChangeError("Only the person who asked for a change, or an approver, can cancel it");
+  }
   return transition(db, orgId, changeId, "cancelled", actor, { kind: "system", body: `Cancelled${reason ? `: ${reason}` : "."}` });
 }
 

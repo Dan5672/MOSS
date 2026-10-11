@@ -286,7 +286,7 @@ async function prepareRun(deps: RunDeps, input: RunInput): Promise<PreparedRun |
           try {
             // Consulting another agent (ask_moss) runs it now, inside this run; it can't consult anyone itself.
             const consult = (otherId: string, task: string) =>
-              runAgent({ ...deps, consulting: true }, { agentId: otherId, task, trigger: "event", triggerRef: runId }).then((o) => ({ status: o.status, summary: o.summary ?? "" }));
+              runAgent({ ...deps, consulting: true }, { agentId: otherId, task, trigger: "event", triggerRef: runId, requestedByUserId: input.requestedByUserId }).then((o) => ({ status: o.status, summary: o.summary ?? "" }));
             content = await tool.run({ db, orgId, agentId: agent.id, gate: deps.gate, runId, consult: deps.consulting ? undefined : consult }, parsed.data);
           } catch (err) {
             isError = true;

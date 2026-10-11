@@ -135,7 +135,9 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
       const [r] = await db.select().from(agentRuns).where(eq(agentRuns.agentId, hana.id));
       return r?.status === "succeeded" ? r : undefined;
     });
-    expect(run).toMatchObject({ trigger: "schedule", triggerRef: sched!.id });
+    // The person who set the task (here, who hired the agent) is the run's requester.
+    expect(sched!.requestedByUserId).toBe(actor.userId);
+    expect(run).toMatchObject({ trigger: "schedule", triggerRef: sched!.id, requestedByUserId: actor.userId });
   });
 
   it("starts runs from events: incident assignment and change approval", async () => {

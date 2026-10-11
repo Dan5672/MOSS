@@ -369,6 +369,9 @@ describe.skipIf(!TEST_DATABASE_URL)("policy gate (postgres)", () => {
     expect(await lastAudit()).toMatchObject({ action: "backup.download", actorId: user!.id, targetId: backupId });
     expect((await server.inject({ method: "GET", url: `/v1/backups/${backupId}?userId=${user!.id}`, headers: { authorization: `Bearer ${"g".repeat(40)}` } })).statusCode).toBe(401);
     expect((await server.inject({ method: "GET", url: `/v1/backups/${backupId}?userId=${randomUUID()}`, headers: { authorization: `Bearer ${webToken}` } })).statusCode).toBe(404);
+    const [viewer] = await db.insert(users).values({ orgId: owner!.orgId, email: "viewer@backup.test", displayName: "V", passwordHash: "x" }).returning();
+    expect((await server.inject({ method: "GET", url: `/v1/backups/${backupId}?userId=${viewer!.id}`, headers: { authorization: `Bearer ${webToken}` } })).statusCode).toBe(404);
+    await db.delete(users).where(eq(users.id, viewer!.id));
 
     // Only the newest backups per device, source and file are kept.
     for (let i = 0; i < BACKUPS_KEPT + 2; i++) {

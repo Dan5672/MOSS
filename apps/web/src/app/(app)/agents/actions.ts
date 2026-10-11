@@ -186,7 +186,7 @@ export async function addScheduleAction(agentId: string, _: ActionState, form: F
     const agent = await ownAgent(user.orgId, agentId);
     if (agent.status === "fired") throw new Error(`${agent.name} has been fired`);
     const s = scheduleFromForm(form);
-    const [row] = await db().insert(agentSchedules).values({ orgId: user.orgId, agentId, ...s }).returning();
+    const [row] = await db().insert(agentSchedules).values({ orgId: user.orgId, agentId, ...s, requestedByUserId: user.id }).returning();
     await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "schedule.add", targetType: "schedule", targetId: row!.id, details: { agentId, ...s } });
     return `Recurring task added: ${describeCron(s.cron)}.`;
   });
@@ -197,7 +197,7 @@ export async function updateScheduleAction(agentId: string, scheduleId: string, 
     const user = await requirePermission("agents.manage");
     const before = await ownSchedule(user.orgId, agentId, scheduleId);
     const s = scheduleFromForm(form);
-    await db().update(agentSchedules).set(s).where(eq(agentSchedules.id, scheduleId));
+    await db().update(agentSchedules).set({ ...s, requestedByUserId: user.id }).where(eq(agentSchedules.id, scheduleId));
     await writeAudit(db(), {
       orgId: user.orgId,
       actorType: "user",

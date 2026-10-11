@@ -14,7 +14,7 @@
     "@moss/agent": "workspace:*",
     "@moss/core": "workspace:*",
     "@moss/db": "workspace:*",
-    "drizzle-orm": "^0.44.0",
+    "drizzle-orm": "^0.45.2",
     "pg-boss": "^12.36.0"
   }
 }

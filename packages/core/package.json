@@ -24,7 +24,7 @@
     "@moss/db": "workspace:*",
     "@moss/policy": "workspace:*",
     "@moss/tools": "workspace:*",
-    "drizzle-orm": "^0.44.0",
+    "drizzle-orm": "^0.45.2",
     "zod": "^4.6.5"
   }
 }

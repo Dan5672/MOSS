@@ -8,6 +8,7 @@ import { z } from "zod";
 import { hashPassword } from "./auth/password.js";
 import {
   approveChange,
+  cancelChange,
   completeChange,
   createChangeRequest,
   getChange,
@@ -147,6 +148,20 @@ describe.skipIf(!TEST_DATABASE_URL)("incidents and changes (postgres)", () => {
       await expect(approveChange(db, orgId, cr.id, ownerId)).rejects.toThrow(/someone other than the requester/);
       await setSetting(db, orgId, "changes.require_separate_approver", false);
       expect((await approveChange(db, orgId, cr.id, ownerId)).status).toBe("approved");
+    });
+
+    it("counts the person who prompted an agent's change as its requester", async () => {
+      const cr = await createChangeRequest(db, orgId, { ...base, type: "normal", plannedCalls: [{ tool: "ping", args: { target: "10.0.0.1" } }], promptedByUserId: ownerId }, agent(), opts);
+      expect(cr).toMatchObject({ requestedByAgentId: agentId, requestedByUserId: ownerId });
+      await setSetting(db, orgId, "changes.require_separate_approver", true);
+      await expect(approveChange(db, orgId, cr.id, ownerId)).rejects.toThrow(/someone other than the requester/);
+      await setSetting(db, orgId, "changes.require_separate_approver", false);
+    });
+
+    it("lets only the requester or an approver cancel a change", async () => {
+      const cr = await createChangeRequest(db, orgId, { ...base, type: "normal", plannedCalls: [{ tool: "ping", args: { target: "10.0.0.1" } }] }, agent(), opts);
+      await expect(cancelChange(db, orgId, cr.id, { type: "user", id: viewerId })).rejects.toThrow(/Only the person who asked/);
+      expect((await cancelChange(db, orgId, cr.id, owner())).status).toBe("cancelled");
     });
 
     it("detects conflicting changes on the same asset", async () => {

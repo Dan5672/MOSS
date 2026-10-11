@@ -19,8 +19,17 @@ import {
   startChange,
   updateIncident,
 } from "@moss/core";
+import { agentRuns } from "@moss/db";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { PlatformTool } from "./platform-tools.js";
+
+/** The person whose request started this run, so they can't also be the separate approver of what it raises. */
+async function promptedBy(db: Parameters<PlatformTool["run"]>[0]["db"], runId: string): Promise<string | undefined> {
+  if (!/^[0-9a-f-]{36}$/.test(runId)) return undefined;
+  const [run] = await db.select({ by: agentRuns.requestedByUserId }).from(agentRuns).where(eq(agentRuns.id, runId));
+  return run?.by ?? undefined;
+}
 
 const plannedCall = z.object({
   tool: z.string().min(1).max(64),
@@ -145,8 +154,8 @@ export const TICKET_TOOLS: PlatformTool[] = [
       incidentId: z.uuid().optional(),
       assetIds: z.array(z.uuid()).max(20).optional(),
     }),
-    run: async ({ db, orgId, agentId }, args) => {
-      const cr = await createChangeRequest(db, orgId, args, { type: "agent", id: agentId });
+    run: async ({ db, orgId, agentId, runId }, args) => {
+      const cr = await createChangeRequest(db, orgId, { ...args, promptedByUserId: await promptedBy(db, runId) }, { type: "agent", id: agentId });
       return {
         id: cr.id,
         ref: changeRef(cr.number),
@@ -170,11 +179,11 @@ export const TICKET_TOOLS: PlatformTool[] = [
       reason: z.string().min(1).max(2000).describe("What you need it for"),
       incidentId: z.uuid().optional(),
     }),
-    run: async ({ db, orgId, agentId }, args) => {
+    run: async ({ db, orgId, agentId, runId }, args) => {
       // Imported here: platform-tools.ts imports this file.
       const { PLATFORM_TOOLS } = await import("./platform-tools.js");
       const known = new Set([...BUILT_IN_TOOLS.keys(), ...PLATFORM_TOOLS.map((t) => t.name)]);
-      const cr = await requestAccess(db, orgId, agentId, args, known);
+      const cr = await requestAccess(db, orgId, agentId, args, known, await promptedBy(db, runId));
       return { id: cr.id, ref: changeRef(cr.number), next: "Waiting for a person to approve it. You'll be given a new task when it's decided." };
     },
   },

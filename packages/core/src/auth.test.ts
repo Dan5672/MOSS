@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { hashPassword, verifyPassword } from "./auth/password.js";
 import { BUILT_IN_ROLES, effectivePermissions } from "./auth/rbac.js";
 import { generateToken, hashToken } from "./auth/tokens.js";
-import { base32Decode, base32Encode, generateTotpSecret, totpCode, verifyTotp } from "./auth/totp.js";
+import { base32Decode, base32Encode, generateTotpSecret, totpCode, totpStep, verifyTotp } from "./auth/totp.js";
 
 describe("passwords", () => {
   it("hashes and verifies", async () => {
@@ -38,6 +38,15 @@ describe("TOTP", () => {
     expect(verifyTotp(secret, totpCode(secret, now - 30_000), now)).toBe(true);
     expect(verifyTotp(secret, totpCode(secret, now - 120_000), now)).toBe(false);
     expect(verifyTotp(secret, "12345", now)).toBe(false);
+  });
+
+  it("says which time step a code belongs to, so it can be refused a second time", () => {
+    const secret = generateTotpSecret();
+    const now = Date.now();
+    const step = Math.floor(now / 30_000);
+    expect(totpStep(secret, totpCode(secret, now), now)).toBe(step);
+    expect(totpStep(secret, totpCode(secret, now - 30_000), now)).toBe(step - 1);
+    expect(totpStep(secret, totpCode(secret, now - 120_000), now)).toBeNull();
   });
 });
 
