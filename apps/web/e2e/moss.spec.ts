@@ -15,6 +15,19 @@ const VIEWER = { name: "Vic Viewer", email: "vic@home.test", password: "viewer-p
 
 let page: Page;
 let ownerTotpSecret = "";
+let lastTotpStep = 0;
+
+/**
+ * A code MOSS hasn't accepted yet: it takes each 30-second step once, and one step ahead for clock drift. So it's
+ * the current step's code, or the next one's if this step was used, waiting for the step to turn if both were.
+ */
+async function freshTotp(secret = ownerTotpSecret) {
+  const now = Math.floor(Date.now() / 30_000);
+  const step = Math.max(now, lastTotpStep + 1);
+  if (step > now + 1) await new Promise((r) => setTimeout(r, (step - 1) * 30_000 - Date.now() + 500));
+  lastTotpStep = step;
+  return totpCode(secret, step * 30_000);
+}
 test.beforeAll(async ({ browser }) => {
   page = await browser.newPage();
 });
@@ -1117,7 +1130,7 @@ test("two-factor: enrol, then sign in with a code", async () => {
   await page.getByLabel("Authenticator code").fill("000000");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByText("Incorrect email, password or code.")).toBeVisible();
-  await page.getByLabel("Authenticator code").fill(totpCode(secret));
+  await page.getByLabel("Authenticator code").fill(await freshTotp(secret));
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
 });
@@ -1158,7 +1171,7 @@ test("integrations: the UPS shutdown plan, asked each time or approved in advanc
   await plan.getByLabel("Authenticator code").fill("000000");
   await plan.getByRole("button", { name: "Approve this plan in advance" }).click();
   await expect(page.getByText("That code didn't match.")).toBeVisible();
-  await plan.getByLabel("Authenticator code").fill(totpCode(ownerTotpSecret));
+  await plan.getByLabel("Authenticator code").fill(await freshTotp());
   await plan.getByRole("button", { name: "Approve this plan in advance" }).click();
   await expect(page.getByText("Approved. In a power cut, MOSS will run the plan without asking.")).toBeVisible();
   await page.reload();
@@ -1254,7 +1267,7 @@ test("basement: shows every agent at a desk or on a break, as a scene and as a l
 
 test("assets: added from the top; each shows what agents can do with it, and a wizard sets up access", async () => {
   await signOut();
-  await signIn(OWNER.email, OWNER.password, totpCode(ownerTotpSecret));
+  await signIn(OWNER.email, OWNER.password, await freshTotp());
   await page.goto("/assets");
   for (const [name, ip] of [["Garage switch", "192.168.50.20"], ["Cloud box", "203.0.113.5"]] as const) {
     await page.getByRole("button", { name: "Add an asset" }).click();
@@ -1350,7 +1363,7 @@ test("security: change your password; the policy refuses weak ones and can requi
   await signOut();
 
   // Back to the defaults for the rest of the tests.
-  await signIn(OWNER.email, OWNER.password, totpCode(ownerTotpSecret));
+  await signIn(OWNER.email, OWNER.password, await freshTotp());
   await page.goto("/settings/security");
   await policy.getByLabel("Minimum length").fill("12");
   await policy.getByLabel("A digit").uncheck();
@@ -1472,7 +1485,7 @@ test("business: Microsoft 365 locked without a licence; with one, people in MOSS
   await ssoAs(OWNER.email);
   await page.getByRole("link", { name: "Sign in with Microsoft" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "password first" })).toContainText("Sign in with your MOSS password first, then link your Microsoft account in Settings → General.");
-  await signIn(OWNER.email, OWNER.password, totpCode(ownerTotpSecret));
+  await signIn(OWNER.email, OWNER.password, await freshTotp());
   await page.goto("/settings");
   const accounts = page.locator("#sign-in-accounts");
   await expect(accounts).toContainText("No account linked yet.");
@@ -1500,7 +1513,7 @@ test("business: Microsoft 365 locked without a licence; with one, people in MOSS
   await page.getByLabel("Password").fill(VIEWER.password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByText("Sign in with Microsoft or Google: your organisation doesn't use MOSS passwords.")).toBeVisible();
-  await signIn(OWNER.email, OWNER.password, totpCode(ownerTotpSecret));
+  await signIn(OWNER.email, OWNER.password, await freshTotp());
 
   // Slack, with the licence: two tokens (checked), switched on, and people connect with "link CODE".
   await page.goto("/settings/integrations/slack");
@@ -1707,7 +1720,7 @@ test("backups: back MOSS up, schedule it, and download one encrypted with a fres
   await dl.getByLabel("Passphrase again").fill("a long backup passphrase");
   await dl.getByRole("button", { name: "Download encrypted" }).click();
   await expect(dl.getByRole("alert")).toHaveText("That code didn't match.");
-  await dl.getByLabel("Authenticator code").fill(totpCode(ownerTotpSecret));
+  await dl.getByLabel("Authenticator code").fill(await freshTotp());
   const download = page.waitForEvent("download");
   await dl.getByRole("button", { name: "Download encrypted" }).click();
   const file = await download;
@@ -1722,7 +1735,7 @@ test("backups: back MOSS up, schedule it, and download one encrypted with a fres
 
 test("audit: the log is intact after all of that", async () => {
   await signOut();
-  await signIn(OWNER.email, OWNER.password, totpCode(ownerTotpSecret));
+  await signIn(OWNER.email, OWNER.password, await freshTotp());
   await page.goto("/audit");
   await expect(page.getByText("tool.denied")).toHaveCount(0);
   await expect(page.getByRole("cell", { name: "change.approve" }).first()).toBeVisible();
