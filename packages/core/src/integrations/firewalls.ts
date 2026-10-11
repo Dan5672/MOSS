@@ -4,7 +4,7 @@
 import type { ParsedAlert } from "../monitoring/webhooks.js";
 import { integrationOption, type FeatureOutput, type IntegrationConfig, type IntegrationDef } from "./types.js";
 
-interface FirewallStatus {
+export interface FirewallStatus {
   product: "opnsense" | "pfsense";
   version?: string;
   leases: { ip: string; mac?: string; hostname?: string }[];
