@@ -1417,6 +1417,7 @@ test("business: Microsoft 365 locked without a licence; with one, people in MOSS
   await expect(business).toContainText("Needs a licence");
   const m365 = business.locator(".opacity-60").filter({ hasText: "Microsoft 365" });
   await expect(m365).toContainText("Business licence");
+  await expect(business.locator(".opacity-60").filter({ hasText: "Slack" })).toContainText("Business licence");
   await m365.getByRole("link", { name: "What it does" }).click();
   await expect(page.getByText("Needs a business licence")).toBeVisible();
   await expect(page.getByRole("button", { name: "Save connection" })).toHaveCount(0);
@@ -1500,6 +1501,27 @@ test("business: Microsoft 365 locked without a licence; with one, people in MOSS
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByText("Sign in with Microsoft or Google: your organisation doesn't use MOSS passwords.")).toBeVisible();
   await signIn(OWNER.email, OWNER.password, totpCode(ownerTotpSecret));
+
+  // Slack, with the licence: two tokens (checked), switched on, and people connect with "link CODE".
+  await page.goto("/settings/integrations/slack");
+  await expect(page.getByLabel("Slack app manifest")).toContainText("socket_mode_enabled: true");
+  await page.getByLabel("Bot token").fill("xoxb-1234567890-abcdefghijklmnop");
+  await page.getByLabel("App-level token").fill("not-an-app-token");
+  await page.getByRole("button", { name: "Save tokens" }).click();
+  await expect(page.getByText("The app-level token starts xapp-.")).toBeVisible();
+  await page.getByLabel("Bot token").fill("xoxb-1234567890-abcdefghijklmnop");
+  await page.getByLabel("App-level token").fill("xapp-1-A0123456789-abcdefghijklmnop");
+  await page.getByRole("button", { name: "Save tokens" }).click();
+  await expect(page.getByText("Saved the tokens.")).toBeVisible();
+  await page.getByRole("button", { name: "Switch integration on" }).click();
+  await expect(page.getByText(/^Slack is on/)).toBeVisible();
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "Connect Slack" }).click();
+  await expect(page.getByText(/^Send the MOSS app a direct message in Slack: link [A-Z0-9]{8}/)).toBeVisible();
+  await page.goto("/settings/integrations/slack");
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Switch integration off" }).click();
+  await expect(page.getByText(/^Slack is off/)).toBeVisible();
 
   // Leave things as they were for the tests after this one.
   await page.goto("/settings/integrations/m365");

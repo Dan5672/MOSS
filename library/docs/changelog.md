@@ -12,6 +12,8 @@ Newest first. After an upgrade, Moss posts the newest section in #general.
   (through an approved change, using an alias your own rule uses).
 - **UPS (Network UPS Tools)**: know the moment the power goes, and shut your home lab down in order
   before the battery runs out, with your approval each time or approved in advance.
+- **Slack** (business): alerts, Approve and Reject buttons, and your agents to talk to, in Slack, with nothing
+  opened to the internet.
 - **Sign in with Microsoft or Google** (business): people already in MOSS sign in with their work account, and
   you can make it the only way in (owners keep their password).
 - **Microsoft 365 and Google Workspace** (business, read-only): managed laptops and phones in the inventory,

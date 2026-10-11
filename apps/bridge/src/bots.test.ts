@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { createBridge } from "./bridge.js";
 import { DiscordBot } from "./discord.js";
+import { SlackBot, slackCommand, toMrkdwn } from "./slack.js";
 import { parseTelegramUpdate, TelegramBot } from "./telegram.js";
 import type { Bot, BotHandlers } from "./types.js";
 
@@ -85,6 +86,56 @@ describe("Discord", () => {
 
     await bot.send("dm1", "CR-4 needs approval", [{ label: "Approve", data: "approve:x" }, { label: "Reject", data: "reject:x" }]);
     expect(calls.at(-1)!.body!.components).toEqual([{ type: 1, components: [{ type: 2, style: 3, label: "Approve", custom_id: "approve:x" }, { type: 2, style: 4, label: "Reject", custom_id: "reject:x" }] }]);
+  });
+});
+
+describe("Slack", () => {
+  it("turns typed commands into MOSS's, and MOSS's text into Slack's", () => {
+    expect([slackCommand("link AB12CD34"), slackCommand("agents"), slackCommand("agent Nina"), slackCommand("linked in?")]).toEqual(["/link AB12CD34", "/agents", "/agent Nina", "linked in?"]);
+    expect(toMrkdwn("**CR-3** needs approval: [open it](https://moss.lan/changes/1) <now> & then")).toBe("*CR-3* needs approval: <https://moss.lan/changes/1|open it> &lt;now&gt; &amp; then");
+  });
+
+  it("acknowledges every envelope, answers DMs only, and updates the message on a button press", async () => {
+    const { fetchImpl, calls } = api({ "/chat.postMessage": { ok: true }, "/hooks.slack.com/actions/T1/1/abc": {} });
+    const sent: unknown[] = [];
+    const h = handlers();
+    const bot = new SlackBot("xoxb-bot", "xapp-app", h, fetchImpl);
+    (bot as unknown as { ws: { send(x: string): void; close(): void } }).ws = { send: (x: string) => sent.push(JSON.parse(x)), close: () => {} };
+
+    const event = (id: string, e: Record<string, unknown>) => bot.onFrame(JSON.stringify({ envelope_id: id, type: "events_api", payload: { event: { type: "message", ...e } } }));
+    await event("e1", { channel: "D1", channel_type: "im", user: "U7", text: "link AB12CD34" });
+    await event("e2", { channel: "C1", channel_type: "channel", user: "U7", text: "hi" });
+    await event("e3", { channel: "D1", channel_type: "im", bot_id: "B1", text: "echo" });
+    await event("e4", { channel: "D1", channel_type: "im", user: "U7", subtype: "message_changed", text: "x" });
+    expect(sent).toEqual([{ envelope_id: "e1" }, { envelope_id: "e2" }, { envelope_id: "e3" }, { envelope_id: "e4" }]);
+    expect(h.seen).toEqual([{ externalUserId: "U7", chatId: "D1", text: "/link AB12CD34" }]);
+    expect(calls).toEqual([{ url: "https://slack.com/api/chat.postMessage", body: { channel: "D1", text: "echo: /link AB12CD34", unfurl_links: false } }]);
+
+    await bot.onFrame(
+      JSON.stringify({
+        envelope_id: "i1",
+        type: "interactive",
+        payload: { type: "block_actions", user: { id: "U7" }, actions: [{ value: "approve:abc" }], response_url: "https://hooks.slack.com/actions/T1/1/abc", message: { text: "CR-3 needs approval" } },
+      }),
+    );
+    expect(calls.at(-1)).toEqual({ url: "https://hooks.slack.com/actions/T1/1/abc", body: { replace_original: true, text: "CR-3 needs approval\n\nApproved by Dana." } });
+
+    await bot.send("D1", "CR-4 needs approval", [{ label: "Approve", data: "approve:x" }, { label: "Reject", data: "reject:x" }]);
+    expect(calls.at(-1)!.body!.blocks).toEqual([
+      { type: "section", text: { type: "mrkdwn", text: "CR-4 needs approval" } },
+      {
+        type: "actions",
+        elements: [
+          { type: "button", action_id: "moss_0", text: { type: "plain_text", text: "Approve" }, value: "approve:x", style: "primary" },
+          { type: "button", action_id: "moss_1", text: { type: "plain_text", text: "Reject" }, value: "reject:x", style: "danger" },
+        ],
+      },
+    ]);
+  });
+
+  it("says plainly when Slack refuses a message", async () => {
+    const { fetchImpl } = api({ "/chat.postMessage": { ok: false, error: "channel_not_found" } });
+    await expect(new SlackBot("xoxb", "xapp", handlers(), fetchImpl).send("D9", "hi")).rejects.toThrow("Slack: channel_not_found");
   });
 });
 

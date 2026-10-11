@@ -206,6 +206,17 @@ password has expired is sent to Settings > Security. Requiring two-factor needs 
 policy first, so they can't lock themselves out, and it can't then be turned off by someone it applies to.
 People who sign in with SSO have no MOSS password and are left out.
 
+## The Slack integration
+Business (needs a licence covering Slack). Settings > Integrations > Slack: the same as Telegram and Discord
+(alerts, Approve and Reject buttons, and agents to talk to, in direct messages with the MOSS app), through a
+Slack app you create from the manifest on the page (direct messages only: chat:write, im:history, im:read,
+im:write; Socket Mode, so nothing has to reach MOSS from the internet). It needs two tokens: the Bot User
+OAuth Token (xoxb-..., secret:slack-bot-token) and an app-level token with connections:write (xapp-...,
+secret:slack-app-token); only the gate decrypts them, for the chat bridge, while Slack is on and licensed.
+Each person connects in Settings > General > Connect Slack, then sends the app a direct message: link CODE
+(Slack keeps a leading slash for its own commands, so MOSS's commands are typed without it: link, agents,
+agent <name>). Messages in channels are ignored. Without a licence, the bot stops and nothing is sent.
+
 ## Signing in with Microsoft or Google (single sign-on)
 Business (needs a licence covering the Microsoft 365 or Google Workspace integration). On the integration's
 page, Sign in with Microsoft / Google (settings.manage and secrets.manage): it shows the redirect URI to

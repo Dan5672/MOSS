@@ -1,8 +1,8 @@
 "use server";
 
-import { CHAT_NAMES, CHAT_PLATFORMS, CHAT_TOKEN_SECRET, chatConfigSchema, createLinkCode, loadChatModule, saveModule, unlinkChat, type ChatPlatform } from "@moss/core";
+import { CHAT_NAMES, CHAT_PLATFORMS, CHAT_TOKEN_SECRET, chatConfigSchema, chatLicensed, createLinkCode, loadChatModule, saveModule, SLACK_APP_TOKEN_SECRET, unlinkChat, type ChatPlatform } from "@moss/core";
 import { secrets } from "@moss/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { act, formObject, type ActionState } from "@/server/action";
@@ -12,11 +12,18 @@ import { storeSecret } from "@/server/services";
 
 const on = (v: FormDataEntryValue | null) => v === "on" || v === "true";
 const platformOf = (p: string): ChatPlatform => z.enum(CHAT_PLATFORMS).parse(p);
-const TOKEN: Record<ChatPlatform, RegExp> = { telegram: /^\d{5,15}:[A-Za-z0-9_-]{30,}$/, discord: /^[A-Za-z0-9._-]{50,100}$/ };
+const TOKEN: Record<ChatPlatform, RegExp> = { telegram: /^\d{5,15}:[A-Za-z0-9_-]{30,}$/, discord: /^[A-Za-z0-9._-]{50,100}$/, slack: /^xoxb-[A-Za-z0-9-]{20,250}$/ };
+const SLACK_APP_TOKEN = /^xapp-[A-Za-z0-9-]{20,250}$/;
+
+/** Slack is business: nothing about it can be set up without a licence. */
+async function licensed(orgId: string, p: ChatPlatform) {
+  if (!(await chatLicensed(db(), orgId, p))) throw new Error(`${CHAT_NAMES[p]} needs a business licence: add one in Settings → About.`);
+}
 
 async function hasToken(orgId: string, p: ChatPlatform) {
-  const [s] = await db().select({ id: secrets.id }).from(secrets).where(and(eq(secrets.orgId, orgId), eq(secrets.name, CHAT_TOKEN_SECRET[p])));
-  return !!s;
+  const names = p === "slack" ? [CHAT_TOKEN_SECRET[p], SLACK_APP_TOKEN_SECRET] : [CHAT_TOKEN_SECRET[p]];
+  const rows = await db().select({ id: secrets.id }).from(secrets).where(and(eq(secrets.orgId, orgId), inArray(secrets.name, names)));
+  return rows.length === names.length;
 }
 
 export async function saveChatTokenAction(platform: string, _: ActionState, form: FormData): Promise<ActionState> {
@@ -24,12 +31,20 @@ export async function saveChatTokenAction(platform: string, _: ActionState, form
     const user = await requirePermission("integrations.manage");
     if (!user.permissions.has("secrets.manage")) throw new Error("Storing the bot token also needs permission to manage secrets.");
     const p = platformOf(platform);
+    await licensed(user.orgId, p);
     const token = String(form.get("token") ?? "").trim();
-    if (!TOKEN[p].test(token)) throw new Error(p === "telegram" ? "That doesn't look like a Telegram bot token (123456789:AA...)." : "That doesn't look like a Discord bot token.");
+    if (!TOKEN[p].test(token)) {
+      throw new Error(p === "telegram" ? "That doesn't look like a Telegram bot token (123456789:AA...)." : p === "slack" ? "The bot token starts xoxb-." : "That doesn't look like a Discord bot token.");
+    }
+    if (p === "slack") {
+      const appToken = String(form.get("appToken") ?? "").trim();
+      if (!SLACK_APP_TOKEN.test(appToken)) throw new Error("The app-level token starts xapp-.");
+      await storeSecret({ userId: user.id, name: SLACK_APP_TOKEN_SECRET, type: "api_token", value: appToken, description: "Slack app-level token (Slack integration)", allowedTools: ["chat_bridge"] });
+    }
     // Only the gate decrypts it, for the bridge; no agent tool can use it.
     await storeSecret({ userId: user.id, name: CHAT_TOKEN_SECRET[p], type: "api_token", value: token, description: `${CHAT_NAMES[p]} bot token (${CHAT_NAMES[p]} integration)`, allowedTools: ["chat_bridge"] });
     revalidatePath(`/settings/integrations/${p}`);
-    return "Saved the bot token.";
+    return p === "slack" ? "Saved the tokens." : "Saved the bot token.";
   });
 }
 
@@ -37,7 +52,8 @@ export async function setChatEnabledAction(platform: string, enabled: boolean): 
   return act(async () => {
     const user = await requirePermission("integrations.manage");
     const p = platformOf(platform);
-    if (enabled && !(await hasToken(user.orgId, p))) throw new Error("Save the bot token first.");
+    if (enabled) await licensed(user.orgId, p);
+    if (enabled && !(await hasToken(user.orgId, p))) throw new Error(p === "slack" ? "Save the tokens first." : "Save the bot token first.");
     const { config } = await loadChatModule(db(), user.orgId, p);
     await saveModule(db(), user.orgId, p, { enabled, config }, { type: "user", id: user.id });
     revalidatePath(`/settings/integrations/${p}`);
@@ -49,6 +65,7 @@ export async function saveChatSettingsAction(platform: string, _: ActionState, f
   return act(async () => {
     const user = await requirePermission("integrations.manage");
     const p = platformOf(platform);
+    await licensed(user.orgId, p);
     const f = formObject(form);
     const parsed = chatConfigSchema.safeParse({
       incidents: on(form.get("incidents")),

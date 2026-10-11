@@ -11,12 +11,22 @@ import { approveChange, rejectChange } from "../services/changes.js";
 import { openDm, postMessage } from "../services/conversations.js";
 import { loadModule } from "../services/modules.js";
 import { userPermissions } from "../services/notifications.js";
+import { integrationLicensed } from "../licensing/service.js";
 
-export const CHAT_PLATFORMS = ["telegram", "discord"] as const;
+export const CHAT_PLATFORMS = ["telegram", "discord", "slack"] as const;
 export type ChatPlatform = (typeof CHAT_PLATFORMS)[number];
-export const CHAT_NAMES: Record<ChatPlatform, string> = { telegram: "Telegram", discord: "Discord" };
+export const CHAT_NAMES: Record<ChatPlatform, string> = { telegram: "Telegram", discord: "Discord", slack: "Slack" };
 /** The secret holding each bot's token. Only the gate decrypts it, for the bridge. */
-export const CHAT_TOKEN_SECRET: Record<ChatPlatform, string> = { telegram: "telegram-bot-token", discord: "discord-bot-token" };
+export const CHAT_TOKEN_SECRET: Record<ChatPlatform, string> = { telegram: "telegram-bot-token", discord: "discord-bot-token", slack: "slack-bot-token" };
+/** Slack's app-level token, for its Socket Mode connection (the bot token above sends messages). */
+export const SLACK_APP_TOKEN_SECRET = "slack-app-token";
+/** Business chat apps need a licence that covers them (their key is the licence feature). */
+export const CHAT_PLAN: Record<ChatPlatform, "free" | "business"> = { telegram: "free", discord: "free", slack: "business" };
+
+/** Whether this org may use the chat app (Telegram and Discord always; Slack with a licence). */
+export async function chatLicensed(db: Pick<Database, "select">, orgId: string, platform: ChatPlatform): Promise<boolean> {
+  return integrationLicensed(db as Database, orgId, { key: platform, plan: CHAT_PLAN[platform] });
+}
 
 const PRIORITIES = ["P1", "P2", "P3", "P4"] as const;
 export const chatConfigSchema = z.object({
@@ -39,7 +49,8 @@ export type ChatConfig = z.infer<typeof chatConfigSchema>;
 
 export async function loadChatModule(db: Pick<Database, "select">, orgId: string, platform: ChatPlatform) {
   const row = await loadModule(db, orgId, platform);
-  return { enabled: row.enabled, config: chatConfigSchema.parse(row.config ?? {}) };
+  // An unlicensed business chat app counts as off everywhere (its settings are kept).
+  return { enabled: row.enabled && (await chatLicensed(db, orgId, platform)), config: chatConfigSchema.parse(row.config ?? {}) };
 }
 
 // --- Linking ----------------------------------------------------------------------------------------
@@ -303,5 +314,7 @@ export async function pruneChatOutbox(db: Database, now = new Date()) {
 /** Orgs with a platform switched on: the bridge runs a bot for each. */
 export async function chatEnabledOrgs(db: Pick<Database, "select">, platform: ChatPlatform): Promise<string[]> {
   const rows = await db.select({ orgId: modules.orgId }).from(modules).where(and(eq(modules.key, platform), eq(modules.enabled, true)));
-  return rows.map((r) => r.orgId);
+  const out: string[] = [];
+  for (const r of rows) if (await chatLicensed(db, r.orgId, platform)) out.push(r.orgId);
+  return out;
 }

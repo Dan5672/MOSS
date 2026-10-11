@@ -6,6 +6,7 @@ import { chatOutboxBatch, handleButton, handleIncoming, markChatSent, pruneChatO
 import type { Database } from "@moss/db";
 import type { PgBoss } from "pg-boss";
 import { DiscordBot } from "./discord.js";
+import { SlackBot } from "./slack.js";
 import { TelegramBot } from "./telegram.js";
 import type { Bot, BotHandlers } from "./types.js";
 
@@ -13,6 +14,8 @@ export interface Credential {
   orgId: string;
   platform: ChatPlatform;
   token: string;
+  /** Slack: the app-level token for Socket Mode. */
+  appToken?: string;
 }
 
 export interface BridgeDeps {
@@ -24,7 +27,10 @@ export interface BridgeDeps {
   log: (msg: string, extra?: Record<string, unknown>) => void;
 }
 
-const defaultBot = (c: Credential, h: BotHandlers): Bot => (c.platform === "telegram" ? new TelegramBot(c.token, h) : new DiscordBot(c.token, h));
+const defaultBot = (c: Credential, h: BotHandlers): Bot =>
+  c.platform === "telegram" ? new TelegramBot(c.token, h) : c.platform === "slack" ? new SlackBot(c.token, c.appToken ?? "", h) : new DiscordBot(c.token, h);
+/** What a bot runs with: a change to either Slack token restarts it. */
+const tokensOf = (c: Credential) => `${c.token}|${c.appToken ?? ""}`;
 
 export function createBridge(deps: BridgeDeps) {
   const bots = new Map<string, { token: string; bot: Bot; orgId: string; platform: ChatPlatform }>();
@@ -57,7 +63,7 @@ export function createBridge(deps: BridgeDeps) {
     const want = new Map(creds.map((c) => [`${c.orgId}:${c.platform}`, c]));
     for (const [key, b] of bots) {
       const c = want.get(key);
-      if (!c || c.token !== b.token) {
+      if (!c || tokensOf(c) !== b.token) {
         b.bot.stop();
         bots.delete(key);
         deps.log("chat bot stopped", { orgId: b.orgId, platform: b.platform });
@@ -66,7 +72,7 @@ export function createBridge(deps: BridgeDeps) {
     for (const [key, c] of want) {
       if (bots.has(key)) continue;
       const bot = (deps.makeBot ?? defaultBot)(c, handlers(c.orgId, c.platform));
-      bots.set(key, { token: c.token, bot, orgId: c.orgId, platform: c.platform });
+      bots.set(key, { token: tokensOf(c), bot, orgId: c.orgId, platform: c.platform });
       bot.start();
       deps.log("chat bot started", { orgId: c.orgId, platform: c.platform });
     }

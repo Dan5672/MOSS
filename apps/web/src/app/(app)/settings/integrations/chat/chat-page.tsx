@@ -1,4 +1,5 @@
-import { CHAT_NAMES, CHAT_TOKEN_SECRET, listChatLinks, loadChatModule, type ChatPlatform } from "@moss/core";
+import { CHAT_NAMES, CHAT_TOKEN_SECRET, chatLicensed, listChatLinks, loadChatModule, type ChatPlatform } from "@moss/core";
+import Link from "next/link";
 import { secrets } from "@moss/db";
 import { and, eq } from "drizzle-orm";
 import { ActionForm } from "@/components/action-form";
@@ -32,13 +33,53 @@ const SETUP: Record<ChatPlatform, React.ReactNode> = {
       <li>Switch the integration on. Then each person connects their own Discord in Settings → General.</li>
     </ol>
   ),
+  slack: (
+    <ol className="grid list-decimal gap-1 pl-5">
+      <li>
+        At api.slack.com/apps, <strong>Create New App</strong> → <strong>From a manifest</strong>, pick your workspace, and paste the manifest below. It asks
+        only to read and send direct messages, and uses Socket Mode, so nothing has to reach MOSS from the internet.
+      </li>
+      <li>
+        <strong>Install to Workspace</strong>, then copy the <strong>Bot User OAuth Token</strong> (xoxb-…) from OAuth &amp; Permissions.
+      </li>
+      <li>
+        In Basic Information → App-Level Tokens, <strong>Generate Token and Scopes</strong> with the <code>connections:write</code> scope, and copy it (xapp-…).
+      </li>
+      <li>Paste both below and switch the integration on. Then each person connects their own Slack in Settings → General.</li>
+    </ol>
+  ),
 };
+
+/** Slack's app, ready to paste into "Create app from a manifest". */
+const SLACK_MANIFEST = `display_information:
+  name: MOSS
+  description: Your AI IT department
+features:
+  app_home:
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+  bot_user:
+    display_name: MOSS
+    always_online: true
+oauth_config:
+  scopes:
+    bot: [chat:write, im:history, im:read, im:write]
+settings:
+  event_subscriptions:
+    bot_events: [message.im]
+  interactivity:
+    is_enabled: true
+  socket_mode_enabled: true
+  org_deploy_enabled: false
+  token_rotation_enabled: false
+`;
 
 /** A chat app's settings: the bot token, what MOSS sends, and who has connected. */
 export async function ChatIntegrationPage({ platform }: { platform: ChatPlatform }) {
   const user = await requireUser();
   if (!user.permissions.has("integrations.manage")) return <NoPermission />;
   const name = CHAT_NAMES[platform];
+  if (!(await chatLicensed(db(), user.orgId, platform))) return <ChatNeedsLicence name={name} />;
   const [{ enabled, config: c }, token, links] = await Promise.all([
     loadChatModule(db(), user.orgId, platform),
     db().select({ updatedAt: secrets.updatedAt }).from(secrets).where(and(eq(secrets.orgId, user.orgId), eq(secrets.name, CHAT_TOKEN_SECRET[platform]))),
@@ -77,8 +118,14 @@ export async function ChatIntegrationPage({ platform }: { platform: ChatPlatform
           </CardHeader>
           <CardContent className="grid gap-4 text-sm">
             {SETUP[platform]}
-            <ActionForm action={saveChatTokenAction.bind(null, platform)} submitLabel="Save token" resetOnSuccess>
+            {platform === "slack" && (
+              <pre className="max-h-64 overflow-auto bg-muted p-2 font-mono text-xs" aria-label="Slack app manifest">
+                {SLACK_MANIFEST}
+              </pre>
+            )}
+            <ActionForm action={saveChatTokenAction.bind(null, platform)} submitLabel={platform === "slack" ? "Save tokens" : "Save token"} resetOnSuccess>
               <TextField label="Bot token" name="token" type="password" autoComplete="off" placeholder={token.length ? "Saved. Paste a new one to replace it." : undefined} required />
+              {platform === "slack" && <TextField label="App-level token" name="appToken" type="password" autoComplete="off" placeholder={token.length ? "Saved. Paste a new one to replace it." : undefined} required />}
             </ActionForm>
           </CardContent>
         </Card>
@@ -136,6 +183,36 @@ export async function ChatIntegrationPage({ platform }: { platform: ChatPlatform
           </CardContent>
         </Card>
       </div>
+    </>
+  );
+}
+
+/** A business chat app without a licence: what it does, and where to add one. */
+function ChatNeedsLicence({ name }: { name: string }) {
+  return (
+    <>
+      <PageHeader
+        title={name}
+        description={`Alerts, Approve and Reject buttons for changes, and your agents to talk to, in ${name}.`}
+        trail={[
+          { href: "/settings", label: "Settings" },
+          { href: "/settings/integrations", label: "Integrations" },
+        ]}
+      />
+      <Card className="max-w-2xl">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            Needs a business licence <Badge variant="outline">Business</Badge>
+          </CardTitle>
+          <CardDescription>
+            {name} is a business integration. Add a licence in{" "}
+            <Link href="/settings/about#licence" className="underline underline-offset-2">
+              Settings → About
+            </Link>{" "}
+            to set it up.
+          </CardDescription>
+        </CardHeader>
+      </Card>
     </>
   );
 }

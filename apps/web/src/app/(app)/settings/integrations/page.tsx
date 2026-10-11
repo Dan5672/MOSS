@@ -1,5 +1,6 @@
 import {
   CHAT_NAMES,
+  CHAT_PLAN,
   CHAT_PLATFORMS,
   getLicenceStatus,
   integrationAllowed,
@@ -8,6 +9,7 @@ import {
   loadChatModule,
   loadHomeAssistant,
   loadIntegration,
+  type ChatPlatform,
   type IntegrationDef,
 } from "@moss/core";
 import Link from "next/link";
@@ -68,28 +70,11 @@ export default async function ModulesPage() {
             </Link>
           </CardContent>
         </Card>
-        {chats.map(({ p, it }) => {
-          const people = links.filter((l) => l.platform === p).length;
-          return (
-            <Card key={p}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Link href={`/settings/integrations/${p}`} className="underline-offset-2 hover:underline">
-                    {CHAT_NAMES[p]}
-                  </Link>
-                  <Badge variant={it.enabled ? "default" : "outline"}>{it.enabled ? "On" : "Off"}</Badge>
-                </CardTitle>
-                <CardDescription>Alerts on your phone, Approve and Reject buttons for changes, and your agents to talk to, through your own {CHAT_NAMES[p]} bot.</CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-3 text-sm">
-                <p>{it.enabled ? `On, ${people} person${people === 1 ? "" : "s"} connected.` : "Not set up."}</p>
-                <Link href={`/settings/integrations/${p}`} className="w-fit border-2 px-3 py-2 font-mono text-sm hover:bg-muted">
-                  {it.enabled ? "Configure" : "Set up"}
-                </Link>
-              </CardContent>
-            </Card>
-          );
-        })}
+        {chats
+          .filter(({ p }) => CHAT_PLAN[p] === "free")
+          .map(({ p, it }) => (
+            <ChatCard key={p} p={p} enabled={it.enabled} people={links.filter((l) => l.platform === p).length} />
+          ))}
         {others
           .filter(({ def }) => def.plan !== "business")
           .map(({ def, it }) => (
@@ -118,6 +103,11 @@ export default async function ModulesPage() {
             </p>
           </div>
           <div className="grid gap-6 lg:grid-cols-2">
+            {chats
+              .filter(({ p }) => CHAT_PLAN[p] === "business")
+              .map(({ p, it }) => (
+                <ChatCard key={p} p={p} enabled={it.enabled} people={links.filter((l) => l.platform === p).length} locked={!integrationAllowed({ key: p, plan: "business" }, licence)} />
+              ))}
             {business.map(({ def, it }) => (
               <IntegrationCard key={def.key} def={def} it={it} locked={!integrationAllowed(def, licence)} />
             ))}
@@ -173,6 +163,47 @@ function IntegrationCard({ def, it, locked = false }: { def: IntegrationDef; it:
         </p>
         <Link href={`/settings/integrations/${def.key}`} className="w-fit border-2 px-3 py-2 font-mono text-sm hover:bg-muted">
           {it.config.host || it.config.hosts.length ? "Configure" : "Set up"}
+        </Link>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** A chat app: on or off, how many people are connected, and a link to set it up (none while it needs a licence). */
+function ChatCard({ p, enabled, people, locked = false }: { p: ChatPlatform; enabled: boolean; people: number; locked?: boolean }) {
+  const what = `Alerts on your phone, Approve and Reject buttons for changes, and your agents to talk to, through your own ${CHAT_NAMES[p]} ${p === "slack" ? "app" : "bot"}.`;
+  if (locked) {
+    return (
+      <Card className="opacity-60">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            {CHAT_NAMES[p]} <Badge variant="outline">Business licence</Badge>
+          </CardTitle>
+          <CardDescription>{what}</CardDescription>
+        </CardHeader>
+        <CardContent className="text-sm">
+          <Link href={`/settings/integrations/${p}`} className="underline underline-offset-2">
+            What it does
+          </Link>
+        </CardContent>
+      </Card>
+    );
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Link href={`/settings/integrations/${p}`} className="underline-offset-2 hover:underline">
+            {CHAT_NAMES[p]}
+          </Link>
+          <Badge variant={enabled ? "default" : "outline"}>{enabled ? "On" : "Off"}</Badge>
+        </CardTitle>
+        <CardDescription>{what}</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3 text-sm">
+        <p>{enabled ? `On, ${people} person${people === 1 ? "" : "s"} connected.` : "Not set up."}</p>
+        <Link href={`/settings/integrations/${p}`} className="w-fit border-2 px-3 py-2 font-mono text-sm hover:bg-muted">
+          {enabled ? "Configure" : "Set up"}
         </Link>
       </CardContent>
     </Card>

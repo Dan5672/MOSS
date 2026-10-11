@@ -1102,7 +1102,7 @@ export const chatLinks = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    platform: text("platform", { enum: ["telegram", "discord"] }).notNull(),
+    platform: text("platform", { enum: ["telegram", "discord", "slack"] }).notNull(),
     externalUserId: text("external_user_id").notNull(),
     /** Where to send to them: the Telegram chat or the Discord DM channel. */
     chatId: text("chat_id").notNull(),
@@ -1123,7 +1123,7 @@ export const chatLinkCodes = pgTable("chat_link_codes", {
   userId: uuid("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
-  platform: text("platform", { enum: ["telegram", "discord"] }).notNull(),
+  platform: text("platform", { enum: ["telegram", "discord", "slack"] }).notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 });
 
@@ -1133,7 +1133,7 @@ export const chatOutbox = pgTable(
   {
     id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
     orgId: uuid("org_id").notNull(),
-    platform: text("platform", { enum: ["telegram", "discord"] }).notNull(),
+    platform: text("platform", { enum: ["telegram", "discord", "slack"] }).notNull(),
     chatId: text("chat_id").notNull(),
     text: text("text").notNull(),
     /** Buttons under the message: a label, and what pressing it sends back (approve:<id>, reject:<id>). */
