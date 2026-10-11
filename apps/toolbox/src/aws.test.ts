@@ -67,7 +67,7 @@ describe("AWS", () => {
 
   it("finds what the internet can reach, and the account's weak spots", async () => {
     const old = new Date(Date.now() - 200 * 86_400_000).toISOString();
-    const { fetchImpl } = aws({
+    const { fetchImpl, calls } = aws({
       "ec2.ap-southeast-2.amazonaws.com/ DescribeInstances": INSTANCES,
       "ec2.ap-southeast-2.amazonaws.com/ DescribeSecurityGroups": `<DescribeSecurityGroupsResponse><securityGroupInfo>
         <item><groupId>sg-open</groupId><ipPermissions>
@@ -77,10 +77,12 @@ describe("AWS", () => {
         <item><groupId>sg-web</groupId><ipPermissions><item><ipProtocol>tcp</ipProtocol><fromPort>443</fromPort><toPort>443</toPort><ipRanges><item><cidrIp>0.0.0.0/0</cidrIp></item></ipRanges></item></ipPermissions></item>
       </securityGroupInfo></DescribeSecurityGroupsResponse>`,
       "rds.ap-southeast-2.amazonaws.com/ DescribeDBInstances": RDS,
-      "s3.amazonaws.com/": `<ListAllMyBucketsResult><Buckets><Bucket><Name>site-assets</Name></Bucket><Bucket><Name>backups</Name></Bucket></Buckets></ListAllMyBucketsResult>`,
+      "s3.amazonaws.com/": `<ListAllMyBucketsResult><Buckets><Bucket><Name>site-assets</Name></Bucket><Bucket><Name>backups</Name></Bucket><Bucket><Name>odd</Name></Bucket></Buckets></ListAllMyBucketsResult>`,
       "s3.amazonaws.com/site-assets location": `<LocationConstraint>ap-southeast-2</LocationConstraint>`,
       "s3.ap-southeast-2.amazonaws.com/site-assets policyStatus": `<PolicyStatus><IsPublic>true</IsPublic></PolicyStatus>`,
       "s3.amazonaws.com/backups location": `<LocationConstraint></LocationConstraint>`,
+      // A location that isn't a region must never become a host to call.
+      "s3.amazonaws.com/odd location": `<LocationConstraint>attacker.test/x</LocationConstraint>`,
       "s3.us-east-1.amazonaws.com/backups publicAccessBlock": `<PublicAccessBlockConfiguration><IgnorePublicAcls>true</IgnorePublicAcls><RestrictPublicBuckets>true</RestrictPublicBuckets></PublicAccessBlockConfiguration>`,
       "iam.amazonaws.com/ GetAccountSummary": `<GetAccountSummaryResponse><GetAccountSummaryResult><SummaryMap><entry><key>AccountMFAEnabled</key><value>0</value></entry><entry><key>AccountAccessKeysPresent</key><value>1</value></entry></SummaryMap></GetAccountSummaryResult></GetAccountSummaryResponse>`,
       "iam.amazonaws.com/ ListUsers": `<ListUsersResponse><ListUsersResult><Users><member><UserName>ci</UserName></member></Users></ListUsersResult></ListUsersResponse>`,
@@ -88,12 +90,13 @@ describe("AWS", () => {
     });
     const res = await awsExposure(creds, fetchImpl);
     expect(res.findings).toEqual([
-      { key: "sg:i-web", resource: "web (i-web)", issue: "Open to the internet on SSH (22), MySQL (3306), RDP (3389)", region: "ap-southeast-2" },
+      { key: "sg:i-web:MySQL (3306)+RDP (3389)+SSH (22)", resource: "web (i-web)", issue: "Open to the internet on SSH (22), MySQL (3306), RDP (3389)", region: "ap-southeast-2" },
       { key: "ip:i-app", resource: "i-app", issue: "Has a public address (203.0.113.11)", region: "ap-southeast-2" },
       { key: "rds:orders", resource: "orders (postgres)", issue: "Publicly accessible database", region: "ap-southeast-2" },
       { key: "s3:site-assets", resource: "site-assets", issue: "Public S3 bucket (bucket policy)", region: "ap-southeast-2" },
     ]);
     expect(res.account).toEqual({ rootMfa: false, rootKeys: true, oldKeys: ["ci"] });
+    expect(calls.filter((c) => c.includes("attacker"))).toEqual([]);
   });
 
   it("reads CloudWatch alarms, and says plainly what the key isn't allowed", async () => {

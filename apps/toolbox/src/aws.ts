@@ -52,7 +52,8 @@ export function signV4(r: {
   return { ...rest, Authorization: `AWS4-HMAC-SHA256 Credential=${r.accessKeyId}/${scope}, SignedHeaders=${names.join(";")}, Signature=${signature}` };
 }
 
-const xml = new XMLParser({ ignoreAttributes: true, parseTagValue: false, isArray: (name) => ["item", "member", "DBInstance", "Bucket", "Grant", "entry"].includes(name) });
+// No entity processing: AWS never needs it, and it's a way to blow up or confuse a parser.
+const xml = new XMLParser({ ignoreAttributes: true, parseTagValue: false, processEntities: false, isArray: (name) => ["item", "member", "DBInstance", "Bucket", "Grant", "entry"].includes(name) });
 const list = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v as Record<string, unknown>[]) : v && typeof v === "object" ? [v as Record<string, unknown>] : []);
 const o = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 
@@ -185,7 +186,8 @@ export async function awsExposure(a: Creds, f: Fetch = fetch as unknown as Fetch
     for (const i of inst.filter((x) => x.state === "running" && x.publicIp)) {
       const ports = [...new Set(i.groups.flatMap((g) => open.get(g) ?? []))];
       const label = i.name ? `${i.name} (${i.id})` : i.id;
-      if (ports.length) findings.push({ key: `sg:${i.id}`, resource: label, issue: `Open to the internet on ${ports.join(", ")}`, region });
+      // The key names the ports, so newly opened ones on an instance already marked as expected are flagged again.
+      if (ports.length) findings.push({ key: `sg:${i.id}:${[...ports].sort().join("+")}`, resource: label, issue: `Open to the internet on ${ports.join(", ")}`, region });
       else findings.push({ key: `ip:${i.id}`, resource: label, issue: `Has a public address (${i.publicIp})`, region });
     }
     for (const d of (await databases(f, a, region)).filter((x) => x.public)) findings.push({ key: `rds:${d.id}`, resource: `${d.id} (${d.engine ?? "database"})`, issue: "Publicly accessible database", region });
@@ -200,6 +202,8 @@ export async function awsExposure(a: Creds, f: Fetch = fetch as unknown as Fetch
     // An empty location is us-east-1; "EU" is the old name for eu-west-1.
     const where = clean(o(loc).LocationConstraint);
     const region = !where ? "us-east-1" : where === "EU" ? "eu-west-1" : where;
+    // The region becomes part of a host name: only a real region code, so an odd answer can't send requests elsewhere.
+    if (!REGION.test(region)) continue;
     const at = (query: Record<string, string>) => request(f, a, { service: "s3", region, host: `s3.${region}.amazonaws.com`, path: `/${name}`, query, s3: true, optional: true });
     const block = o(o(await at({ publicAccessBlock: "" })).PublicAccessBlockConfiguration);
     if (block.RestrictPublicBuckets === "true" && block.IgnorePublicAcls === "true") continue;
