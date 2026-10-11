@@ -71,6 +71,7 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
     const rows = await db.select().from(skills).where(eq(skills.orgId, actor.orgId));
     expect(rows.map((s) => s.key).sort()).toEqual([
       "asset-inventory",
+      "aws-account",
       "change-management",
       "config-backups",
       "device-power",

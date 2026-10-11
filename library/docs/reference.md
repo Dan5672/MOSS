@@ -47,6 +47,18 @@ Granted by: Home & DNS Actions, Home Lab Integrations.
 A network tool (read), run by the toolbox through the policy gate. Discover devices on a directly attached IPv4 subnet using ARP. Returns IP, MAC and NIC vendor. Only works for subnets the toolbox is directly connected to.
 Granted by: Network Discovery.
 
+## Tool aws_alarms
+A network tool (read), run by the toolbox through the policy gate. List the AWS account's CloudWatch alarms and their state (OK, ALARM, INSUFFICIENT_DATA) in its regions. Calls AWS's APIs.
+Granted by: AWS Account.
+
+## Tool aws_exposure
+A network tool (read), run by the toolbox through the policy gate. Find what the internet can reach in the AWS account (instances with public addresses, security groups open to the world on sensitive ports, public S3 buckets, publicly accessible databases) and account weak spots (root without MFA, root access keys, access keys older than 90 days). Calls AWS's APIs.
+Granted by: AWS Account.
+
+## Tool aws_inventory
+A network tool (read), run by the toolbox through the policy gate. List the EC2 instances (name, type, state, addresses, security groups) and RDS databases in the AWS account's regions. Calls AWS's APIs.
+Granted by: AWS Account.
+
 ## Tool cloudflare_dns
 A network tool (read), run by the toolbox through the policy gate. List the Cloudflare zones the token can see, and each zone's DNS records (type, name, content, proxied). Calls api.cloudflare.com.
 Granted by: Firewall Actions, Home Lab Integrations.
@@ -369,7 +381,7 @@ Granted by: Asset Inventory.
 
 ## Tool inventory_search
 A MOSS tool (works on MOSS itself; needs the assets.read permission). Search the asset inventory by free text (name, hostname, vendor, MAC, IP, notes), IP/CIDR, or kind.
-Granted by: Asset Inventory, Firewall Actions, Home Lab Integrations, Network Insight, Network Wiki, Security Baseline Review, Server Checks, Service Desk, Service Health Checks, Vulnerability Scanning, Workplace Directory.
+Granted by: Asset Inventory, AWS Account, Firewall Actions, Home Lab Integrations, Network Insight, Network Wiki, Security Baseline Review, Server Checks, Service Desk, Service Health Checks, Vulnerability Scanning, Workplace Directory.
 
 ## Tool inventory_update
 A MOSS tool (works on MOSS itself; needs the assets.manage permission). Update an asset's classification and notes. Locked assets cannot be changed.
@@ -434,6 +446,10 @@ Granted by: Network Wiki, Team Memory.
 ## Skill Asset Inventory
 Core: built into every agent (except Moss). Key asset-inventory. Keep the asset inventory accurate - identify, name and classify devices.
 Tools: inventory_search, inventory_add, inventory_update.
+
+## Skill AWS Account
+Added per agent. Key aws-account. Read the AWS account (instances, databases, CloudWatch alarms) and what the internet can reach in it.
+Tools: aws_inventory, aws_alarms, aws_exposure, inventory_search.
 
 ## Skill Change Management
 Core: built into every agent (except Moss). Key change-management. Make changes safely through approved change requests.

@@ -224,6 +224,19 @@ degraded over the loss or latency you set, with both as readings; each site-to-s
 in the inventory (every 6 hours, with model and serial); client names (every 6 hours, from the clients each
 network saw in the last day, up to 10 networks). Agent tools: meraki_devices, meraki_network.
 
+## The AWS integration
+Business, read-only. Settings > Integrations > AWS (a cloud service: MOSS calls AWS's APIs, signing requests
+itself). Connection: an IAM user's access key ID, the regions to read (up to 10) and its secret access key
+(secret:aws-secret-access-key). Attach only the read-only policy shown on the page (EC2 and RDS describe,
+CloudWatch alarms, S3 bucket public-access checks, IAM account summary and access key lists). Features:
+instances and databases in the inventory (every 6 hours; matched by their AWS id only, never by address, since
+a VPC's private addresses can repeat the office network's); CloudWatch alarms (every 5 minutes, one monitor
+each, down in ALARM); exposure report and account checks (every hour: instances with public addresses,
+security groups open to the world on sensitive ports (SSH, RDP, databases and the like), public S3 buckets and
+publicly accessible databases, listed on the page; new ones make the "AWS exposure" monitor degraded until
+marked as expected; plus monitors for the root account's MFA and access keys, and access keys older than 90
+days). Agent tools: aws_inventory, aws_alarms, aws_exposure (skill: AWS Account).
+
 ## The PagerDuty integration
 Business (needs a licence covering PagerDuty). Settings > Integrations > PagerDuty. Connection: an Events API
 V2 integration key from the PagerDuty service that should be paged (secret:pagerduty-routing-key; it can only

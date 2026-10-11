@@ -2,7 +2,7 @@
 import { createChangeRequest, dispatchEvents, encryptSecret, handleIncoming, handleMonitorDown, handleMonitorUp, parseMasterKey, removeLicence, saveLicence, signLicence, totpCode } from "@moss/core";
 import { agentRuns, agents, configBackups, createDb, modules, monitors, secrets, users, type Database } from "@moss/db";
 import { expect, test, type Page } from "@playwright/test";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -1536,6 +1536,39 @@ test("business: Microsoft 365 locked without a licence; with one, people in MOSS
   await acks.getByRole("button", { name: "Save API key" }).click();
   await expect(page.getByText("Saved the API key.")).toBeVisible();
   await expect(acks).toContainText("Key saved");
+
+  // AWS: the access key ID and regions checked, the policy to attach, and findings marked as expected.
+  await page.goto("/settings/integrations/aws");
+  await expect(page.getByLabel("IAM policy")).toContainText("ec2:DescribeInstances");
+  await page.getByLabel("Access key ID").fill("not-a-key");
+  await page.getByLabel("Regions").fill("ap-southeast-2");
+  await page.getByLabel("Secret access key").fill("wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY");
+  await page.getByRole("button", { name: "Save connection" }).click();
+  await expect(page.getByText(/^Access key ID: An access key ID/)).toBeVisible();
+  await page.getByLabel("Access key ID").fill("AKIAABCDEFGHIJKLMNOP");
+  await page.getByLabel("Regions").fill("ap-southeast-2, us-east-1");
+  await page.getByRole("button", { name: "Save connection" }).click();
+  await expect(page.getByText("Saved the connection and the credential.")).toBeVisible();
+  await db
+    .update(modules)
+    .set({
+      state: {
+        exposure: {
+          at: new Date().toISOString(),
+          findings: [
+            { key: "sg:i-web", resource: "web (i-web)", issue: "Open to the internet on SSH (22)", region: "ap-southeast-2" },
+            { key: "s3:site-assets", resource: "site-assets", issue: "Public S3 bucket (bucket policy)", region: "ap-southeast-2" },
+          ],
+        },
+      },
+    })
+    .where(and(eq(modules.orgId, owner!.orgId), eq(modules.key, "aws")));
+  await page.reload();
+  const exposure = page.locator("#exposure");
+  await expect(exposure.getByText("2 new")).toBeVisible();
+  await exposure.getByRole("listitem").filter({ hasText: "site-assets" }).getByRole("button", { name: "Mark as expected" }).click();
+  await expect(page.getByText(/^Marked it as expected/)).toBeVisible();
+  await expect(exposure.getByText("1 new")).toBeVisible();
 
   // Leave things as they were for the tests after this one.
   await page.goto("/settings/integrations/m365");

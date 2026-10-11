@@ -11,6 +11,7 @@ import { isOwner, requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { integrationOrNull, integrationPage } from "@/server/integrations";
 import { CloudflareExposureCard } from "./cloudflare-exposure";
+import { AwsCards } from "./aws-card";
 import { PagerdutyApiKeyCard } from "./pagerduty-card";
 import { SsoCard } from "./sso-card";
 import { UpsPlanCard } from "./ups-plan";
@@ -213,6 +214,7 @@ export default async function IntegrationSettingsPage({ params }: PageProps<"/se
             canManage={user.permissions.has("settings.manage") && canSecrets && (await isOwner(user.id))}
           />
         )}
+        {def.key === "aws" && <AwsCards orgId={user.orgId} canManage={user.permissions.has("integrations.manage")} />}
         {def.key === "pagerduty" && <PagerdutyApiKeyCard orgId={user.orgId} canManage={canSecrets} />}
         {def.key === "cloudflare" && <CloudflareExposureCard orgId={user.orgId} canManage={user.permissions.has("integrations.manage")} />}
         {def.key === "nut" && <UpsPlanCard orgId={user.orgId} agents={p.agents} canApprove={user.permissions.has("changes.approve")} />}

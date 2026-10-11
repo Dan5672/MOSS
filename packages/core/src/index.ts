@@ -34,6 +34,7 @@ export * from "./licensing/service.js";
 export * from "./auth/sso.js";
 export { pagerdutyEventArgs, pagerdutyPages, PAGERDUTY_API_SECRET } from "./integrations/pagerduty.js";
 export { notePagerdutyChanges } from "./integrations/pagerduty-acks.js";
+export { AWS_POLICY, awsAcknowledged, type AwsFinding, type AwsState } from "./integrations/aws.js";
 export { acknowledgedHostnames, publicHostnames, type CloudflareState, type PublicHostname } from "./integrations/cloudflare.js";
 export * from "./chat-bridge/chat.js";
 export * from "./services/certificates.js";

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { parseIntegrationConfig } from "./integrations/config.js";
 import { FORTIGATE, fortigateHealth } from "./integrations/fortigate.js";
 import { MERAKI, merakiClients, merakiHealth, merakiInventory } from "./integrations/meraki.js";
+import { AWS, awsAlarmsHealth, awsExposureHealth, awsInventoryOutput } from "./integrations/aws.js";
 
 describe("FortiGate", () => {
   it("watches SD-WAN links, VPN tunnels and firmware", () => {
@@ -68,5 +69,38 @@ describe("Cisco Meraki", () => {
     expect(merakiClients({ clients: [{ mac: "aa:bb:cc:00:00:50", ip: "10.0.0.50", name: "Reception PC" }, { name: "nothing to match" }] }).inventory).toEqual([
       { externalId: "mac:aa:bb:cc:00:00:50", name: "Reception PC", ips: ["10.0.0.50"], macs: ["aa:bb:cc:00:00:50"], details: { network: undefined } },
     ]);
+  });
+});
+
+describe("AWS", () => {
+  it("puts instances and databases in the inventory by their AWS id only, never by address", () => {
+    const out = awsInventoryOutput({
+      instances: [
+        { id: "i-web", name: "web", type: "t3.small", state: "running", privateIp: "10.0.1.5", publicIp: "203.0.113.10", region: "ap-southeast-2" },
+        { id: "i-gone", state: "terminated", region: "ap-southeast-2" },
+      ],
+      databases: [{ id: "orders", engine: "postgres", status: "available", public: true, region: "ap-southeast-2" }],
+    });
+    expect(out.inventory).toEqual([
+      expect.objectContaining({ externalId: "aws:i-web", name: "web", kind: "vm", ips: [], macs: [], createWithoutIp: true, details: expect.objectContaining({ privateIp: "10.0.1.5" }) }),
+      expect.objectContaining({ externalId: "aws:rds:orders", kind: "database", ips: [] }),
+    ]);
+  });
+
+  it("is degraded while a finding isn't expected, and flags the account's weak spots", () => {
+    const findings = [
+      { key: "sg:i-web", resource: "web (i-web)", issue: "Open to the internet on SSH (22)" },
+      { key: "s3:site-assets", resource: "site-assets", issue: "Public S3 bucket (bucket policy)" },
+    ];
+    const now = new Date("2030-01-01T00:00:00Z");
+    const out = awsExposureHealth({ findings, account: { rootMfa: false, rootKeys: false, oldKeys: ["ci"] } }, parseIntegrationConfig(AWS, { options: { acknowledged: ["s3:site-assets"] } }), now);
+    expect(out.alerts!.map((a) => [a.key, a.status])).toEqual([
+      ["exposure", "degraded"],
+      ["root-mfa", "down"],
+      ["root-keys", "up"],
+      ["old-keys", "degraded"],
+    ]);
+    expect(out.alerts![0]!.message).toMatch(/^New: web \(i-web\): Open to the internet on SSH \(22\)\./);
+    expect(awsAlarmsHealth({ alarms: [{ name: "web CPU", state: "ALARM", region: "ap-southeast-2" }] }).alerts![0]).toMatchObject({ key: "alarm:ap-southeast-2:web CPU", status: "down" });
   });
 });

@@ -10,6 +10,7 @@ import { cloudflareDns, cloudflareDnsRecord, cloudflareTunnels, mossReleases, ta
 import { dockerApiContainers } from "./docker-api.js";
 import { fortigateStatus } from "./fortigate.js";
 import { gworkspaceAlerts, gworkspaceDevices, gworkspaceUsers } from "./google.js";
+import { awsAlarms, awsExposure, awsInventory } from "./aws.js";
 import { merakiDevices, merakiNetwork } from "./meraki.js";
 import { m365Devices, m365ServiceHealth, m365Users } from "./microsoft.js";
 import { oidcExchange, oidcKeys } from "./oidc.js";
@@ -291,6 +292,12 @@ async function runToolInner(
       assertHost(args.target as string);
       return nutStatus(args as never);
     // Cloud services: no target; each calls its service's own address.
+    case "aws_inventory":
+      return awsInventory(args as never);
+    case "aws_alarms":
+      return awsAlarms(args as never);
+    case "aws_exposure":
+      return awsExposure(args as never);
     case "meraki_devices":
       return merakiDevices(args as never);
     case "meraki_network":

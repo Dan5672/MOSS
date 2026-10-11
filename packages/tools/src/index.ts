@@ -405,6 +405,40 @@ export const m365ServiceHealth = tool(
   z.object(m365Args),
 );
 
+// AWS: read-only, with an IAM user's access key and the read-only policy MOSS shows.
+const awsArgs = {
+  accessKeyId: z
+    .string()
+    .regex(/^(AKIA|ASIA)[A-Z0-9]{16}$/)
+    .describe("The IAM user's access key ID"),
+  secretAccessKey: secretHandle.describe("Its secret access key, stored as a secret"),
+  regions: z
+    .string()
+    .regex(/^[a-z0-9, -]{9,200}$/)
+    .describe("The regions to read, comma-separated (e.g. ap-southeast-2, us-east-1)"),
+  timeoutMs,
+};
+
+export const awsInventory = tool(
+  { name: "aws_inventory", class: "read", targetArgs: [], secretArgs: ["secretAccessKey"] },
+  "List the EC2 instances (name, type, state, addresses, security groups) and RDS databases in the AWS account's regions. Calls AWS's APIs.",
+  z.object(awsArgs),
+);
+
+export const awsAlarms = tool(
+  { name: "aws_alarms", class: "read", targetArgs: [], secretArgs: ["secretAccessKey"] },
+  "List the AWS account's CloudWatch alarms and their state (OK, ALARM, INSUFFICIENT_DATA) in its regions. Calls AWS's APIs.",
+  z.object(awsArgs),
+);
+
+export const awsExposure = tool(
+  { name: "aws_exposure", class: "read", targetArgs: [], secretArgs: ["secretAccessKey"] },
+  "Find what the internet can reach in the AWS account (instances with public addresses, security groups open to the world on " +
+    "sensitive ports, public S3 buckets, publicly accessible databases) and account weak spots (root without MFA, root access keys, " +
+    "access keys older than 90 days). Calls AWS's APIs.",
+  z.object(awsArgs),
+);
+
 // Cisco Meraki: read-only, through the Dashboard API.
 const merakiArgs = { apiKey: secretHandle.describe("A Meraki Dashboard API key (read-only organisation admin), stored as a secret"), timeoutMs };
 
@@ -920,6 +954,9 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     gworkspaceAlerts,
     merakiDevices,
     merakiNetwork,
+    awsInventory,
+    awsAlarms,
+    awsExposure,
     cloudflareDns,
     cloudflareTunnels,
     nutStatus,
