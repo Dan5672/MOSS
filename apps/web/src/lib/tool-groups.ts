@@ -7,7 +7,7 @@ export const TOOL_GROUPS = [
   { key: "unifi", label: "UniFi", tools: ["unifi_clients", "unifi_firewall", "unifi_client_block", "unifi_dhcp_reservation", "unifi_wlan_enable"] },
   { key: "directory", label: "Microsoft 365 and Google Workspace", tools: ["m365_users", "m365_devices", "m365_service_health", "gworkspace_users", "gworkspace_devices", "gworkspace_alerts"] },
   { key: "cloud", label: "Cloud services", tools: ["moss_releases", "tailscale_devices", "cloudflare_dns", "cloudflare_tunnels", "cloudflare_dns_record"] },
-  { key: "firewalls", label: "OPNsense and pfSense", tools: ["opnsense_status", "opnsense_block", "pfsense_status", "pfsense_block"] },
+  { key: "firewalls", label: "Firewalls and networks", tools: ["meraki_devices", "meraki_network", "fortigate_status", "opnsense_status", "opnsense_block", "pfsense_status", "pfsense_block"] },
   { key: "servers", label: "Servers (SSH)", tools: ["host_facts", "disk_usage", "service_status", "docker_ps", "service_restart", "container_restart", "host_reboot", "host_shutdown"] },
   { key: "homelab", label: "Home lab apps", tools: ["docker_api_containers", "proxmox_status", "proxmox_inventory", "pbs_status", "proxmox_snapshot", "proxmox_guest_power", "truenas_status", "synology_status"] },
   {

@@ -311,6 +311,23 @@ export const pfsenseStatus = tool(
   z.object(pfsenseApi),
 );
 
+export const fortigateStatus = tool(
+  { name: "fortigate_status", class: "read", targetArgs: ["target"], secretArgs: ["apiToken"] },
+  "Read a Fortinet FortiGate (read-only REST API): DHCP leases, SD-WAN health checks (each link's status, packet loss and latency), " +
+    "IPsec tunnels, HA and firmware updates.",
+  z.object({
+    ...apiCommon,
+    apiToken: secretHandle.describe("A FortiGate REST API administrator's token (read-only profile), stored as a secret"),
+    vdom: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{1,31}$/)
+      .optional()
+      .describe("The VDOM, if it uses several"),
+    port: port.default(443),
+    scheme: z.enum(["http", "https"]).default("https"),
+  }),
+);
+
 export const nutStatus = tool(
   { name: "nut_status", class: "read", targetArgs: ["target"], secretArgs: ["password"] },
   "Read the UPSes on a Network UPS Tools server (upsd): status (on mains, on battery, low battery, battery needs replacing), " +
@@ -386,6 +403,21 @@ export const m365ServiceHealth = tool(
   { name: "m365_service_health", class: "read", targetArgs: [], secretArgs: ["clientSecret"] },
   "Microsoft 365's open service incidents and advisories, devices out of compliance, users Entra ID flags as at risk, and when MOSS's app secret expires. Calls Microsoft Graph.",
   z.object(m365Args),
+);
+
+// Cisco Meraki: read-only, through the Dashboard API.
+const merakiArgs = { apiKey: secretHandle.describe("A Meraki Dashboard API key (read-only organisation admin), stored as a secret"), timeoutMs };
+
+export const merakiDevices = tool(
+  { name: "meraki_devices", class: "read", targetArgs: [], secretArgs: ["apiKey"] },
+  "List Meraki devices and whether they're online, appliance uplinks with packet loss and latency, and site-to-site VPN peers. Calls api.meraki.com.",
+  z.object(merakiArgs),
+);
+
+export const merakiNetwork = tool(
+  { name: "meraki_network", class: "read", targetArgs: [], secretArgs: ["apiKey"] },
+  "List the clients each Meraki network has seen in the last day: name, MAC, address, maker and OS. Calls api.meraki.com.",
+  z.object(merakiArgs),
 );
 
 // Google Workspace: read-only, through a service account with domain-wide delegation.
@@ -879,12 +911,15 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     dockerApiContainers,
     tailscaleDevices,
     mossReleases,
+    fortigateStatus,
     m365Users,
     m365Devices,
     m365ServiceHealth,
     gworkspaceUsers,
     gworkspaceDevices,
     gworkspaceAlerts,
+    merakiDevices,
+    merakiNetwork,
     cloudflareDns,
     cloudflareTunnels,
     nutStatus,

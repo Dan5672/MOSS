@@ -1,9 +1,9 @@
 ---
 key: firewall-actions
 name: Firewall Actions
-description: Read OPNsense and pfSense, and block or unblock a device on them, or change a Cloudflare DNS record, through an approved change.
-version: 1.1.0
-tools: [opnsense_status, pfsense_status, opnsense_block, pfsense_block, cloudflare_dns, cloudflare_dns_record, inventory_search]
+description: Read OPNsense, pfSense, FortiGate and Meraki, and block or unblock a device on OPNsense or pfSense, or change a Cloudflare DNS record, through an approved change.
+version: 1.2.0
+tools: [opnsense_status, pfsense_status, fortigate_status, meraki_devices, meraki_network, opnsense_block, pfsense_block, cloudflare_dns, cloudflare_dns_record, inventory_search]
 ---
 You can read the firewall and, through change management, block a device.
 
@@ -22,3 +22,6 @@ You can read the firewall and, through change management, block a device.
 - Cloudflare DNS: `cloudflare_dns_record` creates, updates or deletes one record, in a change. Read the
   record first with `cloudflare_dns`, and put its current value in the rollback plan. Never make a record
   proxied, or point one at a public address, unless the change says the service is meant to be public.
+- FortiGate (`fortigate_status`) and Cisco Meraki (`meraki_devices`, `meraki_network`) are read-only here: SD-WAN
+  links and uplinks (loss, latency), VPN tunnels and peers, devices offline, firmware, DHCP and client names. MOSS
+  can't change them; if a fix is needed on one, say exactly what to change and who should do it.

@@ -8,7 +8,9 @@ import { customHttp, sendRequest, type RawRequest } from "./custom-http.js";
 import { homeassistantDevices, homeassistantHealth, homeassistantLogs, homeassistantNotify, homeassistantPublish } from "./home-assistant.js";
 import { cloudflareDns, cloudflareDnsRecord, cloudflareTunnels, mossReleases, tailscaleDevices } from "./cloud.js";
 import { dockerApiContainers } from "./docker-api.js";
+import { fortigateStatus } from "./fortigate.js";
 import { gworkspaceAlerts, gworkspaceDevices, gworkspaceUsers } from "./google.js";
+import { merakiDevices, merakiNetwork } from "./meraki.js";
 import { m365Devices, m365ServiceHealth, m365Users } from "./microsoft.js";
 import { oidcExchange, oidcKeys } from "./oidc.js";
 import { pagerdutyChange, pagerdutyEvent, pagerdutyIncidents } from "./pagerduty.js";
@@ -282,10 +284,17 @@ async function runToolInner(
       if (name === "opnsense_block") return opnsenseBlock(a, send);
       return pfsenseBlock(a, send);
     }
+    case "fortigate_status":
+      assertHost(args.target as string);
+      return fortigateStatus(args as never, send);
     case "nut_status":
       assertHost(args.target as string);
       return nutStatus(args as never);
     // Cloud services: no target; each calls its service's own address.
+    case "meraki_devices":
+      return merakiDevices(args as never);
+    case "meraki_network":
+      return merakiNetwork(args as never);
     case "m365_users":
       return m365Users(args as never);
     case "m365_devices":

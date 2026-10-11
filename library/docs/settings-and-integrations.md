@@ -206,6 +206,24 @@ password has expired is sent to Settings > Security. Requiring two-factor needs 
 policy first, so they can't lock themselves out, and it can't then be turned off by someone it applies to.
 People who sign in with SSO have no MOSS password and are left out.
 
+## The FortiGate integration
+Business, read-only. Settings > Integrations > FortiGate. Connection: the FortiGate's address and a REST API
+admin's token (System > Administrators > Create New > REST API Admin, with a read-only admin profile and
+MOSS's address in Trusted Hosts; secret:fortigate-api-token). Sections the profile can't read are left out.
+Features: link, VPN and firmware checks (every 5 minutes: each SD-WAN health check's member link, down when
+down, degraded at the packet loss you set, latency as a reading; each IPsec tunnel, degraded when some of its
+selectors are down; and a firmware monitor, degraded when a newer FortiOS is available); device names from
+DHCP (every hour). Agent tool: fortigate_status.
+
+## The Cisco Meraki integration
+Business, read-only. Settings > Integrations > Cisco Meraki (a cloud service: MOSS reads api.meraki.com).
+Credential: a Dashboard API key from an account with read-only organisation access (secret:meraki-api-key).
+It reads up to 5 organisations the key can see. Features: device, uplink and VPN checks (every 5 minutes: each
+device, down offline and degraded alerting, dormant ones skipped; each appliance uplink, down when failed,
+degraded over the loss or latency you set, with both as readings; each site-to-site VPN peer); Meraki devices
+in the inventory (every 6 hours, with model and serial); client names (every 6 hours, from the clients each
+network saw in the last day, up to 10 networks). Agent tools: meraki_devices, meraki_network.
+
 ## The PagerDuty integration
 Business (needs a licence covering PagerDuty). Settings > Integrations > PagerDuty. Connection: an Events API
 V2 integration key from the PagerDuty service that should be paged (secret:pagerduty-routing-key; it can only

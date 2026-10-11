@@ -83,6 +83,10 @@ Granted by: Home Lab Integrations.
 A network tool (read), run by the toolbox through the policy gate. List the Docker containers on a server over SSH: name, image, state and status. The account must be allowed to use Docker.
 Granted by: Server Actions, Server Checks.
 
+## Tool fortigate_status
+A network tool (read), run by the toolbox through the policy gate. Read a Fortinet FortiGate (read-only REST API): DHCP leases, SD-WAN health checks (each link's status, packet loss and latency), IPsec tunnels, HA and firmware updates.
+Granted by: Firewall Actions.
+
 ## Tool gworkspace_alerts
 A network tool (read), run by the toolbox through the policy gate. List Google Workspace Alert Center alerts from the last 7 days that aren't closed (suspicious sign-ins, phishing, leaked passwords and the like). Calls Google's Alert Center API.
 Granted by: Workplace Directory.
@@ -146,6 +150,14 @@ Granted by: Workplace Directory.
 ## Tool m365_users
 A network tool (read), run by the toolbox through the policy gate. List the people in Microsoft 365 / Entra ID: name, sign-in name, email, whether enabled, job title and department. Calls Microsoft Graph.
 Granted by: Workplace Directory.
+
+## Tool meraki_devices
+A network tool (read), run by the toolbox through the policy gate. List Meraki devices and whether they're online, appliance uplinks with packet loss and latency, and site-to-site VPN peers. Calls api.meraki.com.
+Granted by: Firewall Actions.
+
+## Tool meraki_network
+A network tool (read), run by the toolbox through the policy gate. List the clients each Meraki network has seen in the last day: name, MAC, address, maker and OS. Calls api.meraki.com.
+Granted by: Firewall Actions.
 
 ## Tool moss_releases
 A network tool (read), run by the toolbox through the policy gate. List MOSS's own release tags from its public repository on GitHub (to tell whether MOSS is up to date). Calls api.github.com.
@@ -436,8 +448,8 @@ Added per agent. Key device-power. Wake devices with Wake-on-LAN (through change
 Tools: wake_on_lan.
 
 ## Skill Firewall Actions
-Added per agent. Key firewall-actions. Read OPNsense and pfSense, and block or unblock a device on them, or change a Cloudflare DNS record, through an approved change.
-Tools: opnsense_status, pfsense_status, opnsense_block, pfsense_block, cloudflare_dns, cloudflare_dns_record, inventory_search.
+Added per agent. Key firewall-actions. Read OPNsense, pfSense, FortiGate and Meraki, and block or unblock a device on OPNsense or pfSense, or change a Cloudflare DNS record, through an approved change.
+Tools: opnsense_status, pfsense_status, fortigate_status, meraki_devices, meraki_network, opnsense_block, pfsense_block, cloudflare_dns, cloudflare_dns_record, inventory_search.
 
 ## Skill Home & DNS Actions
 Added per agent. Key home-dns-actions. Switch smart plugs and lights, power-cycle a hung device, and change Pi-hole or AdGuard Home blocking and local DNS, through approved changes.

@@ -12,6 +12,8 @@ Newest first. After an upgrade, Moss posts the newest section in #general.
   (through an approved change, using an alias your own rule uses).
 - **UPS (Network UPS Tools)**: know the moment the power goes, and shut your home lab down in order
   before the battery runs out, with your approval each time or approved in advance.
+- **FortiGate and Cisco Meraki** (business, read-only): SD-WAN links, uplinks and VPN tunnels watched, devices
+  offline and firmware updates flagged, and device names in the inventory.
 - **PagerDuty** (business): MOSS pages the on-call person for its serious incidents, stands the page down
   when they're resolved, and notes who acknowledged it.
 - **Slack** (business): alerts, Approve and Reject buttons, and your agents to talk to, in Slack, with nothing
