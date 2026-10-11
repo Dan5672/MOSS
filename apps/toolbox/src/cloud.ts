@@ -1,13 +1,12 @@
 // Cloud services MOSS reads with the owner's token: Tailscale (the tailnet's devices) and Cloudflare (DNS records and
 // tunnels, and changing one record through a change). The toolbox calls each service's own fixed address; nothing
 // else can be reached through these tools.
+import { arr, obj } from "./homelab.js";
 import { clean } from "./parsers.js";
 
 export class CloudError extends Error {}
 
 type Fetch = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ status: number; json(): Promise<unknown> }>;
-const obj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
-const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter((x) => x && typeof x === "object") : []) as Record<string, unknown>[];
 
 const PRIVATE_V4 = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/;
 

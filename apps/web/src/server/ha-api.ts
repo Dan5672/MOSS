@@ -1,7 +1,7 @@
 // The data behind the Home Assistant integration: one snapshot of MOSS's state, a feed of things that
 // happened (for Home Assistant's event entities), and a calendar of change windows and recurring tasks.
 import "server-only";
-import { changeRef, getSetting, incidentRef, listMonitors } from "@moss/core";
+import { changeRef, getSetting, incidentRef, listMonitors, periodStart } from "@moss/core";
 import { agentRuns, agents, agentSchedules, assets, budgets, changeRequests, configBackups, events, incidents, monitors, tokenUsage } from "@moss/db";
 import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lte, ne, notInArray, or, sql } from "drizzle-orm";
 import { spritePixels } from "@/components/mascots";
@@ -47,20 +47,10 @@ export function mascotDataUrl(a: { mascot: string | null; mascotGlow: string | n
 const OPEN = ["new", "in_progress", "on_hold"] as const;
 const PRIORITY_RANK: Record<string, number> = { P1: 1, P2: 2, P3: 3, P4: 4 };
 
-function startOfDay(d = new Date()) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-function startOfMonth(d = new Date()) {
-  const x = startOfDay(d);
-  x.setDate(1);
-  return x;
-}
-
 export async function haSnapshot(orgId: string) {
   const d = db();
-  const today = startOfDay();
+  // The same day and month the budgets count (UTC), so these figures match what pauses an agent.
+  const today = periodStart("day");
   const [b, agentRows, monitorRows, openIncidents, [pending], killSwitch, quietUntil, allowResume, [spentToday], [spentMonth], budgetRows, runsToday, costsToday, lastRuns, tasks, [securityOpen], backups] =
     await Promise.all([
       basement(orgId),
@@ -77,7 +67,7 @@ export async function haSnapshot(orgId: string) {
       getSetting(d, orgId, "monitoring.quiet_until"),
       getSetting(d, orgId, "homeassistant.allow_resume"),
       d.select({ usd: sql<string>`coalesce(sum(${tokenUsage.costUsd}), 0)` }).from(tokenUsage).where(and(eq(tokenUsage.orgId, orgId), gte(tokenUsage.createdAt, today))),
-      d.select({ usd: sql<string>`coalesce(sum(${tokenUsage.costUsd}), 0)` }).from(tokenUsage).where(and(eq(tokenUsage.orgId, orgId), gte(tokenUsage.createdAt, startOfMonth()))),
+      d.select({ usd: sql<string>`coalesce(sum(${tokenUsage.costUsd}), 0)` }).from(tokenUsage).where(and(eq(tokenUsage.orgId, orgId), gte(tokenUsage.createdAt, periodStart("month")))),
       d.select().from(budgets).where(and(eq(budgets.orgId, orgId), isNull(budgets.agentId), eq(budgets.unit, "usd"))),
       d.select({ agentId: agentRuns.agentId, n: count() }).from(agentRuns).where(and(eq(agentRuns.orgId, orgId), gte(agentRuns.startedAt, today))).groupBy(agentRuns.agentId),
       d

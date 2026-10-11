@@ -8,13 +8,13 @@ import { db } from "@/server/db";
 const MAX_BODY = 64 * 1024;
 const WINDOW_MS = 60_000;
 const MAX_PER_WINDOW = 60;
+// Keyed by authenticated source only, so a stranger who knows a source's URL can't use up its allowance.
 const hits = new Map<string, { start: number; n: number }>();
 
 function rateLimited(key: string): boolean {
   const now = Date.now();
   const h = hits.get(key);
   if (!h || now - h.start > WINDOW_MS) {
-    if (hits.size > 1000) hits.clear();
     hits.set(key, { start: now, n: 1 });
     return false;
   }
@@ -25,13 +25,12 @@ const error = (status: number, message: string) => Response.json({ ok: false, er
 
 export async function POST(request: NextRequest, ctx: RouteContext<"/api/hooks/monitoring/[sourceId]">) {
   const { sourceId } = await ctx.params;
-  if (rateLimited(sourceId)) return error(429, "Too many requests");
-
   const header = request.headers.get("authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : request.nextUrl.searchParams.get("token");
   if (!token) return error(401, "Missing token");
   const source = await authenticateMonitorSource(db(), sourceId, token);
   if (!source) return error(401, "Unknown source or wrong token");
+  if (rateLimited(source.id)) return error(429, "Too many requests");
 
   const length = Number(request.headers.get("content-length") ?? 0);
   if (length > MAX_BODY) return error(413, "Payload too large");

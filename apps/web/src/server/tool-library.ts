@@ -2,6 +2,7 @@ import "server-only";
 import { lookup } from "node:dns/promises";
 import { readFile } from "node:fs/promises";
 import { isIP } from "node:net";
+import { isPrivateRange, parseRange } from "@moss/policy";
 import { join } from "node:path";
 import { parse } from "yaml";
 import { z } from "zod";
@@ -38,15 +39,10 @@ export interface CatalogEntry {
 
 const MAX_BYTES = 100_000;
 
-/** True for addresses that aren't on the public internet: loopback, private, link-local, CGNAT, ULA. */
+/** True for addresses that aren't on the public internet (the gate's own rule), and IPv4 multicast and broadcast. */
 export function isPrivateAddress(ip: string): boolean {
-  if (isIP(ip) === 4) {
-    const [a, b] = ip.split(".").map(Number) as [number, number];
-    return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224;
-  }
-  const v6 = ip.toLowerCase();
-  if (v6.startsWith("::ffff:")) return isPrivateAddress(v6.slice(7));
-  return v6 === "::" || v6 === "::1" || v6.startsWith("fc") || v6.startsWith("fd") || v6.startsWith("fe8") || v6.startsWith("fe9") || v6.startsWith("fea") || v6.startsWith("feb");
+  const range = parseRange(ip);
+  return !range || isPrivateRange(range) || (range.version === 4 && range.start >= BigInt(0xe0000000));
 }
 
 /**

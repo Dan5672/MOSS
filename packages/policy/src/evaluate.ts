@@ -46,6 +46,8 @@ export interface ChangeContext {
   windowEnd?: Date | null;
   plannedCalls: { tool: string; args: Record<string, unknown> }[];
   rollbackCalls?: { tool: string; args: Record<string, unknown> }[];
+  /** The agent that raised the change (or a person raised it for); only that agent may carry it out. */
+  agentId?: string | null;
 }
 
 export interface PolicyContext {
@@ -214,6 +216,7 @@ export function evaluate(call: ToolCall, manifest: ToolManifest, ctx: PolicyCont
     if (!call.changeId) return deny("change_required", `${call.tool} changes state and requires an approved change request`);
     const change = ctx.change;
     if (!change || change.id !== call.changeId) return deny("change_required", `Change ${call.changeId} was not found`);
+    if (change.agentId !== ctx.agent.id) return deny("change_required", `Change ${change.id} is not this agent's to carry out`);
     if (!EXECUTABLE_CHANGE_STATUSES.has(change.status)) {
       return deny("change_not_executable", `Change ${change.id} is ${change.status}, not approved`);
     }

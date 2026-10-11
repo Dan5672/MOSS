@@ -1,11 +1,11 @@
 // Single sign-on: exchanging the code a provider gave the browser for an ID token, and fetching the provider's
 // published signing keys. Only the gate calls these (system tools); it checks the token itself.
+import { obj } from "./homelab.js";
 import { clean } from "./parsers.js";
 
 export class OidcError extends Error {}
 
 type Fetch = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ status: number; json(): Promise<unknown> }>;
-const obj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 
 const endpoints = (provider: "microsoft" | "google", tenantId?: string) =>
   provider === "microsoft"

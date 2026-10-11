@@ -231,6 +231,18 @@ describe.skipIf(!TEST_DATABASE_URL)("incidents and changes (postgres)", () => {
       expect(full!.notes.map((n) => n.body)).toEqual(["Submitted for approval.", "Approved.", "Execution started.", "Planned calls executed; verifying.", "web responds on 80/tcp"]);
       expect((await getIncident(db, orgId, inc.id))!.comments.map((c) => c.body)).toEqual([`CR-${cr.number} raised: Restart dnsmasq`, `CR-${cr.number} finished: succeeded.`]);
     });
+
+    it("lets only one of two racing runs start a change, and only one of an approve and a reject win", async () => {
+      const cr = await createChangeRequest(db, orgId, { ...base, type: "normal", plannedCalls: [{ tool: "restart_service", args: { host: "192.168.1.6", service: "web" } }] }, agent(), opts);
+      const decided = await Promise.allSettled([approveChange(db, orgId, cr.id, ownerId, { force: true }), rejectChange(db, orgId, cr.id, ownerId)]);
+      expect(decided.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+
+      const run = await createChangeRequest(db, orgId, { ...base, type: "normal", plannedCalls: [{ tool: "restart_service", args: { host: "192.168.1.7", service: "web" } }] }, agent(), opts);
+      await approveChange(db, orgId, run.id, ownerId, { force: true });
+      const started = await Promise.allSettled([startChange(db, orgId, run.id, agent()), startChange(db, orgId, run.id, agent())]);
+      expect(started.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      expect((await getChange(db, orgId, run.id))!.notes.filter((n) => n.body === "Execution started.")).toHaveLength(1);
+    });
   });
 
   describe("incident/change consistency", () => {

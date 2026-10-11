@@ -305,7 +305,7 @@ async function recordDecision(
   const grant = decision === "approved" && change.accessGrant && change.requestedByAgentId ? change.accessGrant : null;
   const updated = await db.transaction(async (tx) => {
     const status = grant ? "succeeded" : decision;
-    const [row] = await tx.update(changeRequests).set({ status, updatedAt: new Date() }).where(eq(changeRequests.id, changeId)).returning();
+    const row = await moveStatus(tx, change, status);
     await tx.insert(changeApprovals).values({ changeId, userId, decision, comment: comment ?? null });
     await tx.insert(changeNotes).values({ changeId, authorUserId: userId, kind: "system", body: `${decision === "approved" ? "Approved" : "Rejected"}${comment ? `: ${comment}` : "."}` });
     if (grant) {
@@ -315,7 +315,7 @@ async function recordDecision(
     } else {
       await emitEvent(tx, orgId, { type: decision === "approved" ? "change.approved" : "change.rejected", payload: { changeId } });
     }
-    return row!;
+    return row;
   });
   await writeAudit(db, { orgId, actorType: "user", actorId: userId, action: `change.${decision === "approved" ? "approve" : "reject"}`, targetType: "change", targetId: changeId, details: { comment, force } });
   return updated;
@@ -406,11 +406,25 @@ export const approveChange = (db: Database, orgId: string, changeId: string, use
 export const rejectChange = (db: Database, orgId: string, changeId: string, userId: string, comment?: string) =>
   recordDecision(db, orgId, changeId, userId, "rejected", comment);
 
+/**
+ * Moves a change on from the status it was read in. Two runs (or an approve and a reject) racing on the same
+ * change both pass assertTransition; only the first update finds the old status, the other gets an error.
+ */
+async function moveStatus(tx: Pick<Database, "update">, change: ChangeRow, to: ChangeStatus) {
+  const [row] = await tx
+    .update(changeRequests)
+    .set({ status: to, updatedAt: new Date() })
+    .where(and(eq(changeRequests.id, change.id), eq(changeRequests.status, change.status)))
+    .returning();
+  if (!row) throw new ChangeError(`${changeRef(change.number)} changed while this was happening; reload it and try again`);
+  return row;
+}
+
 async function transition(db: Database, orgId: string, changeId: string, to: ChangeStatus, actor: Actor, note: { kind: "system" | "execution"; body: string; data?: Record<string, unknown> }) {
   const change = await loadChange(db, orgId, changeId);
   assertTransition(change, to);
   const updated = await db.transaction(async (tx) => {
-    const [row] = await tx.update(changeRequests).set({ status: to, updatedAt: new Date() }).where(eq(changeRequests.id, changeId)).returning();
+    const row = await moveStatus(tx, change, to);
     await tx.insert(changeNotes).values({
       changeId,
       authorUserId: actor.type === "user" ? actor.id : null,
@@ -425,7 +439,7 @@ async function transition(db: Database, orgId: string, changeId: string, to: Cha
         await tx.insert(incidentComments).values({ incidentId: change.incidentId, body: `${changeRef(change.number)} finished: ${to.replace("_", " ")}.` });
       }
     }
-    return row!;
+    return row;
   });
   await writeAudit(db, { orgId, actorType: actor.type, actorId: actor.id, action: `change.${to}`, targetType: "change", targetId: changeId, details: { note: note.body } });
   return updated;

@@ -94,6 +94,7 @@ export async function loadContext(
         windowEnd: cr.windowEnd,
         plannedCalls: cr.plannedCalls,
         rollbackCalls: cr.rollbackCalls,
+        agentId: cr.requestedByAgentId,
       };
     }
   }

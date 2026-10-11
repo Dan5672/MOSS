@@ -46,12 +46,15 @@ export function buildGateServer(gate: Gate, opts: GateServerOptions) {
   const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 32 * 1024 * 1024 });
 
   app.addHook("onRequest", async (req, reply) => {
-    if (req.url === "/v1/health") return;
+    // The route the router matched, not the raw URL: the router decodes "/v1/%62ridge/..." to the bridge route,
+    // so a check on the raw URL would accept the worker's token there.
+    const route = req.routeOptions.url ?? "";
+    if (route === "/v1/health") return;
     // SDKs send the service token as their "API key": Bearer for OpenAI-style clients, x-api-key for Anthropic.
     const header = req.headers.authorization ?? "";
     const presented = header.startsWith("Bearer ") ? header.slice(7) : req.headers["x-api-key"];
-    const webRoute = req.url.startsWith("/v1/secrets") || req.url.startsWith("/v1/backups") || req.url.startsWith("/v1/web/");
-    const bridgeRoute = req.url.startsWith("/v1/bridge/");
+    const webRoute = route.startsWith("/v1/secrets") || route.startsWith("/v1/backups") || route.startsWith("/v1/web/");
+    const bridgeRoute = route.startsWith("/v1/bridge/");
     const expected = bridgeRoute ? opts.bridge?.token : webRoute ? opts.secrets?.token : opts.token;
     if (typeof presented !== "string" || !expected || !sameToken(presented, expected)) {
       return reply.code(401).send({ error: "unauthorized" });

@@ -1,12 +1,11 @@
 // Microsoft 365 / Entra ID, read-only through Microsoft Graph with the app registration's own (application)
 // permissions: people, Intune-managed devices, service health, risky users and when the app's secret runs out.
+import { arr, obj } from "./homelab.js";
 import { clean } from "./parsers.js";
 
 export class MicrosoftError extends Error {}
 
 type Fetch = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ status: number; json(): Promise<unknown> }>;
-const obj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
-const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter((x) => x && typeof x === "object") : []) as Record<string, unknown>[];
 
 interface Creds {
   tenantId: string;

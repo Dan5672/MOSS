@@ -1,13 +1,12 @@
 // Cisco Meraki, read-only through the Dashboard API (api.meraki.com) with an API key for a read-only organisation
 // admin: every organisation the key can see (up to 5), their devices and whether they're online, appliance uplinks
 // with loss and latency, and site-to-site VPN peers; and separately, the clients each network has seen.
+import { arr, obj } from "./homelab.js";
 import { clean } from "./parsers.js";
 
 export class MerakiError extends Error {}
 
 type Fetch = (url: string, init?: { headers?: Record<string, string>; signal?: AbortSignal }) => Promise<{ status: number; json(): Promise<unknown> }>;
-const obj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
-const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter((x) => x && typeof x === "object") : []) as Record<string, unknown>[];
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 
 const API = "https://api.meraki.com/api/v1";

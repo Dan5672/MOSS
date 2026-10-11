@@ -2,13 +2,12 @@
 // managed mobile and ChromeOS devices, and Alert Center alerts. The service account signs its own token request
 // (RS256), so no Google SDK is needed. Each call asks only for the read-only scope it uses.
 import { createPrivateKey, sign } from "node:crypto";
+import { arr, obj } from "./homelab.js";
 import { clean } from "./parsers.js";
 
 export class GoogleError extends Error {}
 
 type Fetch = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ status: number; json(): Promise<unknown> }>;
-const obj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
-const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter((x) => x && typeof x === "object") : []) as Record<string, unknown>[];
 
 interface Creds {
   /** The service account's JSON key. */

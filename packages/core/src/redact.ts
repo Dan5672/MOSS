@@ -4,7 +4,8 @@
 const MIN_REDACT_LENGTH = 4;
 
 function variants(secret: string): string[] {
-  return [secret, Buffer.from(secret).toString("base64"), encodeURIComponent(secret)];
+  // The JSON-escaped form too: results are scrubbed as JSON text, where pa"ss\1 reads pa\"ss\\1.
+  return [secret, JSON.stringify(secret).slice(1, -1), Buffer.from(secret).toString("base64"), encodeURIComponent(secret)];
 }
 
 export function redactSecrets(text: string, secretValues: Iterable<string>): string {

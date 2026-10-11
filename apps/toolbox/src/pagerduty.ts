@@ -1,12 +1,11 @@
 // PagerDuty: events (trigger and resolve pages; change events for testing) with a service's integration key, and
 // the recent incidents MOSS raised, read with a read-only REST API key.
+import { arr, obj } from "./homelab.js";
 import { clean } from "./parsers.js";
 
 export class PagerDutyError extends Error {}
 
 type Fetch = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ status: number; json(): Promise<unknown> }>;
-const obj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
-const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter((x) => x && typeof x === "object") : []) as Record<string, unknown>[];
 
 async function enqueue(f: Fetch, path: string, body: unknown, timeoutMs: number) {
   const res = await f(`https://events.pagerduty.com${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) });

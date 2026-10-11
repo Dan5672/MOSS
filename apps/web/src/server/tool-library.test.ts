@@ -16,7 +16,7 @@ describe("tools catalog", () => {
   });
 
   it("knows which addresses are private or local", () => {
-    for (const ip of ["10.0.0.1", "127.0.0.1", "172.16.5.4", "192.168.50.1", "169.254.1.1", "100.64.0.1", "0.0.0.0", "::1", "fd00::1", "fe80::1", "::ffff:10.0.0.1"]) {
+    for (const ip of ["10.0.0.1", "127.0.0.1", "172.16.5.4", "192.168.50.1", "169.254.1.1", "100.64.0.1", "0.0.0.0", "::1", "fd00::1", "fe80::1", "::ffff:10.0.0.1", "::ffff:7f00:1", "224.0.0.1", "255.255.255.255"]) {
       expect(isPrivateAddress(ip), ip).toBe(true);
     }
     for (const ip of ["1.1.1.1", "185.199.108.133", "2606:4700::1111"]) expect(isPrivateAddress(ip), ip).toBe(false);
@@ -25,6 +25,7 @@ describe("tools catalog", () => {
   it("only fetches https from public addresses", async () => {
     await expect(fetchPublicText("http://example.com/x.yaml")).rejects.toThrow(/Only https/);
     await expect(fetchPublicText("https://127.0.0.1/x.yaml")).rejects.toThrow(/private or local/);
+    await expect(fetchPublicText("https://[::ffff:127.0.0.1]/x.yaml")).rejects.toThrow(/private or local/);
     await expect(fetchPublicText("https://user:pw@example.com/x.yaml")).rejects.toThrow(/credentials/);
   });
 });
