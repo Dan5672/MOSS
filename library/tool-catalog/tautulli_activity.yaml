@@ -1,0 +1,18 @@
+key: tautulli_activity
+description: Current Plex activity as Tautulli reports it - streams, their quality and transcoding, and bandwidth.
+class: read
+params:
+  host: { type: ip, target: true, description: The Tautulli server }
+secret: tautulli-api-key
+request:
+  method: GET
+  scheme: http
+  port: 8181
+  path: /api/v2
+  query:
+    apikey: "{{secret}}"
+    cmd: get_activity
+  headers:
+    Accept: application/json
+result:
+  pick: $.response.data

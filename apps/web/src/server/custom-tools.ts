@@ -1,9 +1,10 @@
 import "server-only";
 import { PLATFORM_TOOLS } from "@moss/agent";
-import { BUILT_IN_TOOLS, customToolSpecSchema, type CustomToolSpec } from "@moss/tools";
+import { BUILT_IN_TOOLS, customToolSpecSchema, SYSTEM_TOOLS, type CustomToolSpec } from "@moss/tools";
 import { parse } from "yaml";
 
-const RESERVED = new Set([...BUILT_IN_TOOLS.keys(), ...PLATFORM_TOOLS.map((t) => t.name), "custom_http"]);
+// System tools (signing in, Home Assistant notifications) too: a custom tool may never take one of their names.
+const RESERVED = new Set([...BUILT_IN_TOOLS.keys(), ...SYSTEM_TOOLS.keys(), ...PLATFORM_TOOLS.map((t) => t.name), "custom_http"]);
 
 /** An example definition, shown on the upload form. */
 export const EXAMPLE_CUSTOM_TOOL = `key: plex_sessions

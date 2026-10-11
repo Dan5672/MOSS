@@ -1,6 +1,6 @@
 // Team memory: the knowledge base, run history and notifying a human. They work on MOSS's own data,
 // so they run in the worker like the other platform tools, gated by skill grants and role permissions.
-import { createNote, NOTE_LIMITS, notifyPermission, searchNotes, updateNote, writeAudit } from "@moss/core";
+import { createNote, findPage, getNote, NOTE_LIMITS, notifyPermission, searchNotes, updateNote, writeAudit } from "@moss/core";
 import { agentRuns, agents, auditLog, notifications, users } from "@moss/db";
 import { and, count, desc, eq, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -52,6 +52,52 @@ export const MEMORY_TOOLS: PlatformTool[] = [
       const actor = { type: "agent" as const, id: agentId };
       const row = id ? await updateNote(db, orgId, id, note, actor) : await createNote(db, orgId, note, actor);
       return { [id ? "updated" : "created"]: row.id, title: row.title };
+    },
+  },
+  {
+    name: "wiki_search",
+    description:
+      "Search the network wiki: pages about devices, the network's layout, how-tos and decisions, written by the team. " +
+      "Returns each page's title, slug and the start of its text; read a page in full with wiki_read.",
+    permission: "knowledge.read",
+    args: z.object({ query: z.string().min(1).max(100), limit: z.number().int().min(1).max(20).default(8) }),
+    run: async ({ db, orgId }, { query, limit }) =>
+      (await searchNotes(db, orgId, { query, limit })).map((n) => ({ title: n.title, slug: n.slug, excerpt: n.body.slice(0, 300), updatedAt: n.updatedAt.toISOString() })),
+  },
+  {
+    name: "wiki_read",
+    description: "Read a wiki page in full, by its slug or its exact title.",
+    permission: "knowledge.read",
+    args: z.object({ page: z.string().min(1).max(120).describe("The page's slug or title") }),
+    run: async ({ db, orgId }, { page }) => {
+      const p = await findPage(db, orgId, page);
+      if (!p) return { error: `No wiki page "${page}". Search with wiki_search, or create it with wiki_write.` };
+      const parent = p.parentId ? await getNote(db, orgId, p.parentId) : null;
+      return { title: p.title, slug: p.slug, parent: parent?.title ?? null, assetId: p.assetId, body: p.body, updatedAt: p.updatedAt.toISOString(), by: p.updatedByAgentId ? "agent" : "person" };
+    },
+  },
+  {
+    name: "wiki_write",
+    description:
+      "Create a wiki page, or update one (give its slug or title as page). Write Markdown; link other pages with [[Page title]]. " +
+      "Keep pages current rather than appending forever: rewrite what's out of date. The previous version is kept in the page's history.",
+    permission: "knowledge.manage",
+    args: z.object({
+      page: z.string().max(120).optional().describe("To update: the page's slug or title"),
+      title: z.string().min(1).max(NOTE_LIMITS.title),
+      body: z.string().min(1).max(NOTE_LIMITS.body),
+      parent: z.string().max(120).optional().describe("The slug or title of the page this one sits under, e.g. Devices"),
+      asset: z.uuid().optional().describe("The id of the asset the page is about (from inventory_search)"),
+    }),
+    run: async ({ db, orgId, agentId }, { page, title, body, parent, asset }) => {
+      const actor = { type: "agent" as const, id: agentId };
+      const parentPage = parent ? await findPage(db, orgId, parent) : null;
+      if (parent && !parentPage) return { error: `No page "${parent}" to put this under. Create it first, or leave parent out.` };
+      const existing = page ? await findPage(db, orgId, page) : await findPage(db, orgId, title);
+      if (page && !existing) return { error: `No wiki page "${page}" to update.` };
+      const input = { title, body, ...(parentPage ? { parentId: parentPage.id } : {}), ...(asset ? { assetId: asset } : {}) };
+      const row = existing ? await updateNote(db, orgId, existing.id, input, actor) : await createNote(db, orgId, input, actor);
+      return { [existing ? "updated" : "created"]: row.slug, title: row.title, link: `/wiki/${row.slug}` };
     },
   },
   {

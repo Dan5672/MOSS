@@ -1,13 +1,14 @@
 // The Policy Gate: the only path from an agent's tool call to the toolbox, and the
 // only component that can decrypt secrets. Every decision is written to the audit log.
-import { decryptSecret, isModuleEnabled, moduleForTool, redactSecrets, writeAudit } from "@moss/core";
+import { businessIntegrationForTool, decryptSecret, getSetting, integrationLicensed, isModuleEnabled, moduleForTool, redactSecrets, writeAudit } from "@moss/core";
 import type { Database } from "@moss/db";
-import { checkSecrets, evaluate, extractSecretHandles, parseRange, type DenyCode, type IpRange } from "@moss/policy";
+import { checkSecrets, contains, evaluate, extractSecretHandles, parseRange, type DenyCode, type IpRange } from "@moss/policy";
 import {
   BUILT_IN_TOOLS,
   customToolDefinition,
   parseToolArgs,
   renderCustomRequest,
+  SYSTEM_TOOLS,
   toolInputSchema,
   type ConfigBackupFile,
   type CustomToolSpec,
@@ -16,6 +17,8 @@ import {
 import { storeBackup } from "./backups.js";
 import { loadAgent, loadContext, loadCustomTool, loadCustomTools, loadToolGrants } from "./context.js";
 import { runHomeAssistantOp, type HaOp } from "./home-assistant.js";
+import { runIntegrationOp } from "./integrations.js";
+import { ssoExchange } from "./sso.js";
 import { runMonitorCheck } from "./monitor-check.js";
 import type { ToolboxClient } from "./toolbox-client.js";
 
@@ -79,6 +82,8 @@ export function createGate(deps: GateDeps) {
     };
 
     // Built-in tools first; a name that isn't built in may be one of the org's custom tools.
+    // MOSS's own system tools (signing in, Home Assistant notifications) are never an agent's, nor a custom tool's name.
+    if (SYSTEM_TOOLS.has(req.tool)) return deny("unknown_tool", `Unknown tool ${req.tool}`);
     const custom: CustomToolSpec | null = tools.has(req.tool) ? null : await loadCustomTool(deps.db, agent.orgId, req.tool);
     const def = tools.get(req.tool) ?? (custom ? customToolDefinition(custom) : undefined);
     if (!def) return deny("unknown_tool", `Unknown tool ${req.tool}`);
@@ -86,9 +91,17 @@ export function createGate(deps: GateDeps) {
     if (module && !(await isModuleEnabled(deps.db, agent.orgId, module))) {
       return deny("module_disabled", `${req.tool} belongs to the ${module.replace("_", " ")} module, which is switched off`);
     }
+    const business = businessIntegrationForTool(req.tool);
+    if (business && !(await integrationLicensed(deps.db, agent.orgId, business))) {
+      return deny("licence_required", `${req.tool} belongs to the ${business.name} integration, which needs a business licence (Settings → About)`);
+    }
     const parsed = parseToolArgs(def, req.args);
     if (!parsed.ok) return deny("invalid_args", parsed.error);
     const args = parsed.args;
+    // The CVE lookup sends service names and versions to vulners.com: only once the owner has allowed that.
+    if (req.tool === "vuln_scan" && args.profile === "cve" && !(await getSetting(deps.db, agent.orgId, "tools.allow_vulners"))) {
+      return deny("setting_disabled", "The CVE lookup sends service versions to vulners.com and isn't allowed in Settings. Use profile safe, or ask the owner to allow it.");
+    }
 
     // A custom tool's only credential is the one its definition declares. A handle passed as an argument
     // would be substituted into a request the owner never scoped it for.
@@ -131,7 +144,20 @@ export function createGate(deps: GateDeps) {
         const rendered = renderCustomRequest(custom, args, custom.secret ? secretValues.get(custom.secret) : undefined);
         response = await deps.toolbox.call("custom_http", rendered as unknown as Record<string, unknown>);
       } else {
-        response = await deps.toolbox.call(req.tool, substituteSecrets(args, secretValues) as Record<string, unknown>);
+        const callArgs = substituteSecrets(args, secretValues) as Record<string, unknown>;
+        // A tool that signs in with a username and a password secret gets the username stored with the secret,
+        // when the agent left it out. (After the policy check: the username isn't secret and isn't a target.)
+        const shape = def.args.shape as Record<string, unknown>;
+        const passwordHandle = typeof args.password === "string" ? SECRET_HANDLE.exec(args.password)?.[1] : undefined;
+        const storedUsername = passwordHandle ? ctx.secretRows.get(passwordHandle)?.username : null;
+        if ("username" in shape && args.username === undefined && storedUsername) callArgs.username = storedUsername;
+        // Scans look names up with the DNS server set for the target's network; an agent can't choose its own.
+        if (req.tool === "nmap_scan") {
+          const servers = dnsServersFor(args.targets as string[], ctx.policy.networks as { cidr: string; dnsServer?: string | null }[]);
+          if (servers.length) callArgs.dnsServers = servers;
+          else delete callArgs.dnsServers;
+        }
+        response = await deps.toolbox.call(req.tool, callArgs);
       }
     } catch (err) {
       response = { ok: false, error: `Toolbox unavailable: ${(err as Error).message}` };
@@ -178,13 +204,43 @@ export function createGate(deps: GateDeps) {
   }
 
   /** Runs one monitor's check; the gate reads the monitor itself, the caller only names it. */
-  const checkMonitor = (monitorId: string) => runMonitorCheck({ db: deps.db, toolbox: deps.toolbox, tools }, monitorId);
+  const checkMonitor = (monitorId: string) => runMonitorCheck({ db: deps.db, toolbox: deps.toolbox, tools, masterKey: deps.masterKey, now: deps.now }, monitorId);
 
   /** A call MOSS makes for the Home Assistant module; the gate reads the module's config itself. */
   const homeAssistant = (req: { orgId: string; op: HaOp; args?: Record<string, unknown>; userId?: string }) =>
     runHomeAssistantOp({ db: deps.db, masterKey: deps.masterKey, toolbox: deps.toolbox }, req);
 
-  return { handleToolCall, listAgentTools, checkMonitor, homeAssistant };
+  /** A call MOSS makes for an integration (health checks, inventory, Test connection). */
+  const integration = (req: { orgId: string; key: string; op: string; args?: Record<string, unknown>; userId?: string }) =>
+    runIntegrationOp({ db: deps.db, masterKey: deps.masterKey, toolbox: deps.toolbox }, req);
+
+  /** MOSS's release tags, for a person checking for updates in Settings → About. */
+  const releases = async (): Promise<{ ok: true; tags: string[] } | { ok: false; error: string }> => {
+    const res = await deps.toolbox.call("moss_releases", { timeoutMs: 15_000 });
+    return res.ok ? { ok: true, tags: (res.result as { tags: string[] }).tags } : { ok: false, error: res.error ?? "The toolbox couldn't reach GitHub" };
+  };
+
+  /** A person signing in with Microsoft or Google: the code exchanged and the token checked. */
+  const sso = (req: Parameters<typeof ssoExchange>[1]) => ssoExchange({ db: deps.db, masterKey: deps.masterKey, toolbox: deps.toolbox }, req, deps.now?.());
+
+  return { handleToolCall, listAgentTools, checkMonitor, homeAssistant, integration, releases, sso };
 }
 
 export type Gate = ReturnType<typeof createGate>;
+
+/** The DNS servers of the most specific networks holding these targets (at most two). */
+export function dnsServersFor(targets: string[], nets: { cidr: string; dnsServer?: string | null }[]): string[] {
+  const out = new Set<string>();
+  for (const t of targets) {
+    const target = parseRange(t);
+    if (!target) continue;
+    let best: { dns: string; size: bigint } | null = null;
+    for (const n of nets) {
+      const r = parseRange(n.cidr);
+      if (!n.dnsServer || !r || !contains(r, target)) continue;
+      if (!best || r.end - r.start < best.size) best = { dns: n.dnsServer, size: r.end - r.start };
+    }
+    if (best) out.add(best.dns);
+  }
+  return [...out].slice(0, 2);
+}

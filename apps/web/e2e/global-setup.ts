@@ -1,10 +1,12 @@
 // Fresh database for every e2e run: migrate and truncate everything. Also starts a stand-in for the
 // gate's write-only secrets API that runs the gate's own writeSecret, so secrets are really encrypted.
-import { parseMasterKey } from "@moss/core";
+import { parseMasterKey, ssoAvailable } from "@moss/core";
 import { createDb } from "@moss/db";
 import { createTestDb } from "@moss/db/testing";
 import { createServer } from "node:http";
-import { E2E_DATABASE_URL, E2E_GATE_PORT, E2E_MASTER_KEY_HEX, E2E_WEB_TOKEN } from "../playwright.config";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { E2E_BACKUP_PORT, E2E_BACKUP_TOKEN, E2E_CADDY_ADMIN, E2E_DATABASE_URL, E2E_GATE_PORT, E2E_LICENCE_DIR, E2E_MASTER_KEY_HEX, E2E_TLS_DIR, E2E_WEB_TOKEN } from "../playwright.config";
 
 interface GateBackupsApi {
   readBackup(db: ReturnType<typeof createDb>, masterKey: Buffer, id: string, userId: string): Promise<{ filename: string; contentType: string; content: Buffer } | null>;
@@ -29,12 +31,35 @@ const fakeHomeAssistant = {
   }),
 };
 
+interface GateIntegrationsApi {
+  runIntegrationOp(
+    deps: { db: ReturnType<typeof createDb>; masterKey: Buffer; toolbox: { call(tool: string, args: Record<string, unknown>): Promise<unknown> } },
+    req: { orgId: string; key: string; op: string; userId?: string },
+  ): Promise<unknown>;
+}
+
+/** A pretend Pi-hole behind the toolbox, for an integration page's Test connection and Sync now. */
+const fakePihole = {
+  call: async (tool: string, args: Record<string, unknown>) =>
+    args.password !== "pihole-app-password"
+      ? { ok: false, error: "Pi-hole refused the password (Pi-hole v6 is required)" }
+      : {
+          ok: true,
+          result:
+            tool === "pihole_clients"
+              ? { total: 1, devices: [{ mac: "aa:bb:cc:dd:ee:01", vendor: "Raspberry Pi", name: "octopi.lan", ips: ["192.168.50.61"] }] }
+              : { blocking: "enabled", queries: 4200, blocked: 630, blockedPercent: 15, activeClients: 9 },
+        },
+};
+
 interface GateSecretsApi {
   secretWriteSchema: { parse(input: unknown): unknown };
   writeSecret(db: ReturnType<typeof createDb>, masterKey: Buffer, input: unknown): Promise<{ id: string; created: boolean }>;
 }
 
 export default async function globalSetup() {
+  // The stand-in gate checks licences like the real one: it trusts the test signing key too.
+  process.env.MOSS_LICENCE_EXTRA_PUBLIC_KEY = readFileSync(join(E2E_LICENCE_DIR, "test.pub"), "utf8").trim();
   const { close } = await createTestDb("web_e2e");
   await close();
 
@@ -44,16 +69,44 @@ export default async function globalSetup() {
   const { secretWriteSchema, writeSecret } = (await import(gateSecretsApi)) as GateSecretsApi;
   const gateBackupsApi = "../../gate/dist/backups.js";
   const { readBackup } = (await import(gateBackupsApi)) as GateBackupsApi;
+  const gateIntegrationsApi = "../../gate/dist/integrations.js";
+  const { runIntegrationOp } = (await import(gateIntegrationsApi)) as GateIntegrationsApi;
   const gateHomeAssistantApi = "../../gate/dist/home-assistant.js";
   const { moduleManagerOrg, runHomeAssistantOp } = (await import(gateHomeAssistantApi)) as GateHomeAssistantApi;
   const db = createDb(E2E_DATABASE_URL);
   const masterKey = parseMasterKey(Buffer.from(E2E_MASTER_KEY_HEX));
+  let ssoNext = "";
   const server = createServer((req, res) => {
     let body = "";
     req.on("data", (c) => (body += c));
     req.on("end", async () => {
       const reply = (status: number, json: unknown) => res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(json));
+      // A stand-in Microsoft and Google for signing in (MOSS_SSO_STANDIN_URL points the browser here): it signs in
+      // whoever the test named last, and sends the browser back with a code saying who, and the nonce.
+      if (req.method === "POST" && req.url === "/sso-next") {
+        ssoNext = (JSON.parse(body) as { email: string }).email;
+        return reply(200, { ok: true });
+      }
+      if (req.method === "GET" && req.url?.startsWith("/sso/")) {
+        const u = new URL(req.url, "http://stand-in");
+        const q = u.searchParams;
+        const code = Buffer.from(JSON.stringify({ email: ssoNext, nonce: q.get("nonce") })).toString("base64url");
+        const back = new URL(q.get("redirect_uri")!);
+        back.searchParams.set("code", code);
+        back.searchParams.set("state", q.get("state")!);
+        return res.writeHead(303, { location: back.toString() }).end();
+      }
       if (req.headers.authorization !== `Bearer ${E2E_WEB_TOKEN}`) return reply(401, { error: "unauthorized" });
+      // The gate's sign-in exchange: switched on (licensed, set up) as the real one checks, then the stand-in's claims.
+      const sso = req.method === "POST" ? /^\/v1\/web\/sso\/(microsoft|google)\/exchange$/.exec(req.url ?? "") : null;
+      if (sso) {
+        const { orgId, code } = JSON.parse(body) as { orgId: string; code: string };
+        const provider = sso[1] as "microsoft" | "google";
+        const setup = await ssoAvailable(db, orgId, provider);
+        if (!setup) return reply(200, { ok: false, error: `Signing in with ${provider} isn't switched on` });
+        const who = JSON.parse(Buffer.from(code, "base64url").toString()) as { email: string; nonce: string };
+        return reply(200, { ok: true, claims: { provider, id: `id-${who.email}`, email: who.email, nonce: who.nonce, tenantId: setup.client.tenantId } });
+      }
       const download = req.method === "GET" ? /^\/v1\/backups\/([0-9a-f-]{36})\?userId=([0-9a-f-]{36})$/.exec(req.url ?? "") : null;
       if (download) {
         const backup = await readBackup(db, masterKey, download[1]!, download[2]!);
@@ -70,6 +123,16 @@ export default async function globalSetup() {
         if (!orgId) return reply(403, { error: "unknown or inactive user" });
         return reply(200, await runHomeAssistantOp({ db, masterKey, toolbox: fakeHomeAssistant }, { orgId, op: haOp[1]!, userId }));
       }
+      // The gate's real integration call path, with a pretend Pi-hole.
+      const integrationOp = req.method === "POST" ? /^\/v1\/web\/integrations\/([a-z_]+)\/([a-z]+(?::|%3A)?[a-z]*)$/i.exec(req.url ?? "") : null;
+      if (integrationOp) {
+        const { userId } = JSON.parse(body) as { userId: string };
+        const orgId = await moduleManagerOrg(db, userId);
+        if (!orgId) return reply(403, { error: "unknown or inactive user" });
+        return reply(200, await runIntegrationOp({ db, masterKey, toolbox: fakePihole }, { orgId, key: integrationOp[1]!, op: decodeURIComponent(integrationOp[2]!), userId }));
+      }
+      // MOSS's releases, as GitHub would list them through the toolbox.
+      if (req.method === "POST" && req.url === "/v1/web/releases") return reply(200, { ok: true, tags: ["v0.1.0", "v0.10.0", "v0.9.0", "v0.10.0-rc1"] });
       if (req.method !== "POST" || req.url !== "/v1/secrets") return reply(404, { error: "not found" });
       try {
         reply(200, await writeSecret(db, masterKey, secretWriteSchema.parse(JSON.parse(body))));
@@ -79,7 +142,46 @@ export default async function globalSetup() {
     });
   });
   await new Promise<void>((resolve) => server.listen(E2E_GATE_PORT, "127.0.0.1", resolve));
+
+  // Stand-in for the https service: the shared folder starting on MOSS's own CA, and an admin socket that
+  // accepts a config load (the real Caddy's behaviour is tested against Caddy itself).
+  rmSync(E2E_TLS_DIR, { recursive: true, force: true });
+  mkdirSync(E2E_TLS_DIR, { recursive: true });
+  writeFileSync(join(E2E_TLS_DIR, "tls.caddy"), "tls internal\n");
+  if (process.platform !== "win32") rmSync(E2E_CADDY_ADMIN, { force: true });
+  const caddy = createServer((req, res) => {
+    req.resume();
+    req.on("end", () => res.writeHead(req.method === "POST" && req.url === "/load" ? 200 : 404).end());
+  });
+  await new Promise<void>((resolve) => caddy.listen(E2E_CADDY_ADMIN, resolve));
+  // Stand-in for the backup service (the real one is tested against Postgres in Docker): backups made at
+  // once, kept in memory; downloads are "encrypted" bytes that start like openssl's.
+  const backups: { name: string; bytes: number; created: string }[] = [];
+  const backup = createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      const json = (status: number, data: unknown) => res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(data));
+      if (req.headers.authorization !== `Bearer ${E2E_BACKUP_TOKEN}`) return json(401, { error: "unauthorised" });
+      const m = /^\/backups\/([^/]+)(\/download)?$/.exec(req.url ?? "");
+      if (req.method === "GET" && req.url === "/backups") return json(200, { backups, running: null, last: null });
+      if (req.method === "POST" && req.url === "/run") {
+        const n = backups.length + 1;
+        backups.unshift({ name: `moss-backup-2030010${n}T030000Z.tar.gz`, bytes: 2_400_000, created: new Date().toISOString() });
+        return json(202, { started: true });
+      }
+      if (m && req.method === "DELETE") {
+        backups.splice(backups.findIndex((b) => b.name === m[1]), 1);
+        return json(200, { deleted: m[1] });
+      }
+      if (m && req.method === "POST") return res.writeHead(200, { "content-type": "application/octet-stream" }).end(`Salted__${m[1]}`);
+      json(404, { error: "not found" });
+    });
+  });
+  await new Promise<void>((resolve) => backup.listen(E2E_BACKUP_PORT, "127.0.0.1", resolve));
   return async () => {
+    backup.close();
+    caddy.close();
     server.close();
     await db.$client.end();
   };

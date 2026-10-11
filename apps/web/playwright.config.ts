@@ -1,6 +1,17 @@
 // End-to-end tests: a real browser against `next start`, backed by a fresh test database.
 // Needs MOSS_TEST_DATABASE_URL (the suite uses <db>_web_e2e). Build first: `pnpm build`.
 import { defineConfig, devices } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+/** Settings → HTTPS writes here; global-setup stands in for Caddy's admin socket. */
+export const E2E_TLS_DIR = join(tmpdir(), "moss-e2e-tls");
+export const E2E_CADDY_ADMIN = process.platform === "win32" ? "\\\\.\\pipe\\moss-e2e-caddy" : join(E2E_TLS_DIR, "admin.sock");
+
+/** A throwaway licence signing key (packages/core/src/fixtures/licence), accepted only because the web is told to. */
+export const E2E_LICENCE_DIR = fileURLToPath(new URL("../../packages/core/src/fixtures/licence", import.meta.url));
 
 const base = process.env.MOSS_TEST_DATABASE_URL;
 if (!base) throw new Error("Set MOSS_TEST_DATABASE_URL to run the e2e tests");
@@ -8,6 +19,9 @@ const dbUrl = new URL(base);
 dbUrl.pathname = `${dbUrl.pathname}_web_e2e`;
 const PORT = 3107;
 export const E2E_GATE_PORT = 3108;
+/** A stand-in for the backup service, started by global-setup. */
+export const E2E_BACKUP_PORT = 3109;
+export const E2E_BACKUP_TOKEN = "e2e-backup-token-0000";
 export const E2E_WEB_TOKEN = "e2e-web-token-for-the-stand-in-gate-0000";
 /** The stand-in gate's master key (hex), so tests can seed encrypted rows it can open. */
 export const E2E_MASTER_KEY_HEX = "22".repeat(32);
@@ -34,6 +48,20 @@ export default defineConfig({
       // Stand-in for the gate's secrets API, started by global-setup.
       GATE_URL: `http://127.0.0.1:${E2E_GATE_PORT}`,
       MOSS_LIBRARY_DIR: "../../library",
+      // A development build after v0.9.0, as deploy/upgrade.sh records it.
+      MOSS_RELEASE: "v0.9.0-12-gabc1234",
+      // Signing in with Microsoft or Google goes to the stand-in in global-setup.
+      MOSS_SSO_STANDIN_URL: `http://127.0.0.1:${E2E_GATE_PORT}/sso`,
+      MOSS_LICENCE_EXTRA_PUBLIC_KEY: readFileSync(join(E2E_LICENCE_DIR, "test.pub"), "utf8").trim(),
+      // HTTPS with MOSS's own CA, as a default install has (the CA itself isn't reachable here).
+      MOSS_TLS: "internal",
+      MOSS_CA_URL: "http://127.0.0.1:9/moss-ca.crt",
+      MOSS_HTTPS_HOSTS: "localhost, moss.test, 10.0.0.5",
+      MOSS_TLS_DIR: E2E_TLS_DIR,
+      MOSS_CADDY_ADMIN: E2E_CADDY_ADMIN,
+      MOSS_CADDY_CONFIG: "../../deploy/https/internal.Caddyfile",
+      BACKUP_URL: `http://127.0.0.1:${E2E_BACKUP_PORT}`,
+      BACKUP_TOKEN: E2E_BACKUP_TOKEN,
       NEXT_TELEMETRY_DISABLED: "1",
     },
   },

@@ -4,7 +4,7 @@
 // is signed out again after each tool call. Everything the console returns is cleaned and bounded here.
 import type { UnifiClient, UnifiClientsResult } from "@moss/tools";
 import { sendRequest, type RawRequest } from "./custom-http.js";
-import { HomelabError } from "./homelab.js";
+import { arr, HomelabError, obj } from "./homelab.js";
 import { clean } from "./parsers.js";
 
 export interface UnifiAuth {
@@ -18,8 +18,6 @@ export interface UnifiAuth {
 }
 
 type Json = Record<string, unknown>;
-const obj = (v: unknown): Json => (v && typeof v === "object" && !Array.isArray(v) ? (v as Json) : {});
-const arr = (v: unknown): Json[] => (Array.isArray(v) ? (v.filter((x) => x && typeof x === "object") as Json[]) : []);
 const strs = (v: unknown, max = 50): string[] => (Array.isArray(v) ? v.slice(0, max).map((x) => clean(x)).filter((x): x is string => !!x) : []);
 
 export type UnifiRequest = (method: "GET" | "POST" | "PUT", path: string, body?: unknown) => Promise<unknown>;

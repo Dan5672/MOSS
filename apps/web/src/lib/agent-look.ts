@@ -7,6 +7,7 @@ const ROLE_MASCOT: Record<string, MascotVariant> = {
   "systems-admin": "beanie",
   "network-admin": "headset",
   "security-admin": "nightshift",
+  moss: "monitor",
 };
 
 const ROLE_GLOW: Record<string, string> = {
@@ -14,6 +15,7 @@ const ROLE_GLOW: Record<string, string> = {
   "systems-admin": "var(--amber)",
   "network-admin": "var(--signal)",
   "security-admin": "#ff7ad9",
+  moss: "#c39bff",
 };
 
 /** Glow colours offered in the picker (the role colours plus alarm). */

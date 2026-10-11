@@ -5,7 +5,7 @@
 //   - API providers: MOSS drives the model turn by turn (runApiLoop, below).
 //   - Claude subscription: the Claude Code CLI drives the model, and calls MOSS's tools through a
 //     local MCP server that runs the same execute() path (see claude-code.ts).
-import { agentToolGrants, effectivePermissions, getBudgetStatus, getSetting, ingestDiscoveredHosts, writeAudit, type DiscoveredHost } from "@moss/core";
+import { agentToolGrants, effectivePermissions, emitEvent, getBudgetStatus, getSetting, ingestDiscoveredHosts, writeAudit, type DiscoveredHost } from "@moss/core";
 import {
   agentRuns,
   agents,
@@ -14,6 +14,8 @@ import {
   providers,
   rolePermissions,
   runSteps,
+  secretGrants,
+  secrets,
   skills,
   tokenUsage,
   type Database,
@@ -47,6 +49,8 @@ export interface RunInput {
   task: string;
   trigger: "schedule" | "event" | "ticket" | "chat" | "manual";
   triggerRef?: string;
+  /** The person who asked for this work, so the agent can ask them questions (ask_user). */
+  requestedByUserId?: string;
 }
 
 export interface RunDeps {
@@ -56,6 +60,8 @@ export interface RunDeps {
   /** How to run agents whose model is on a Claude subscription. Without it, those runs fail cleanly. */
   claudeCode?: ClaudeCodeConfig;
   now?: () => Date;
+  /** Set for a run started by another agent's ask_moss: it can't consult in turn. */
+  consulting?: boolean;
 }
 
 export interface RunOutcome {
@@ -132,6 +138,20 @@ async function prepareRun(deps: RunDeps, input: RunInput): Promise<PreparedRun |
     .from(agentSkills)
     .innerJoin(skills, eq(agentSkills.skillId, skills.id))
     .where(eq(agentSkills.agentId, agent.id));
+  // The secrets it has been granted: names, kinds and scope only (values never leave the gate).
+  const secretRows = await db
+    .select({
+      name: secrets.name,
+      type: secrets.type,
+      username: secrets.username,
+      description: secrets.description,
+      allowedHosts: secrets.allowedHosts,
+      allowedTools: secrets.allowedTools,
+    })
+    .from(secretGrants)
+    .innerJoin(secrets, eq(secretGrants.secretId, secrets.id))
+    .where(eq(secretGrants.agentId, agent.id))
+    .orderBy(secrets.name);
   // Skills give instructions; which tools the agent has also counts per-agent overrides (see agentToolGrants).
   const grants = await agentToolGrants(db, agent.id);
   const permRows = agent.roleId
@@ -169,7 +189,15 @@ async function prepareRun(deps: RunDeps, input: RunInput): Promise<PreparedRun |
 
   const [run] = await db
     .insert(agentRuns)
-    .values({ orgId, siteId: agent.siteId, agentId: agent.id, trigger: input.trigger, triggerRef: input.triggerRef ?? null })
+    .values({
+      orgId,
+      siteId: agent.siteId,
+      agentId: agent.id,
+      trigger: input.trigger,
+      triggerRef: input.triggerRef ?? null,
+      task: input.task.slice(0, 20_000),
+      requestedByUserId: input.requestedByUserId ?? null,
+    })
     .returning({ id: agentRuns.id });
   const runId = run!.id;
   let seq = 0;
@@ -214,6 +242,7 @@ async function prepareRun(deps: RunDeps, input: RunInput): Promise<PreparedRun |
 
   const finish = async (status: FinalStatus, summary: string): Promise<RunOutcome> => {
     await db.update(agentRuns).set({ status, summary: summary.slice(0, 4000), endedAt: now() }).where(eq(agentRuns.id, runId));
+    await emitEvent(db, orgId, { type: "run.finished", payload: { runId, agentId: agent.id, status } });
     return { runId, status, summary, steps: seq };
   };
 
@@ -255,7 +284,10 @@ async function prepareRun(deps: RunDeps, input: RunInput): Promise<PreparedRun |
           content = { error: `Invalid arguments: ${z.prettifyError(parsed.error)}` };
         } else {
           try {
-            content = await tool.run({ db, orgId, agentId: agent.id, gate: deps.gate, runId }, parsed.data);
+            // Consulting another agent (ask_moss) runs it now, inside this run; it can't consult anyone itself.
+            const consult = (otherId: string, task: string) =>
+              runAgent({ ...deps, consulting: true }, { agentId: otherId, task, trigger: "event", triggerRef: runId, requestedByUserId: input.requestedByUserId }).then((o) => ({ status: o.status, summary: o.summary ?? "" }));
+            content = await tool.run({ db, orgId, agentId: agent.id, gate: deps.gate, runId, consult: deps.consulting ? undefined : consult }, parsed.data);
           } catch (err) {
             isError = true;
             content = { error: (err as Error).message };
@@ -273,7 +305,7 @@ async function prepareRun(deps: RunDeps, input: RunInput): Promise<PreparedRun |
     model,
     provider,
     runId,
-    system: buildSystemPrompt(agent, skillRows),
+    system: buildSystemPrompt(agent, skillRows, secretRows),
     task: buildTaskMessage(input.task, input.trigger, now()),
     toolSpecs,
     maxSteps: agent.maxStepsPerRun,

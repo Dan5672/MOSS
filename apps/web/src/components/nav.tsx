@@ -4,25 +4,24 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
-// Each item is labelled with a function key in this order (F1, F2, ...). The labels are decorative.
-const ITEMS = [
+/** Sidebar items. `also` lists other sections an item covers (shown as its tabs), so it stays highlighted there. */
+export const NAV_ITEMS: { href: string; label: string; also?: string[] }[] = [
   { href: "/", label: "Dashboard" },
   { href: "/basement", label: "Basement" },
+  { href: "/chat", label: "Chat" },
   { href: "/agents", label: "Agents" },
-  { href: "/models", label: "Models" },
   { href: "/assets", label: "Assets" },
-  { href: "/networks", label: "Networks" },
+  { href: "/wiki", label: "Wiki" },
   { href: "/monitoring", label: "Monitoring" },
   { href: "/incidents", label: "Incidents" },
   { href: "/changes", label: "Changes" },
-  { href: "/runs", label: "Agent activity" },
-  { href: "/audit", label: "Audit log" },
-  { href: "/users", label: "Users" },
-  { href: "/settings", label: "Settings" },
+  { href: "/runs", label: "Activity", also: ["/audit"] },
+  { href: "/settings", label: "Settings", also: ["/users", "/networks"] },
 ];
 
 /** Count chips: square, dark text on a coloured fill. Each keeps an aria-label saying what it counts. */
 const BADGES: Record<string, { className: string; label: (n: number) => string }> = {
+  "/chat": { className: "bg-phosphor", label: (n) => `${n} unread` },
   "/monitoring": { className: "bg-amber", label: (n) => `${n} down` },
   "/incidents": { className: "bg-alarm", label: (n) => `${n} open` },
   "/changes": { className: "bg-phosphor", label: (n) => `${n} pending` },
@@ -31,9 +30,10 @@ const BADGES: Record<string, { className: string; label: (n: number) => string }
 export function Nav({ badges }: { badges: Record<string, number> }) {
   const pathname = usePathname();
   return (
-    <nav className="grid gap-0.5">
-      {ITEMS.map(({ href, label }, i) => {
-        const active = href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
+    <nav aria-label="Main" className="grid gap-0.5">
+      {NAV_ITEMS.map(({ href, label, also = [] }) => {
+        const under = (h: string) => pathname === h || pathname.startsWith(`${h}/`);
+        const active = href === "/" ? pathname === "/" : under(href) || also.some(under);
         const count = badges[href];
         const badge = BADGES[href];
         return (
@@ -48,9 +48,6 @@ export function Nav({ badges }: { badges: Record<string, number> }) {
                 : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
             )}
           >
-            <span aria-hidden className={cn("w-7 shrink-0 font-mono text-[11px]", active ? "text-phosphor" : "text-dim")}>
-              F{i + 1}
-            </span>
             <span className="flex-1">{label}</span>
             {count && badge ? (
               <span className={cn("min-w-5 px-1 text-center font-mono text-xs font-medium text-on-brand", badge.className)} aria-label={badge.label(count)}>

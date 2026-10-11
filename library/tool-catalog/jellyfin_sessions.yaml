@@ -1,0 +1,18 @@
+key: jellyfin_sessions
+description: Active sessions on a Jellyfin server - who is connected, from which device and what is playing.
+class: read
+params:
+  host: { type: ip, target: true, description: The Jellyfin server }
+secret: jellyfin-api-key
+request:
+  method: GET
+  scheme: http
+  port: 8096
+  path: /Sessions
+  query:
+    activeWithinSeconds: "960"
+  headers:
+    X-Emby-Token: "{{secret}}"
+    Accept: application/json
+result:
+  maxItems: 50

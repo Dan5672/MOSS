@@ -1,0 +1,16 @@
+key: opnsense_gateways
+description: OPNsense gateway status - each gateway's state, latency and packet loss.
+class: read
+params:
+  host: { type: ip, target: true, description: The OPNsense firewall }
+secret: opnsense-api-basic
+request:
+  method: GET
+  scheme: https
+  path: /api/routes/gateway/status
+  headers:
+    Authorization: "Basic {{secret}}"
+    Accept: application/json
+  verifyTls: false
+result:
+  pick: $.items

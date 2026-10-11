@@ -118,3 +118,9 @@ export function ledColours(alarm: boolean) {
 export function shortName(name: string): string {
   return name.trim().split(/\s+/)[0]!.slice(0, 8).toUpperCase() || "AGENT";
 }
+
+/** What's scrawled in the whiteboard's corner; it changes every so often. */
+export const DOODLES = ["??", "DNS?", "!!", "42", "v2?", "TODO", ":)"] as const;
+
+/** A famous cheat code (as KeyboardEvent.key values). Entering it makes the lights flicker. */
+export const KONAMI = ["ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown", "ArrowLeft", "ArrowRight", "ArrowLeft", "ArrowRight", "b", "a"] as const;

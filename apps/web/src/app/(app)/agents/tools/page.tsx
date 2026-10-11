@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { Pill } from "@/components/badges";
 import { Empty, NoPermission, PageHeader, Section, timeAgo } from "@/components/page";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { SortableHead } from "@/components/sortable-head";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
+import { readSort, sortRows } from "@/lib/sort";
 import { requireUser } from "@/server/auth";
 import { recentDenials, toolAccess } from "@/server/tool-catalog";
 import { ActionForm } from "@/components/action-form";
 import { CheckboxField } from "@/components/field";
-import { AgentsTabs } from "../tabs";
+import { groupTools, toolGroup } from "@/lib/tool-groups";
 import { setToolAccessAction } from "./actions";
 
 export const metadata = { title: "Tool access" };
@@ -17,10 +19,21 @@ const SOURCES = [
   { key: "custom", title: "Custom tools", blurb: "Your own HTTP tools, granted to agents directly. They go through the policy gate like network tools." },
 ] as const;
 
-export default async function ToolAccessPage() {
+export default async function ToolAccessPage({ searchParams }: PageProps<"/agents/tools">) {
   const user = await requireUser();
   if (!user.permissions.has("agents.read")) return <NoPermission />;
-  const [{ tools, agents, sinceDays }, denials] = await Promise.all([toolAccess(user.orgId), recentDenials(user.orgId)]);
+  const sp = await searchParams;
+  const [{ tools: allTools, agents, sinceDays }, denials] = await Promise.all([toolAccess(user.orgId), recentDenials(user.orgId)]);
+  const sort = readSort(sp, ["tool", "type", "agents", "calls", "denied", "used"] as const);
+  const tools = sortRows(allTools, sort, {
+    tool: (t) => t.name,
+    type: (t) => t.kind,
+    agents: (t) => t.holders.length,
+    calls: (t) => t.calls,
+    denied: (t) => t.denied,
+    used: (t) => t.lastUsed,
+  });
+  const head = (label: string, key: string, className?: string) => <SortableHead label={label} sortKey={key} state={sort} path="/agents/tools" sp={sp} className={className} />;
   const unused = tools.filter((t) => t.holders.length === 0).length;
   const canManage = user.permissions.has("agents.manage");
 
@@ -30,7 +43,6 @@ export default async function ToolAccessPage() {
         title="Agents"
         description="Which tools each agent can use, where that access comes from, and how much they use it. Agents get tools only through their skills."
       />
-      <AgentsTabs current="/agents/tools" />
 
       <div className="mb-8 grid grid-cols-[repeat(auto-fit,minmax(min(170px,100%),1fr))] gap-3">
         {[
@@ -48,24 +60,25 @@ export default async function ToolAccessPage() {
       </div>
 
       <div className="grid gap-8">
-        {SOURCES.filter((src) => src.key !== "custom" || tools.some((t) => t.source === "custom")).map((src) => (
-          <Section key={src.key} title={src.title}>
-            <p className="text-sm text-muted-foreground">{src.blurb}</p>
+        <p className="text-sm text-muted-foreground">{SOURCES[0].blurb}</p>
+        {groupTools(tools, (t) => toolGroup(t.name, t.source)).map((group) => (
+          <Section key={group.key} title={group.label}>
+            {group.key === "moss" && <p className="text-sm text-muted-foreground">{SOURCES[1].blurb}</p>}
+            {group.key === "custom" && <p className="text-sm text-muted-foreground">{SOURCES[2].blurb}</p>}
             <div className="px-frame overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Tool</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Agents with access</TableHead>
-                    <TableHead className="text-right">Calls</TableHead>
-                    <TableHead className="text-right">Denied</TableHead>
-                    <TableHead className="text-right">Last used</TableHead>
+                    {head("Tool", "tool")}
+                    {head("Type", "type")}
+                    {head("Agents with access", "agents")}
+                    {head("Calls", "calls", "text-right")}
+                    {head("Denied", "denied", "text-right")}
+                    {head("Last used", "used", "text-right")}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {tools
-                    .filter((t) => t.source === src.key)
+                  {group.items
                     .map((t) => (
                       <TableRow key={t.name}>
                         <TableCell className="max-w-md align-top whitespace-normal">

@@ -6,3 +6,5 @@
 deploy/.env
 deploy/secrets
 *.log
+**/__pycache__
+deploy/certs

@@ -201,6 +201,10 @@ sh "$DEPLOY_DIR/init.sh" >&2
 
 save_images
 info "Building $new_version (MOSS keeps running meanwhile)"
+# The version the web image reports (to Home Assistant's update entity).
+export MOSS_RELEASE="$new_version"
+# The commit, which the backup service writes into each backup (restore.sh --checkout uses it).
+export MOSS_COMMIT="$new"
 if ! dc build >&2; then
   switch_back
   restore_images || true
@@ -235,6 +239,8 @@ if ! dc up -d >&2; then
   failed "the new version failed to start (see the migration log above)."
 fi
 wait_healthy 300 || failed "the new version is not healthy. Recent logs: docker compose logs --tail 50"
+# Caddy reads its config files only when it starts, and `up` doesn't recreate it when only those changed.
+if dc ps --services --status running 2>/dev/null | grep -qx https; then dc restart https >/dev/null 2>&1 || true; fi
 
 info "MOSS is now running $new_version"
 [ -n "$archive" ] && info "Pre-upgrade backup: $archive"

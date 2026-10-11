@@ -1,6 +1,7 @@
-// Gate HTTP API. Two callers, two tokens, disjoint routes:
-//   worker (GATE_TOKEN): tool calls, tool listing, monitor checks, module calls, LLM proxy
-//   web    (WEB_TOKEN):  write-only secrets API, config backup downloads, a person's module calls (/v1/web/...)
+// Gate HTTP API. Three callers, three tokens, disjoint routes:
+//   worker (GATE_TOKEN):   tool calls, tool listing, monitor checks, module calls, LLM proxy
+//   web    (WEB_TOKEN):    write-only secrets API, config backup downloads, a person's module calls (/v1/web/...)
+//   bridge (BRIDGE_TOKEN): the Telegram and Discord bot tokens (/v1/bridge/...)
 import Fastify from "fastify";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { Readable } from "node:stream";
@@ -29,6 +30,8 @@ export interface GateServerOptions {
     /** The org of an active user, for a person's module calls. */
     userOrg?: (userId: string) => Promise<string | null>;
   };
+  /** The chat bridge's bot tokens, authenticated with its own token. */
+  bridge?: { token: string; credentials: () => Promise<{ orgId: string; platform: string; token: string }[]> };
   logger?: boolean;
 }
 
@@ -36,16 +39,23 @@ export function buildGateServer(gate: Gate, opts: GateServerOptions) {
   if (opts.token.length < 32) throw new Error("GATE_TOKEN must be at least 32 characters");
   if (opts.secrets && opts.secrets.token.length < 32) throw new Error("WEB_TOKEN must be at least 32 characters");
   if (opts.secrets && sameToken(opts.secrets.token, opts.token)) throw new Error("WEB_TOKEN must differ from GATE_TOKEN");
+  if (opts.bridge && (opts.bridge.token.length < 32 || sameToken(opts.bridge.token, opts.token) || (opts.secrets && sameToken(opts.bridge.token, opts.secrets.token)))) {
+    throw new Error("BRIDGE_TOKEN must be at least 32 characters and differ from the other tokens");
+  }
   // Large body limit for LLM requests (long agent transcripts); tool calls are small.
   const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 32 * 1024 * 1024 });
 
   app.addHook("onRequest", async (req, reply) => {
-    if (req.url === "/v1/health") return;
+    // The route the router matched, not the raw URL: the router decodes "/v1/%62ridge/..." to the bridge route,
+    // so a check on the raw URL would accept the worker's token there.
+    const route = req.routeOptions.url ?? "";
+    if (route === "/v1/health") return;
     // SDKs send the service token as their "API key": Bearer for OpenAI-style clients, x-api-key for Anthropic.
     const header = req.headers.authorization ?? "";
     const presented = header.startsWith("Bearer ") ? header.slice(7) : req.headers["x-api-key"];
-    const webRoute = req.url.startsWith("/v1/secrets") || req.url.startsWith("/v1/backups") || req.url.startsWith("/v1/web/");
-    const expected = webRoute ? opts.secrets?.token : opts.token;
+    const webRoute = route.startsWith("/v1/secrets") || route.startsWith("/v1/backups") || route.startsWith("/v1/web/");
+    const bridgeRoute = route.startsWith("/v1/bridge/");
+    const expected = bridgeRoute ? opts.bridge?.token : webRoute ? opts.secrets?.token : opts.token;
     if (typeof presented !== "string" || !expected || !sameToken(presented, expected)) {
       return reply.code(401).send({ error: "unauthorized" });
     }
@@ -89,9 +99,51 @@ export function buildGateServer(gate: Gate, opts: GateServerOptions) {
       if (!orgId) return reply.code(403).send({ error: "unknown or inactive user" });
       return gate.homeAssistant({ orgId, op, userId });
     });
+
+    // Someone signing in with Microsoft or Google (not signed in yet, so no user: the web app names the org).
+    app.post<{ Params: { provider: string }; Body: { orgId?: string; code?: string; redirectUri?: string; codeVerifier?: string } }>("/v1/web/sso/:provider/exchange", async (req, reply) => {
+      const provider = req.params.provider;
+      if (provider !== "microsoft" && provider !== "google") return reply.code(404).send({ error: "unknown provider" });
+      const { orgId, code, redirectUri, codeVerifier } = req.body ?? {};
+      if (!orgId || !UUID.test(orgId) || !code || !redirectUri || !codeVerifier) return reply.code(400).send({ error: "orgId, code, redirectUri and codeVerifier are required" });
+      return gate.sso({ orgId, provider, code, redirectUri, codeVerifier });
+    });
+
+    // A person checking for MOSS updates (Settings → About): the newest release tags, fetched through the toolbox.
+    app.post<{ Body: { userId?: string } }>("/v1/web/releases", async (req, reply) => {
+      const userId = req.body?.userId;
+      if (!userId || !UUID.test(userId)) return reply.code(400).send({ error: "userId (uuid) is required" });
+      if (!(await userOrg(userId))) return reply.code(403).send({ error: "unknown or inactive user" });
+      return gate.releases();
+    });
+
+    // A person's integration calls from its settings page: Test connection, and Sync now (sync:<feature>).
+    app.post<{ Params: { key: string; op: string }; Body: { userId?: string } }>("/v1/web/integrations/:key/:op", async (req, reply) => {
+      const { key, op } = req.params;
+      if (op !== "test" && !op.startsWith("sync:")) return reply.code(404).send({ error: "unknown operation" });
+      const userId = req.body?.userId;
+      if (!userId || !UUID.test(userId)) return reply.code(400).send({ error: "userId (uuid) is required" });
+      const orgId = await userOrg(userId);
+      if (!orgId) return reply.code(403).send({ error: "unknown or inactive user" });
+      return gate.integration({ orgId, key, op, userId });
+    });
   }
 
   app.get("/v1/health", async () => ({ ok: true }));
+
+  if (opts.bridge) {
+    const bridge = opts.bridge;
+    app.get("/v1/bridge/credentials", async () => ({ bots: await bridge.credentials() }));
+  }
+
+  // The worker's integration calls: health checks and inventory syncs.
+  app.post<{ Params: { key: string; op: string }; Body: { orgId?: string; args?: Record<string, unknown> } }>("/v1/integrations/:key/:op", async (req, reply) => {
+    const { key, op } = req.params;
+    if (op === "test" || op.startsWith("sync:")) return reply.code(404).send({ error: "unknown operation" });
+    const orgId = req.body?.orgId;
+    if (!orgId || !UUID.test(orgId)) return reply.code(400).send({ error: "orgId (uuid) is required" });
+    return gate.integration({ orgId, key, op, ...(req.body?.args ? { args: req.body.args } : {}) });
+  });
 
   // The worker's Home Assistant calls: health checks, inventory sync, notifications, MOSS's sensors.
   app.post<{ Params: { op: string }; Body: { orgId?: string; args?: Record<string, unknown> } }>("/v1/modules/home-assistant/:op", async (req, reply) => {

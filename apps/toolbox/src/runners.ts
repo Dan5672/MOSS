@@ -6,8 +6,20 @@ import * as actions from "./actions.js";
 import { configBackup, type BackupArgs } from "./backups.js";
 import { customHttp, sendRequest, type RawRequest } from "./custom-http.js";
 import { homeassistantDevices, homeassistantHealth, homeassistantLogs, homeassistantNotify, homeassistantPublish } from "./home-assistant.js";
-import { adguardStats, HomelabError, homeassistantStates, piholeSummary, proxmoxStatus, synologyStatus, truenasStatus } from "./homelab.js";
+import { cloudflareDns, cloudflareDnsRecord, cloudflareTunnels, mossReleases, tailscaleDevices } from "./cloud.js";
+import { dockerApiContainers } from "./docker-api.js";
+import { fortigateStatus } from "./fortigate.js";
+import { gworkspaceAlerts, gworkspaceDevices, gworkspaceUsers } from "./google.js";
+import { awsAlarms, awsExposure, awsInventory } from "./aws.js";
+import { merakiDevices, merakiNetwork } from "./meraki.js";
+import { m365Devices, m365ServiceHealth, m365Users } from "./microsoft.js";
+import { oidcExchange, oidcKeys } from "./oidc.js";
+import { pagerdutyChange, pagerdutyEvent, pagerdutyIncidents } from "./pagerduty.js";
+import { nutStatus } from "./nut.js";
+import { opnsenseBlock, opnsenseStatus, pfsenseBlock, pfsenseStatus } from "./firewalls.js";
+import { adguardClients, adguardStats, HomelabError, homeassistantStates, pbsStatus, piholeClients, piholeSummary, proxmoxInventory, proxmoxStatus, synologyStatus, truenasStatus } from "./homelab.js";
 import { unifiAuthMode, unifiClientsByLogin, unifiFirewall } from "./unifi.js";
+import { nucleiScan, tlsAudit, vulnScan } from "./vuln.js";
 import { diskUsage, dockerPs, hostFacts, ServerError, serviceStatus, sshRun, type SshRun, type SshTarget } from "./servers.js";
 import { execFile } from "node:child_process";
 import { createSocket } from "node:dgram";
@@ -164,7 +176,12 @@ async function runToolInner(
       const targets = args.targets as string[];
       assertTargets(targets);
       const scan = async (icmpOnly: boolean) => {
-        const flags = [...NMAP_PROFILES[args.profile as string]!, ...(icmpOnly ? ICMP_DISCOVERY : []), "--privileged", "-oX", "-", ...targets];
+        // Names come from reverse DNS. Inside a container the default resolver can't answer for the LAN, so
+        // ask the network's own DNS server when MOSS knows it.
+        const dnsServers = (args.dnsServers as string[] | undefined) ?? [];
+        assertTargets(dnsServers);
+        const dns = dnsServers.length ? ["--dns-servers", dnsServers.join(",")] : [];
+        const flags = [...NMAP_PROFILES[args.profile as string]!, ...(icmpOnly ? ICMP_DISCOVERY : []), ...dns, "--privileged", "-oX", "-", ...targets];
         const res = await exec("nmap", flags, 15 * 60_000);
         if (res.code !== 0 && !res.stdout.includes("<nmaprun")) throw new ToolError(`nmap failed: ${res.stderr.slice(0, 500)}`);
         return parseNmapXml(res.stdout);
@@ -257,19 +274,90 @@ async function runToolInner(
       if (name === "service_status") return serviceStatus(t, ssh);
       return dockerPs(t, ssh);
     }
+    case "opnsense_status":
+    case "pfsense_status":
+    case "opnsense_block":
+    case "pfsense_block": {
+      assertHost(args.target as string);
+      const a = args as never;
+      if (name === "opnsense_status") return opnsenseStatus(a, send);
+      if (name === "pfsense_status") return pfsenseStatus(a, send);
+      if (name === "opnsense_block") return opnsenseBlock(a, send);
+      return pfsenseBlock(a, send);
+    }
+    case "fortigate_status":
+      assertHost(args.target as string);
+      return fortigateStatus(args as never, send);
+    case "nut_status":
+      assertHost(args.target as string);
+      return nutStatus(args as never);
+    // Cloud services: no target; each calls its service's own address.
+    case "aws_inventory":
+      return awsInventory(args as never);
+    case "aws_alarms":
+      return awsAlarms(args as never);
+    case "aws_exposure":
+      return awsExposure(args as never);
+    case "meraki_devices":
+      return merakiDevices(args as never);
+    case "meraki_network":
+      return merakiNetwork(args as never);
+    case "m365_users":
+      return m365Users(args as never);
+    case "m365_devices":
+      return m365Devices(args as never);
+    case "m365_service_health":
+      return m365ServiceHealth(args as never);
+    case "gworkspace_users":
+      return gworkspaceUsers(args as never);
+    case "gworkspace_devices":
+      return gworkspaceDevices(args as never);
+    case "gworkspace_alerts":
+      return gworkspaceAlerts(args as never);
+    case "pagerduty_event":
+      return pagerdutyEvent(args as never);
+    case "pagerduty_change":
+      return pagerdutyChange(args as never);
+    case "pagerduty_incidents":
+      return pagerdutyIncidents(args as never);
+    case "oidc_exchange":
+      return oidcExchange(args as never);
+    case "oidc_keys":
+      return oidcKeys(args as never);
+    case "moss_releases":
+      return mossReleases(args as never);
+    case "tailscale_devices":
+      return tailscaleDevices(args as never);
+    case "cloudflare_dns":
+      return cloudflareDns(args as never);
+    case "cloudflare_tunnels":
+      return cloudflareTunnels(args as never);
+    case "cloudflare_dns_record":
+      return cloudflareDnsRecord(args as never);
+    case "docker_api_containers":
+      assertHost(args.target as string);
+      return dockerApiContainers(args as never, send);
     case "proxmox_status":
+    case "proxmox_inventory":
+    case "pbs_status":
     case "truenas_status":
     case "synology_status":
     case "homeassistant_states":
     case "pihole_summary":
+    case "pihole_clients":
+    case "adguard_clients":
     case "adguard_stats": {
       assertHost(args.target as string);
       const a = args as never;
       if (name === "proxmox_status") return proxmoxStatus(a, send);
+      if (name === "proxmox_inventory") return proxmoxInventory(a, send);
+      if (name === "pbs_status") return pbsStatus(a, send);
       if (name === "truenas_status") return truenasStatus(a, send);
       if (name === "synology_status") return synologyStatus(a, send);
       if (name === "homeassistant_states") return homeassistantStates(a, send);
       if (name === "pihole_summary") return piholeSummary(a, send);
+      if (name === "pihole_clients") return piholeClients(a, send);
+      if (name === "adguard_clients") return adguardClients(a, send);
       return adguardStats(a, send);
     }
     case "homeassistant_health":
@@ -285,6 +373,15 @@ async function runToolInner(
       if (name === "homeassistant_notify") return homeassistantNotify(a, send);
       return homeassistantPublish(a, send);
     }
+    case "vuln_scan":
+    case "nuclei_scan":
+    case "tls_audit": {
+      assertHost(args.target as string);
+      const a = args as never;
+      if (name === "vuln_scan") return vulnScan(a, exec);
+      if (name === "nuclei_scan") return nucleiScan(a, exec);
+      return tlsAudit(a, exec);
+    }
     case "config_backup": {
       assertHost(args.target as string);
       return configBackup(args as unknown as BackupArgs, ssh, send);
@@ -292,11 +389,13 @@ async function runToolInner(
     // Write tools: the gate only sends these as a step of an approved change request.
     case "service_restart":
     case "container_restart":
-    case "host_reboot": {
+    case "host_reboot":
+    case "host_shutdown": {
       assertHost(args.target as string);
       const t = args as never;
       if (name === "service_restart") return actions.serviceRestart(t, ssh);
       if (name === "container_restart") return actions.containerRestart(t, ssh);
+      if (name === "host_shutdown") return actions.hostShutdown(t, ssh);
       return actions.hostReboot(t, ssh);
     }
     case "homeassistant_switch":
@@ -304,9 +403,13 @@ async function runToolInner(
     case "pihole_domain_rule":
     case "pihole_local_dns":
     case "adguard_rule":
-    case "adguard_rewrite": {
+    case "adguard_rewrite":
+    case "proxmox_snapshot":
+    case "proxmox_guest_power": {
       assertHost(args.target as string);
       const a = args as never;
+      if (name === "proxmox_snapshot") return actions.proxmoxSnapshot(a, send);
+      if (name === "proxmox_guest_power") return actions.proxmoxGuestPower(a, send);
       if (name === "homeassistant_switch") return actions.homeassistantSwitch(a, send);
       if (name === "homeassistant_power_cycle") return actions.homeassistantPowerCycle(a, send);
       if (name === "pihole_domain_rule") return actions.piholeDomainRule(a, send);

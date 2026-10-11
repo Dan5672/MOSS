@@ -1,0 +1,12 @@
+key: frigate_stats
+description: Frigate NVR health - each camera's frame rates, detector speed, CPU use and recording storage.
+class: read
+params:
+  host: { type: ip, target: true, description: The Frigate server }
+request:
+  method: GET
+  scheme: http
+  port: 5000
+  path: /api/stats
+  headers:
+    Accept: application/json

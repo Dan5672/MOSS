@@ -11,6 +11,11 @@ export interface CheckResult {
   latencyMs?: number | null;
   message: string;
   policyDenied?: boolean;
+  /** Metric monitors: the main value, every value by name, its unit, and raw counters for the next rate. */
+  value?: number | null;
+  values?: Record<string, number>;
+  unit?: string;
+  counters?: Record<string, number>;
 }
 
 export interface MonitorCounters {

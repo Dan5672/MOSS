@@ -1,11 +1,13 @@
 import { listMonitors } from "@moss/core";
 import Link from "next/link";
 import { ActionForm } from "@/components/action-form";
+import { FormDialog } from "@/components/form-dialog";
 import { Pill, PriorityBadge, StatusBadge } from "@/components/badges";
 import { Empty, NoPermission, PageHeader, timeAgo } from "@/components/page";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Card, CardContent } from "@/components/ui/card";
+import { SortableHead } from "@/components/sortable-head";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
+import { readSort, sortRows } from "@/lib/sort";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { createMonitorAction } from "./actions";
@@ -15,7 +17,7 @@ import { describeTarget, formatUptime, monitorFormOptions } from "./shared";
 export const metadata = { title: "Monitoring" };
 
 const STATE_ORDER = { down: 0, degraded: 1, pending: 2, up: 3, paused: 4 } as const;
-const KINDS = new Set(["ping", "tcp", "http", "tls", "dns"]);
+const KINDS = new Set(["ping", "tcp", "http", "tls", "dns", "snmp", "host", "ha_sensor"]);
 
 /** ?new=1&kind=tcp&target=…&port=…&asset=… pre-fills the form (from an asset's "Monitor" button). */
 function prefill(sp: Record<string, string | string[] | undefined>): MonitorDefaults | null {
@@ -31,8 +33,17 @@ export default async function MonitoringPage({ searchParams }: PageProps<"/monit
   if (!user.permissions.has("monitoring.read")) return <NoPermission />;
   const sp = await searchParams;
   const canManage = user.permissions.has("monitoring.manage");
-  const [rows, options] = await Promise.all([listMonitors(db(), user.orgId), canManage ? monitorFormOptions(user.orgId) : null]);
-  rows.sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || a.name.localeCompare(b.name));
+  const [all, options] = await Promise.all([listMonitors(db(), user.orgId), canManage ? monitorFormOptions(user.orgId) : null]);
+  all.sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || a.name.localeCompare(b.name));
+  const sort = readSort(sp, ["monitor", "state", "result", "uptime", "responder"] as const);
+  const rows = sortRows(all, sort, {
+    monitor: (m) => m.name,
+    state: (m) => STATE_ORDER[m.state],
+    result: (m) => m.lastCheckAt,
+    uptime: (m) => m.uptime24h,
+    responder: (m) => m.responderName,
+  });
+  const head = (label: string, key: string, className?: string) => <SortableHead label={label} sortKey={key} state={sort} path="/monitoring" sp={sp} className={className} />;
   const counts = Object.fromEntries(Object.keys(STATE_ORDER).map((s) => [s, rows.filter((r) => r.state === s).length])) as Record<keyof typeof STATE_ORDER, number>;
   const defaults = prefill(sp);
 
@@ -42,9 +53,21 @@ export default async function MonitoringPage({ searchParams }: PageProps<"/monit
         title="Monitoring"
         description="Keep watch on the services that matter. When one goes down, MOSS raises an incident and its responder agent starts working it."
         actions={
-          <Button asChild variant="outline">
-            <Link href="/monitoring/sources">Webhook sources</Link>
-          </Button>
+          <>
+            {canManage && options && (
+              <FormDialog
+                label="Add a monitor"
+                title="Add a monitor"
+                description="Checks run from the MOSS toolbox through the policy gate, so the target must be inside an allowed network."
+                wide
+                defaultOpen={sp.new === "1"}
+              >
+                <ActionForm action={createMonitorAction} submitLabel="Add monitor">
+                  <MonitorFields defaults={defaults ?? undefined} assets={options.assets} responders={options.responders} secrets={options.secrets} />
+                </ActionForm>
+              </FormDialog>
+            )}
+          </>
         }
       />
 
@@ -68,7 +91,7 @@ export default async function MonitoringPage({ searchParams }: PageProps<"/monit
 
       {rows.length === 0 ? (
         <Empty>
-          No monitors yet. Add a check below, or connect Uptime Kuma, Beszel or Alertmanager under{" "}
+          No monitors yet. Add one with Add a monitor, or connect Uptime Kuma, Beszel or Alertmanager under{" "}
           <Link href="/monitoring/sources" className="underline">
             Webhook sources
           </Link>
@@ -78,11 +101,11 @@ export default async function MonitoringPage({ searchParams }: PageProps<"/monit
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Monitor</TableHead>
-              <TableHead>State</TableHead>
-              <TableHead>Last result</TableHead>
-              <TableHead className="text-right">Uptime 24h</TableHead>
-              <TableHead>Responder</TableHead>
+              {head("Monitor", "monitor")}
+              {head("State", "state")}
+              {head("Last result", "result")}
+              {head("Uptime 24h", "uptime", "text-right")}
+              {head("Responder", "responder")}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -124,21 +147,6 @@ export default async function MonitoringPage({ searchParams }: PageProps<"/monit
         </Table>
       )}
 
-      {canManage && options && (
-        <Card className="mt-8 max-w-3xl" id="new">
-          <CardHeader>
-            <CardTitle>Add a monitor</CardTitle>
-            <CardDescription>
-              Checks run from the MOSS toolbox through the policy gate, so the target must be inside an allowed network.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ActionForm action={createMonitorAction} submitLabel="Add monitor">
-              <MonitorFields defaults={defaults ?? undefined} assets={options.assets} responders={options.responders} />
-            </ActionForm>
-          </CardContent>
-        </Card>
-      )}
     </>
   );
 }

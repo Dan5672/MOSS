@@ -17,20 +17,16 @@ import { describeCron } from "@/lib/schedule";
 import { taskSuggestions } from "@/lib/task-suggestions";
 import { db } from "@/server/db";
 import {
-  addScheduleAction,
   addSkillAction,
-  deleteScheduleAction,
   deleteBudgetAction,
   removeSkillAction,
   runNowAction,
   setBudgetAction,
   setMascotAction,
   setModelAction,
-  setScheduleEnabledAction,
   setStatusAction,
-  updateScheduleAction,
 } from "../actions";
-import { ScheduleFields } from "./schedule-fields";
+import { RecurringTaskList } from "../recurring-task-list";
 import { TaskSuggestionButtons } from "./task-suggestions";
 
 export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
@@ -41,7 +37,7 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
 
   const [agentSkillRows, allSkills, runs, budgetRows, schedules, modelRows, budgetStatus, lastScheduledRuns, myIncidents, downMonitors] = await Promise.all([
     db()
-      .select({ key: skills.key, name: skills.name, description: skills.description, tools: skills.toolGrants })
+      .select({ key: skills.key, name: skills.name, description: skills.description, tools: skills.toolGrants, core: skills.core })
       .from(agentSkills)
       .innerJoin(skills, eq(agentSkills.skillId, skills.id))
       .where(eq(agentSkills.agentId, id)),
@@ -81,7 +77,9 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const canManage = user.permissions.has("agents.manage") && agent.status !== "fired";
   const canBudget = user.permissions.has("agents.budget") && agent.status !== "fired";
-  const missingSkills = allSkills.filter((s) => !agentSkillRows.some((a) => a.key === s.key));
+  const missingSkills = allSkills.filter((s) => !s.core && !agentSkillRows.some((a) => a.key === s.key));
+  const coreSkills = agentSkillRows.filter((s) => s.core);
+  const ownSkills = agentSkillRows.filter((s) => !s.core);
 
   return (
     <>
@@ -111,12 +109,14 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
               ) : (
                 <ActionForm action={setStatusAction.bind(null, id, "active")} submitLabel="Resume" submitVariant="outline" />
               )}
-              <ActionForm
-                action={setStatusAction.bind(null, id, "fired")}
-                submitLabel="Fire"
-                submitVariant="destructive"
-                confirm={`Fire ${agent.name}? This removes all of their skills, secret access and schedules, and can't be undone.`}
-              />
+              {agent.templateKey !== "moss" && (
+                <ActionForm
+                  action={setStatusAction.bind(null, id, "fired")}
+                  submitLabel="Fire"
+                  submitVariant="destructive"
+                  confirm={`Fire ${agent.name}? This removes all of their skills, secret access and schedules, and can't be undone.`}
+                />
+              )}
               </>
             )}
           </>
@@ -162,11 +162,27 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
           </Section>
 
           <Section title="Skills">
-            {agentSkillRows.length === 0 ? (
-              <Empty>No skills. Without skills, {agent.name} has no tools.</Empty>
+            {coreSkills.length > 0 && (
+              <details className="px-frame p-3 text-sm">
+                <summary className="cursor-pointer">
+                  <span className="font-medium">Built in:</span> how MOSS works <span className="text-muted-foreground">({coreSkills.map((s) => s.name).join(", ")})</span>
+                </summary>
+                <p className="mt-2 text-xs text-muted-foreground">Every agent has these: tickets, changes, the inventory, the wiki and monitoring. They can&apos;t be removed.</p>
+                <ul className="mt-2 grid gap-2" aria-label="Built-in skills">
+                  {coreSkills.map((s) => (
+                    <li key={s.key}>
+                      <div className="font-medium">{s.name}</div>
+                      <div className="font-mono text-xs text-muted-foreground">{s.tools.join(", ")}</div>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+            {ownSkills.length === 0 ? (
+              <Empty>No extra skills yet. Add one for each product or job {agent.name} should handle, like UniFi or server checks.</Empty>
             ) : (
               <ul className="divide-y-2 px-frame">
-                {agentSkillRows.map((s) => (
+                {ownSkills.map((s) => (
                   <li key={s.key} className="flex items-start justify-between gap-4 p-3">
                     <div className="text-sm">
                       <div className="font-medium">{s.name}</div>
@@ -289,52 +305,10 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
 
           <Card>
             <CardHeader>
-              <CardTitle>Schedules</CardTitle>
+              <CardTitle>Recurring tasks</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-4 text-sm">
-              {schedules.length === 0 && <p className="text-muted-foreground">No scheduled tasks. {agent.name} only works when asked.</p>}
-              {schedules.map((s) => {
-                const lastRun = lastRunOf(s.id);
-                return (
-                  <div key={s.id} className="grid gap-1.5 border-b-2 pb-4 last:border-b-0 last:pb-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={s.enabled ? "font-medium" : "font-medium text-muted-foreground line-through"}>{describeCron(s.cron)}</span>
-                      {!s.enabled && <Pill>off</Pill>}
-                    </div>
-                    <p className="text-muted-foreground">{s.task}</p>
-                    <p className="font-mono text-xs text-dim">{lastRun ? `Last ran ${timeAgo(lastRun)}` : "Hasn't run yet"}</p>
-                    {canManage && (
-                      <div className="flex flex-wrap items-start gap-2">
-                        <ActionForm
-                          action={setScheduleEnabledAction.bind(null, id, s.id, !s.enabled)}
-                          submitLabel={s.enabled ? "Turn off" : "Turn on"}
-                          submitVariant="outline"
-                        />
-                        <ActionForm
-                          action={deleteScheduleAction.bind(null, id, s.id)}
-                          submitLabel="Delete"
-                          submitVariant="outline"
-                          confirm={`Delete this schedule? ${agent.name} will stop doing it: ${describeCron(s.cron)}.`}
-                        />
-                        <details className="basis-full">
-                          <summary className="cursor-pointer text-xs text-muted-foreground">Edit</summary>
-                          <ActionForm action={updateScheduleAction.bind(null, id, s.id)} submitLabel="Save schedule" className="mt-3">
-                            <ScheduleFields cron={s.cron} task={s.task} />
-                          </ActionForm>
-                        </details>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-              {canManage && (
-                <details className="border-t-2 pt-4">
-                  <summary className="cursor-pointer font-medium">Add a schedule</summary>
-                  <ActionForm action={addScheduleAction.bind(null, id)} submitLabel="Add schedule" resetOnSuccess className="mt-3">
-                    <ScheduleFields />
-                  </ActionForm>
-                </details>
-              )}
+              <RecurringTaskList agentId={id} agentName={agent.name} tasks={schedules} lastRun={lastRunOf} canManage={canManage} />
               <p className="font-mono text-xs text-dim">Times are in {timeZone}.</p>
             </CardContent>
           </Card>

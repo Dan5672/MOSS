@@ -1,6 +1,6 @@
 // Config backups: the gate is the only service with the master key, so it encrypts what config_backup
 // copied and decrypts it again for a person's download. Agents only ever see a backup's metadata.
-import { decryptSecret, encryptSecret, writeAudit } from "@moss/core";
+import { decryptSecret, encryptSecret, userPermissions, writeAudit } from "@moss/core";
 import { configBackups, users, type Database } from "@moss/db";
 import type { ConfigBackupFile } from "@moss/tools";
 import { and, desc, eq, notInArray } from "drizzle-orm";
@@ -47,6 +47,8 @@ export async function storeBackup(
 export async function readBackup(db: Database, masterKey: Buffer, backupId: string, userId: string) {
   const [user] = await db.select({ id: users.id, orgId: users.orgId, status: users.status }).from(users).where(eq(users.id, userId));
   if (!user || user.status !== "active") return null;
+  // Checked here as well as in the web app: the web token alone must not be enough to decrypt backups.
+  if (!(await userPermissions(db, user.id)).has("secrets.manage")) return null;
   const [row] = await db.select().from(configBackups).where(and(eq(configBackups.id, backupId), eq(configBackups.orgId, user.orgId)));
   if (!row) return null;
   const content = Buffer.from(decryptSecret(masterKey, context(row.id), row), "base64");

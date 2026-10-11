@@ -9,6 +9,15 @@ const nextConfig: NextConfig = {
   // Database and queue drivers stay as plain Node modules rather than being bundled.
   serverExternalPackages: ["postgres", "pg-boss"],
   poweredByHeader: false,
+  // MOSS reached through Tailscale (https://moss.<tailnet>.ts.net) keeps working if the proxy changes the Host header.
+  experimental: { serverActions: { allowedOrigins: ["*.ts.net"] } },
+  // Settings → Modules was renamed Integrations.
+  async redirects() {
+    return [
+      { source: "/settings/modules", destination: "/settings/integrations", permanent: true },
+      { source: "/settings/modules/:path*", destination: "/settings/integrations/:path*", permanent: true },
+    ];
+  },
 };
 
 export default nextConfig;

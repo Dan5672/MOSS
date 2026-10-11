@@ -6,6 +6,7 @@ import {
   bigint,
   boolean,
   cidr,
+  doublePrecision,
   index,
   inet,
   integer,
@@ -18,6 +19,7 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 const id = () => uuid("id").primaryKey().defaultRandom();
@@ -49,6 +51,15 @@ export const sites = pgTable("sites", {
 // ---------------------------------------------------------------------------
 // Users & access
 // ---------------------------------------------------------------------------
+export interface UserPreferences {
+  /** Moss has sent this person its welcome message. */
+  mossWelcomed?: boolean;
+  /** Their dashboard: which cards, in what order and size. */
+  dashboard?: { id: string; size: "s" | "m" | "l" }[];
+  /** The dashboard's Getting started checklist was dismissed. */
+  hideSetupChecklist?: boolean;
+}
+
 export const users = pgTable(
   "users",
   {
@@ -61,11 +72,29 @@ export const users = pgTable(
     oidcSubject: text("oidc_subject"),
     /** Animation preference: follow the OS's reduced-motion setting, or always on / always off. */
     motion: text("motion", { enum: ["system", "on", "off"] }).notNull().default("system"),
+    /** Small per-person choices, e.g. { hideSetupChecklist: true }. */
+    preferences: jsonb("preferences").$type<UserPreferences>().notNull().default({}),
     status: text("status", { enum: ["active", "invited", "disabled"] }).notNull().default("active"),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+    /** When the password was last set (for the password policy's maximum age). */
+    passwordChangedAt: timestamp("password_changed_at", { withTimezone: true }).notNull().defaultNow(),
     ...timestamps(),
   },
   (t) => [uniqueIndex("users_org_email_idx").on(t.orgId, t.email)],
+);
+
+/** Earlier password hashes, so the password policy can refuse reusing one. */
+export const passwordHistory = pgTable(
+  "password_history",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    passwordHash: text("password_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("password_history_user_idx").on(t.userId, t.createdAt)],
 );
 
 export const roles = pgTable("roles", {
@@ -102,6 +131,8 @@ export const sessions = pgTable("sessions", {
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   ip: inet("ip"),
   userAgent: text("user_agent"),
+  /** How they signed in: a password (and MOSS's two-factor), or single sign-on (the provider checks MFA). */
+  authMethod: text("auth_method", { enum: ["password", "microsoft", "google"] }).notNull().default("password"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -180,6 +211,8 @@ export const skills = pgTable(
     toolGrants: jsonb("tool_grants").$type<string[]>().notNull().default([]),
     commandTemplates: jsonb("command_templates").$type<Record<string, string>>().notNull().default({}),
     builtIn: boolean("built_in").notNull().default(false),
+    /** How MOSS itself works (tickets, inventory, the wiki...): every agent has it, and it can't be removed. */
+    core: boolean("core").notNull().default(false),
     ...timestamps(),
   },
   (t) => [uniqueIndex("skills_org_key_idx").on(t.orgId, t.key)],
@@ -203,6 +236,8 @@ export const agentSchedules = pgTable("agent_schedules", {
   cron: text("cron").notNull(),
   task: text("task").notNull(),
   enabled: boolean("enabled").notNull().default(true),
+  /** The person who last set this task: its runs act on their request (and they can't separately approve its changes). */
+  requestedByUserId: uuid("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
 });
 
 // Per-agent tool overrides on top of what the agent's skills grant: granted = true adds a tool the skills
@@ -266,6 +301,10 @@ export const agentRuns = pgTable(
     agentId: uuid("agent_id").notNull().references(() => agents.id),
     trigger: text("trigger", { enum: ["schedule", "event", "ticket", "chat", "manual"] }).notNull(),
     triggerRef: text("trigger_ref"),
+    /** What the agent was asked to do. */
+    task: text("task"),
+    /** The person whose request started the run (a task, a chat message, a comment), when there was one. */
+    requestedByUserId: uuid("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
     status: text("status", { enum: ["running", "succeeded", "failed", "aborted"] }).notNull().default("running"),
     summary: text("summary"),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
@@ -302,6 +341,72 @@ export const chatMessages = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("chat_messages_thread_idx").on(t.threadId, t.createdAt)],
+);
+
+// ---------------------------------------------------------------------------
+// Chat: direct messages and channels between people and agents. (Replaces chat_threads/chat_messages,
+// whose conversations were copied in as DMs.)
+// ---------------------------------------------------------------------------
+export const conversations = pgTable(
+  "conversations",
+  {
+    id: id(),
+    ...tenancy(),
+    kind: text("kind", { enum: ["dm", "channel"] }).notNull(),
+    /** A channel's name (lowercase, no #); null for a DM. */
+    name: text("name"),
+    topic: text("topic"),
+    /** A DM's members, sorted and joined, so each pair has one DM. Null for channels. */
+    dmKey: text("dm_key"),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    archived: boolean("archived").notNull().default(false),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("conversations_org_dm_idx").on(t.orgId, t.dmKey), uniqueIndex("conversations_org_name_idx").on(t.orgId, t.name), index("conversations_org_updated_idx").on(t.orgId, t.updatedAt)],
+);
+
+export const conversationMembers = pgTable(
+  "conversation_members",
+  {
+    id: id(),
+    conversationId: uuid("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id").references(() => agents.id, { onDelete: "cascade" }),
+    joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("conversation_members_user_idx").on(t.conversationId, t.userId),
+    uniqueIndex("conversation_members_agent_idx").on(t.conversationId, t.agentId),
+    index("conversation_members_by_user_idx").on(t.userId),
+    index("conversation_members_by_agent_idx").on(t.agentId),
+  ],
+);
+
+export const conversationMessages = pgTable(
+  "conversation_messages",
+  {
+    id: id(),
+    conversationId: uuid("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+    authorUserId: uuid("author_user_id").references(() => users.id, { onDelete: "set null" }),
+    authorAgentId: uuid("author_agent_id").references(() => agents.id, { onDelete: "set null" }),
+    body: text("body").notNull(),
+    mentions: jsonb("mentions").$type<{ type: "agent" | "user"; id: string }[]>().notNull().default([]),
+    /** An agent's reply: the run that produced it, and how that run ended. */
+    runId: uuid("run_id").references(() => agentRuns.id, { onDelete: "set null" }),
+    status: text("status", { enum: ["succeeded", "failed", "aborted"] }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("conversation_messages_conv_idx").on(t.conversationId, t.createdAt)],
+);
+
+export const conversationReads = pgTable(
+  "conversation_reads",
+  {
+    conversationId: uuid("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    lastReadAt: timestamp("last_read_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.conversationId, t.userId] })],
 );
 
 export const runSteps = pgTable("run_steps", {
@@ -347,6 +452,8 @@ export const networks = pgTable(
     name: text("name"),
     vlan: integer("vlan"),
     status: networkStatus("status").notNull().default("unknown"),
+    /** The network's DNS server (usually the router): scans use it to look up device names. */
+    dnsServer: inet("dns_server"),
     source: text("source", { enum: ["user", "agent", "sensor", "integration"] }).notNull(),
     notes: text("notes"),
     ...timestamps(),
@@ -433,6 +540,8 @@ export const incidentComments = pgTable("incident_comments", {
   authorUserId: uuid("author_user_id").references(() => users.id),
   authorAgentId: uuid("author_agent_id").references(() => agents.id),
   body: text("body").notNull(),
+  /** Agents and people @mentioned in the body. */
+  mentions: jsonb("mentions").$type<{ type: "agent" | "user"; id: string }[]>().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -488,8 +597,15 @@ export const changeRequests = pgTable("change_requests", {
   windowStart: timestamp("window_start", { withTimezone: true }),
   windowEnd: timestamp("window_end", { withTimezone: true }),
   postReviewRequired: boolean("post_review_required").notNull().default(false),
+  /** An agent asking for access: the tools and secrets it gets when this is approved. Nothing else runs. */
+  accessGrant: jsonb("access_grant").$type<AccessGrant>(),
   ...timestamps(),
 });
+
+export interface AccessGrant {
+  tools: string[];
+  secretIds: string[];
+}
 
 export const changeApprovals = pgTable("change_approvals", {
   id: id(),
@@ -517,6 +633,8 @@ export const changeNotes = pgTable("change_notes", {
   authorAgentId: uuid("author_agent_id").references(() => agents.id),
   kind: text("kind", { enum: ["comment", "execution", "system"] }).notNull(),
   body: text("body").notNull(),
+  /** Agents and people @mentioned in a comment. */
+  mentions: jsonb("mentions").$type<{ type: "agent" | "user"; id: string }[]>().notNull().default([]),
   data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -551,7 +669,7 @@ export const standardChangeTemplates = pgTable(
 // ---------------------------------------------------------------------------
 // Monitoring: built-in checks (run by the gate) and external monitors fed by webhooks.
 // ---------------------------------------------------------------------------
-export const monitorKind = pgEnum("monitor_kind", ["ping", "tcp", "http", "tls", "dns", "external"]);
+export const monitorKind = pgEnum("monitor_kind", ["ping", "tcp", "http", "tls", "dns", "external", "snmp", "host", "ha_sensor"]);
 export const monitorState = pgEnum("monitor_state", ["pending", "up", "degraded", "down", "paused"]);
 
 /** Kind-specific check settings. Validated by the core service; the gate builds tool args from it. */
@@ -572,6 +690,24 @@ export interface MonitorConfig {
   degradedMs?: number;
   /** Raise a (P4) incident when degraded, not only a notification. */
   incidentOnDegraded?: boolean;
+  /** SNMP and host monitors: the stored secret with the community string or SSH key (a name, not a value). */
+  secret?: string;
+  /** Host: the SSH account and port, and the pinned host key. */
+  user?: string;
+  hostKeySha256?: string;
+  /** SNMP: one interface's traffic, errors and status (by ifIndex), or a numeric OID. */
+  ifIndex?: number;
+  oid?: string;
+  /** SNMP OID: the value counts up (octets, packets), so graph its rate per second. */
+  counter?: boolean;
+  /** Metric monitors: which value the thresholds apply to (default: the main value), and the thresholds. */
+  metric?: string;
+  warnAbove?: number;
+  critAbove?: number;
+  warnBelow?: number;
+  critBelow?: number;
+  /** Shown after the value (%, bps, °C). */
+  unit?: string;
 }
 
 export interface MonitorResultSummary {
@@ -584,6 +720,12 @@ export interface MonitorResultSummary {
   suppressed?: boolean;
   /** The gate refused the check (target outside allowed networks). */
   policyDenied?: boolean;
+  /** Metric monitors: the main value, every value by name, and the unit. */
+  value?: number | null;
+  values?: Record<string, number>;
+  unit?: string;
+  /** Raw counters from this check, so the next one can work out rates. */
+  counters?: Record<string, number>;
 }
 
 export const monitorSources = pgTable("monitor_sources", {
@@ -620,6 +762,13 @@ export const monitors = pgTable(
     responderAgentId: uuid("responder_agent_id").references(() => agents.id, { onDelete: "set null" }),
     responderUserId: uuid("responder_user_id").references(() => users.id, { onDelete: "set null" }),
     autoResolve: boolean("auto_resolve").notNull().default(false),
+    /**
+     * Guidance a person wrote for the agent that responds when this monitor fails, passed on with the incident and
+     * attributed to them. Only people set it (never a webhook, an integration or an agent); it can't widen what the
+     * agent may do.
+     */
+    agentInstructions: text("agent_instructions"),
+    agentInstructionsBy: uuid("agent_instructions_by").references(() => users.id, { onDelete: "set null" }),
     enabled: boolean("enabled").notNull().default(true),
     state: monitorState("state").notNull().default("pending"),
     consecutiveFailures: integer("consecutive_failures").notNull().default(0),
@@ -650,8 +799,84 @@ export const monitorResults = pgTable(
     degraded: boolean("degraded").notNull().default(false),
     latencyMs: integer("latency_ms"),
     message: text("message").notNull().default(""),
+    /** Metric monitors: the main value, and every value by name (for graphs). */
+    value: doublePrecision("value"),
+    values: jsonb("values").$type<Record<string, number>>(),
   },
   (t) => [index("monitor_results_monitor_at_idx").on(t.monitorId, t.at)],
+);
+
+/** min, average and max of one metric over a rollup bucket. */
+export interface RollupStat {
+  min: number;
+  avg: number;
+  max: number;
+}
+
+/**
+ * Monitor history beyond the raw results: one row per monitor per 5-minute or 1-hour bucket, built by the
+ * worker. Raw results are kept for days, 5-minute rollups for months and hourly ones for years, so graphs
+ * can go back a long way.
+ */
+export const monitorRollups = pgTable(
+  "monitor_rollups",
+  {
+    monitorId: uuid("monitor_id")
+      .notNull()
+      .references(() => monitors.id, { onDelete: "cascade" }),
+    resolution: text("resolution").$type<"5m" | "1h">().notNull(),
+    bucket: timestamp("bucket", { withTimezone: true }).notNull(),
+    checks: integer("checks").notNull(),
+    ok: integer("ok").notNull(),
+    degraded: integer("degraded").notNull(),
+    latencyMin: doublePrecision("latency_min"),
+    latencyAvg: doublePrecision("latency_avg"),
+    latencyMax: doublePrecision("latency_max"),
+    /** Every metric value (and "value", the main one) by name. */
+    metrics: jsonb("metrics").$type<Record<string, RollupStat>>().notNull().default({}),
+  },
+  (t) => [primaryKey({ columns: [t.monitorId, t.resolution, t.bucket] }), index("monitor_rollups_bucket_idx").on(t.resolution, t.bucket)],
+);
+
+/** One card on a monitoring dashboard: what it shows (type and settings), its width and its height. */
+export interface DashboardWidget {
+  id: string;
+  type: "graph" | "gauge" | "value" | "history" | "status" | "top" | "incidents" | "note";
+  title?: string;
+  /** Columns out of 12, and rows (each about 160px). */
+  w: number;
+  h: number;
+  /** Which monitors (empty: all, for the status grid and top lists). */
+  monitorIds?: string[];
+  /** latency, up, value, or a named value such as inBps. */
+  metric?: string;
+  range?: "1h" | "24h" | "7d" | "30d" | "90d" | "1y";
+  /** Gauge scale and colour bands. */
+  min?: number;
+  max?: number;
+  warn?: number;
+  crit?: number;
+  unit?: string;
+  /** Top lists: how many, and largest or smallest first. */
+  count?: number;
+  order?: "desc" | "asc";
+  /** Notes: Markdown. */
+  text?: string;
+}
+
+/** Monitoring dashboards: personal (only the owner sees them) or shared with everyone who can read monitoring. */
+export const monitorDashboards = pgTable(
+  "monitor_dashboards",
+  {
+    id: id(),
+    ...tenancy(),
+    ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    shared: boolean("shared").notNull().default(false),
+    widgets: jsonb("widgets").$type<DashboardWidget[]>().notNull().default([]),
+    ...timestamps(),
+  },
+  (t) => [index("monitor_dashboards_org_idx").on(t.orgId)],
 );
 
 export const monitorStateChanges = pgTable(
@@ -700,6 +925,8 @@ export const secrets = pgTable(
     ...tenancy(),
     name: text("name").notNull(), // referenced by agents as secret:<name>
     type: text("type", { enum: ["password", "ssh_key", "api_token", "snmp_community", "other"] }).notNull(),
+    /** The account a password belongs to. Not secret: agents see it, and the gate fills it in for tools that sign in. */
+    username: text("username"),
     description: text("description"),
     // Envelope encryption: value encrypted with a per-secret data key, data key wrapped by the master key.
     ciphertext: text("ciphertext").notNull(),
@@ -747,6 +974,28 @@ export const secretGrants = pgTable(
   (t) => [primaryKey({ columns: [t.secretId, t.agentId] })],
 );
 
+/**
+ * Tokens other systems use to reach MOSS's API: today, the Home Assistant integration. Only the hash is
+ * kept. A token acts for the person who made it, and only through the integration's own small API.
+ */
+export const integrationTokens = pgTable(
+  "integration_tokens",
+  {
+    id: id(),
+    ...tenancy(),
+    kind: text("kind", { enum: ["home_assistant"] }).notNull(),
+    name: text("name").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    createdByUserId: uuid("created_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("integration_tokens_hash_idx").on(t.tokenHash)],
+);
+
 // ---------------------------------------------------------------------------
 // Platform: audit, notifications, settings
 // ---------------------------------------------------------------------------
@@ -781,13 +1030,35 @@ export const knowledgeNotes = pgTable(
     tags: jsonb("tags").$type<string[]>().notNull().default([]),
     /** What the note is about, when it is about one thing: an IP, hostname, asset or service. */
     subject: text("subject"),
+    /** The wiki page's address, /wiki/<slug>. Unique in the org. */
+    slug: text("slug"),
+    /** The page this one sits under in the wiki's tree. */
+    parentId: uuid("parent_id").references((): AnyPgColumn => knowledgeNotes.id, { onDelete: "set null" }),
+    /** The device a page is about, shown on the asset's page. */
+    assetId: uuid("asset_id").references(() => assets.id, { onDelete: "set null" }),
     createdByUserId: uuid("created_by_user_id").references(() => users.id),
     createdByAgentId: uuid("created_by_agent_id").references(() => agents.id),
     updatedByUserId: uuid("updated_by_user_id").references(() => users.id),
     updatedByAgentId: uuid("updated_by_agent_id").references(() => agents.id),
     ...timestamps(),
   },
-  (t) => [index("knowledge_notes_org_idx").on(t.orgId, t.updatedAt)],
+  (t) => [index("knowledge_notes_org_idx").on(t.orgId, t.updatedAt), uniqueIndex("knowledge_notes_org_slug_idx").on(t.orgId, t.slug), index("knowledge_notes_asset_idx").on(t.assetId)],
+);
+
+/** Earlier versions of a wiki page: one row per edit, holding what the page said before it. */
+export const knowledgeRevisions = pgTable(
+  "knowledge_revisions",
+  {
+    id: id(),
+    noteId: uuid("note_id").notNull().references(() => knowledgeNotes.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    editedByUserId: uuid("edited_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    editedByAgentId: uuid("edited_by_agent_id").references(() => agents.id, { onDelete: "set null" }),
+    /** When this version was written. */
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("knowledge_revisions_note_idx").on(t.noteId, t.createdAt)],
 );
 
 export const notifications = pgTable("notifications", {
@@ -818,6 +1089,63 @@ export const modules = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.orgId, t.key] })],
+);
+
+/**
+ * Telegram and Discord: a person's chat account linked to their MOSS account (by a one-time code they send the
+ * bot). Messages from accounts that aren't linked are ignored. The agent they're talking to (Moss unless they
+ * chose another), and how far MOSS has forwarded that agent's replies.
+ */
+export const chatLinks = pgTable(
+  "chat_links",
+  {
+    id: id(),
+    ...tenancy(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    platform: text("platform", { enum: ["telegram", "discord", "slack"] }).notNull(),
+    externalUserId: text("external_user_id").notNull(),
+    /** Where to send to them: the Telegram chat or the Discord DM channel. */
+    chatId: text("chat_id").notNull(),
+    username: text("username"),
+    agentId: uuid("agent_id").references(() => agents.id, { onDelete: "set null" }),
+    repliesForwardedAt: timestamp("replies_forwarded_at", { withTimezone: true }).notNull().defaultNow(),
+    /** How far MOSS has forwarded their notifications (alerts, approvals, mentions). */
+    notifiedAt: timestamp("notified_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("chat_links_platform_user_idx").on(t.platform, t.externalUserId), index("chat_links_user_idx").on(t.userId)],
+);
+
+/** One-time codes for linking a chat account, valid for a few minutes. Stored hashed. */
+export const chatLinkCodes = pgTable("chat_link_codes", {
+  codeHash: text("code_hash").primaryKey(),
+  orgId: uuid("org_id").notNull(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  platform: text("platform", { enum: ["telegram", "discord", "slack"] }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+
+/** Messages waiting for the bridge to send to Telegram or Discord (alerts, approval requests, agents' replies). */
+export const chatOutbox = pgTable(
+  "chat_outbox",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    orgId: uuid("org_id").notNull(),
+    platform: text("platform", { enum: ["telegram", "discord", "slack"] }).notNull(),
+    chatId: text("chat_id").notNull(),
+    text: text("text").notNull(),
+    /** Buttons under the message: a label, and what pressing it sends back (approve:<id>, reject:<id>). */
+    buttons: jsonb("buttons").$type<{ label: string; data: string }[]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    error: text("error"),
+  },
+  (t) => [index("chat_outbox_unsent_idx").on(t.sentAt, t.id)],
 );
 
 export const settings = pgTable(

@@ -61,7 +61,7 @@ export async function runNowAction(agentId: string, _: ActionState, form: FormDa
     const agent = await ownAgent(user.orgId, agentId);
     const task = z.string().min(3, "Describe the task").max(4000).parse(form.get("task"));
     if (agent.status !== "active") throw new Error(`${agent.name} is ${agent.status}`);
-    const job = await queueRun({ agentId, task, trigger: "manual" });
+    const job = await queueRun({ agentId, task, trigger: "manual", requestedByUserId: user.id });
     await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "agent.run_requested", targetType: "agent", targetId: agentId, details: { task } });
     return job ? `${agent.name} will start shortly.` : `${agent.name} already has a run waiting; this one was not queued.`;
   });
@@ -176,7 +176,7 @@ async function ownSchedule(orgId: string, agentId: string, scheduleId: string) {
     .select()
     .from(agentSchedules)
     .where(and(eq(agentSchedules.id, scheduleId), eq(agentSchedules.agentId, agentId), eq(agentSchedules.orgId, orgId)));
-  if (!row) throw new Error("Schedule not found");
+  if (!row) throw new Error("Recurring task not found");
   return row;
 }
 
@@ -186,9 +186,9 @@ export async function addScheduleAction(agentId: string, _: ActionState, form: F
     const agent = await ownAgent(user.orgId, agentId);
     if (agent.status === "fired") throw new Error(`${agent.name} has been fired`);
     const s = scheduleFromForm(form);
-    const [row] = await db().insert(agentSchedules).values({ orgId: user.orgId, agentId, ...s }).returning();
+    const [row] = await db().insert(agentSchedules).values({ orgId: user.orgId, agentId, ...s, requestedByUserId: user.id }).returning();
     await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "schedule.add", targetType: "schedule", targetId: row!.id, details: { agentId, ...s } });
-    return `Scheduled: ${describeCron(s.cron)}.`;
+    return `Recurring task added: ${describeCron(s.cron)}.`;
   });
 }
 
@@ -197,7 +197,7 @@ export async function updateScheduleAction(agentId: string, scheduleId: string, 
     const user = await requirePermission("agents.manage");
     const before = await ownSchedule(user.orgId, agentId, scheduleId);
     const s = scheduleFromForm(form);
-    await db().update(agentSchedules).set(s).where(eq(agentSchedules.id, scheduleId));
+    await db().update(agentSchedules).set({ ...s, requestedByUserId: user.id }).where(eq(agentSchedules.id, scheduleId));
     await writeAudit(db(), {
       orgId: user.orgId,
       actorType: "user",
@@ -207,7 +207,7 @@ export async function updateScheduleAction(agentId: string, scheduleId: string, 
       targetId: scheduleId,
       details: { agentId, from: { cron: before.cron, task: before.task }, to: s },
     });
-    return `Schedule saved: ${describeCron(s.cron)}.`;
+    return `Recurring task saved: ${describeCron(s.cron)}.`;
   });
 }
 
@@ -217,7 +217,7 @@ export async function setScheduleEnabledAction(agentId: string, scheduleId: stri
     await ownSchedule(user.orgId, agentId, scheduleId);
     await db().update(agentSchedules).set({ enabled }).where(eq(agentSchedules.id, scheduleId));
     await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: enabled ? "schedule.enable" : "schedule.disable", targetType: "schedule", targetId: scheduleId, details: { agentId } });
-    return enabled ? "Schedule turned on." : "Schedule turned off.";
+    return enabled ? "Recurring task turned on." : "Recurring task turned off.";
   });
 }
 
@@ -227,6 +227,13 @@ export async function deleteScheduleAction(agentId: string, scheduleId: string, 
     const before = await ownSchedule(user.orgId, agentId, scheduleId);
     await db().delete(agentSchedules).where(eq(agentSchedules.id, scheduleId));
     await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "schedule.delete", targetType: "schedule", targetId: scheduleId, details: { agentId, cron: before.cron, task: before.task } });
-    return "Schedule deleted.";
+    return "Recurring task deleted.";
   });
+}
+
+/** "New recurring task" on the Recurring tasks page, where the agent is chosen in the form. */
+export async function addRecurringTaskAction(prev: ActionState, form: FormData): Promise<ActionState> {
+  const agentId = String(form.get("agentId") ?? "");
+  if (!/^[0-9a-f-]{36}$/.test(agentId)) return { error: "Choose an agent" };
+  return addScheduleAction(agentId, prev, form);
 }

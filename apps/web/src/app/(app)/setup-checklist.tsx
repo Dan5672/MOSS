@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import type { CurrentUser } from "@/server/auth";
 import type { setupProgress } from "@/server/queries";
 import { runNowAction } from "./agents/actions";
+import { setSetupChecklistHiddenAction } from "./settings/actions";
 
 const DISCOVERY_TASK = "Discover devices on all allowed networks, then identify and classify any new or unidentified ones.";
 
@@ -20,9 +21,9 @@ const linkClass = "inline-flex min-h-11 items-center border-2 px-4 text-sm hover
 export function SetupChecklist({ s, user }: { s: Awaited<ReturnType<typeof setupProgress>>; user: CurrentUser }) {
   const canRun = user.permissions.has("agents.manage");
   const steps: Step[] = [
-    { done: s.hasModel, title: "Add a model", detail: "Agents need an LLM to think with: an API key, a Claude subscription or a local Ollama.", action: <Link href="/models" className={linkClass}>Models</Link> },
+    { done: s.hasModel, title: "Add a model", detail: "Agents need an LLM to think with: an API key, a Claude subscription or a local Ollama.", action: <Link href="/agents/models" className={linkClass}>Models</Link> },
     { done: s.hasAllowedNetwork, title: "Allow your network", detail: "Add your LAN (for example 10.0.0.0/24) and mark it allowed. Nothing is scanned until you do.", action: <Link href="/networks" className={linkClass}>Networks</Link> },
-    { done: s.hasAgent, title: "Hire an agent", detail: "A Network Admin is a good first hire: it finds and names your devices.", action: <Link href="/agents" className={linkClass}>Agents</Link> },
+    { done: s.hasAgent, title: "Hire an agent", detail: "A Network Admin is a good first hire: it finds and names your devices. (Moss, who knows MOSS itself, joins on its own once you add a model.)", action: <Link href="/agents" className={linkClass}>Agents</Link> },
     {
       done: s.hasAssets,
       title: "Run a network discovery",
@@ -44,7 +45,7 @@ export function SetupChecklist({ s, user }: { s: Awaited<ReturnType<typeof setup
     { done: user.totpEnabled, title: "Turn on two-factor sign-in", detail: "Protect the account that approves changes.", action: <Link href="/settings" className={linkClass}>Settings</Link> },
   ];
   const remaining = steps.filter((x) => !x.done).length;
-  if (remaining === 0) return null;
+  if (remaining === 0 || user.preferences.hideSetupChecklist) return null;
 
   return (
     <section aria-labelledby="getting-started" className="px-frame mb-8 grid gap-3 bg-card p-4">
@@ -52,9 +53,12 @@ export function SetupChecklist({ s, user }: { s: Awaited<ReturnType<typeof setup
         <h2 id="getting-started" className="text-base font-semibold text-ink dark:text-beige">
           Getting started
         </h2>
-        <span className="font-mono text-xs text-dim">
-          {steps.length - remaining} of {steps.length} done
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-xs text-dim">
+            {steps.length - remaining} of {steps.length} done
+          </span>
+          <ActionForm action={setSetupChecklistHiddenAction.bind(null, true)} submitLabel="Dismiss" submitVariant="outline" inline />
+        </div>
       </div>
       <ol className="grid gap-2">
         {steps.map((step, i) => (

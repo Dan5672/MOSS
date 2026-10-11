@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./metrics": {
+      "types": "./dist/monitoring/metrics.d.ts",
+      "default": "./dist/monitoring/metrics.js"
     }
   },
   "scripts": {
@@ -20,7 +24,7 @@
     "@moss/db": "workspace:*",
     "@moss/policy": "workspace:*",
     "@moss/tools": "workspace:*",
-    "drizzle-orm": "^0.44.0",
+    "drizzle-orm": "^0.45.2",
     "zod": "^4.6.5"
   }
 }

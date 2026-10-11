@@ -27,6 +27,7 @@ export const nmapScan = tool(
   z.object({
     targets: z.array(ipOrCidr).min(1).max(16),
     profile: z.enum(["ping", "top100", "services"]),
+    dnsServers: z.array(z.string().max(45).regex(/^[0-9A-Fa-f:.]+$/)).max(2).optional().describe("Leave out: MOSS fills in the network's DNS server, for device names"),
   }),
 );
 
@@ -38,7 +39,7 @@ export const arpScan = tool(
 );
 
 export const ping = tool(
-  { name: "ping", class: "read", targetArgs: ["target"] },
+  { name: "ping", class: "read", targetArgs: ["target"], publicTargets: true },
   "Send ICMP echo requests to a single host and report packet loss and round-trip time.",
   z.object({ target: ipOrCidr, count: z.number().int().min(1).max(10).default(3) }),
 );
@@ -80,13 +81,13 @@ const port = z.number().int().min(1).max(65535);
 const timeoutMs = z.number().int().min(500).max(30_000).default(10_000);
 
 export const tcpConnect = tool(
-  { name: "tcp_connect", class: "read", targetArgs: ["target"] },
+  { name: "tcp_connect", class: "read", targetArgs: ["target"], publicTargets: true },
   "Open a TCP connection to one port on a host and report whether it was accepted and how long it took. Sends no data.",
   z.object({ target: hostIp, port, timeoutMs }),
 );
 
 export const httpProbe = tool(
-  { name: "http_probe", class: "read", targetArgs: ["target"] },
+  { name: "http_probe", class: "read", targetArgs: ["target"], publicTargets: true },
   "Make one HTTP(S) request to a host and report the status code, latency and whether an optional keyword appears in the " +
     "first 256 KB of the body. Does not follow redirects. Use hostHeader for virtual hosts (also used as TLS SNI).",
   z.object({
@@ -108,12 +109,17 @@ export const httpProbe = tool(
 );
 
 export const tlsInspect = tool(
-  { name: "tls_inspect", class: "read", targetArgs: ["target"] },
+  { name: "tls_inspect", class: "read", targetArgs: ["target"], publicTargets: true },
   "Fetch the TLS certificate a host presents and report its subject, issuer, names, expiry and whether the chain is trusted.",
   z.object({ target: hostIp, port: port.default(443), servername: hostname.optional(), timeoutMs }),
 );
 
 // --- Discovery and diagnostics ------------------------------------------------------------
+/** A numeric SNMP OID (net-snmp gets it with -On, so no MIB names). */
+export const SNMP_OID = /^\.?1(\.\d+){3,40}$/;
+/** A Home Assistant entity id, e.g. sensor.ups_load. */
+export const HA_ENTITY_ID = /^[a-z_]+\.[a-z0-9_]+$/;
+
 // Credentials are passed as secret:<name> handles. The gate checks the agent's grant and the secret's
 // host/tool scope, substitutes the value for the toolbox, and scrubs it from the result.
 const secretHandle = z
@@ -162,11 +168,17 @@ export const snmpQuery = tool(
   { name: "snmp_query", class: "read", targetArgs: ["target"], secretArgs: ["community"] },
   "Read standard SNMP (v2c) data from a device. Presets: 'system' (description, name, uptime, location), 'interfaces' " +
     "(names, status, speed, traffic counters), 'lldp_neighbors' (what each port is plugged into), 'storage' (disks and " +
-    "memory). The community string must be a stored secret.",
+    "memory), or 'get' to read specific numeric OIDs (pass oids). The community string must be a stored secret.",
   z.object({
     target: hostIp,
     community: secretHandle,
-    preset: z.enum(["system", "interfaces", "lldp_neighbors", "storage"]),
+    preset: z.enum(["system", "interfaces", "lldp_neighbors", "storage", "get"]),
+    oids: z
+      .array(z.string().regex(SNMP_OID, "A numeric OID such as 1.3.6.1.2.1.1.3.0"))
+      .min(1)
+      .max(16)
+      .optional()
+      .describe("For preset 'get': the numeric OIDs to read"),
     timeoutMs,
   }),
 );
@@ -251,6 +263,236 @@ export const proxmoxStatus = tool(
     ...apiCommon,
     token: secretHandle.describe("A Proxmox API token stored as a secret, in the form USER@REALM!TOKENID=SECRET"),
     port: port.default(8006),
+    bootFlags: z.boolean().default(false).describe("Also say whether each guest starts at boot (one more request per guest)"),
+  }),
+);
+
+const proxmoxApi = {
+  ...apiCommon,
+  token: secretHandle.describe("A Proxmox API token stored as a secret, in the form USER@REALM!TOKENID=SECRET"),
+  port: port.default(8006),
+};
+
+export const dockerApiContainers = tool(
+  { name: "docker_api_containers", class: "read", targetArgs: ["target"] },
+  "List a Docker host's containers through its read-only socket proxy: state, health, restarts, image and Compose project. " +
+    "With checkUpdates, also say which images have a newer version in their registry (asks the registry, e.g. Docker Hub).",
+  z.object({
+    target: hostIp,
+    port: port.default(2375),
+    timeoutMs,
+    checkUpdates: z.boolean().default(false),
+  }),
+);
+
+const opnsenseApi = {
+  ...apiCommon,
+  user: z.string().min(1).max(200).describe("The OPNsense API key"),
+  password: secretHandle.describe("The API key's secret, stored as a secret"),
+  port: port.default(443),
+  scheme: z.enum(["http", "https"]).default("https"),
+};
+const pfsenseApi = {
+  ...apiCommon,
+  apiKey: secretHandle.describe("A pfSense REST API key stored as a secret"),
+  port: port.default(443),
+  scheme: z.enum(["http", "https"]).default("https"),
+};
+
+export const opnsenseStatus = tool(
+  { name: "opnsense_status", class: "read", targetArgs: ["target"], secretArgs: ["password"] },
+  "Read an OPNsense firewall: DHCP leases (address, MAC, host name), each gateway's status, packet loss and latency, and whether an update is available.",
+  z.object(opnsenseApi),
+);
+
+export const pfsenseStatus = tool(
+  { name: "pfsense_status", class: "read", targetArgs: ["target"], secretArgs: ["apiKey"] },
+  "Read a pfSense firewall through the pfSense REST API package: DHCP leases, each gateway's status, packet loss and latency, and the version.",
+  z.object(pfsenseApi),
+);
+
+export const fortigateStatus = tool(
+  { name: "fortigate_status", class: "read", targetArgs: ["target"], secretArgs: ["apiToken"] },
+  "Read a Fortinet FortiGate (read-only REST API): DHCP leases, SD-WAN health checks (each link's status, packet loss and latency), " +
+    "IPsec tunnels, HA and firmware updates.",
+  z.object({
+    ...apiCommon,
+    apiToken: secretHandle.describe("A FortiGate REST API administrator's token (read-only profile), stored as a secret"),
+    vdom: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{1,31}$/)
+      .optional()
+      .describe("The VDOM, if it uses several"),
+    port: port.default(443),
+    scheme: z.enum(["http", "https"]).default("https"),
+  }),
+);
+
+export const nutStatus = tool(
+  { name: "nut_status", class: "read", targetArgs: ["target"], secretArgs: ["password"] },
+  "Read the UPSes on a Network UPS Tools server (upsd): status (on mains, on battery, low battery, battery needs replacing), " +
+    "charge, runtime left, load and input voltage.",
+  z.object({
+    target: hostIp,
+    port: port.default(3493),
+    user: z.string().min(1).max(64).optional().describe("A upsd user, if it requires one"),
+    password: secretHandle.optional().describe("That user's password stored as a secret"),
+    timeoutMs,
+  }),
+);
+
+// --- Cloud services ---------------------------------------------------------------------------
+// The toolbox calls each service's own fixed address; these tools only work while their integration is on.
+
+export const mossReleases = tool(
+  { name: "moss_releases", class: "read", targetArgs: [] },
+  "List MOSS's own release tags from its public repository on GitHub (to tell whether MOSS is up to date). Calls api.github.com.",
+  z.object({ timeoutMs }),
+);
+
+export const tailscaleDevices = tool(
+  { name: "tailscale_devices", class: "read", targetArgs: [], secretArgs: ["apiKey"] },
+  "List the devices on the Tailscale tailnet: name, OS, Tailscale and local addresses, whether online, key expiry and updates. " +
+    "Calls api.tailscale.com.",
+  z.object({
+    apiKey: secretHandle.describe("A Tailscale API access token stored as a secret"),
+    tailnet: z
+      .string()
+      .regex(/^[A-Za-z0-9.@_-]{1,100}$/)
+      .default("-")
+      .describe("The tailnet; - is the token's own"),
+    timeoutMs,
+  }),
+);
+
+const cloudflareToken = secretHandle.describe("A Cloudflare API token stored as a secret");
+
+export const cloudflareDns = tool(
+  { name: "cloudflare_dns", class: "read", targetArgs: [], secretArgs: ["apiToken"] },
+  "List the Cloudflare zones the token can see, and each zone's DNS records (type, name, content, proxied). Calls api.cloudflare.com.",
+  z.object({ apiToken: cloudflareToken, timeoutMs }),
+);
+
+export const cloudflareTunnels = tool(
+  { name: "cloudflare_tunnels", class: "read", targetArgs: [], secretArgs: ["apiToken"] },
+  "List the Cloudflare Tunnels, their status and connections, and the public hostnames each serves. Calls api.cloudflare.com.",
+  z.object({ apiToken: cloudflareToken, timeoutMs }),
+);
+
+// Microsoft 365 / Entra ID: read-only, with the app registration's own Graph permissions.
+const m365Args = {
+  tenantId: z.guid().describe("The directory (tenant) ID"),
+  clientId: z.guid().describe("The app registration's application (client) ID"),
+  clientSecret: secretHandle.describe("The app registration's client secret, stored as a secret"),
+  timeoutMs,
+};
+
+export const m365Users = tool(
+  { name: "m365_users", class: "read", targetArgs: [], secretArgs: ["clientSecret"] },
+  "List the people in Microsoft 365 / Entra ID: name, sign-in name, email, whether enabled, job title and department. Calls Microsoft Graph.",
+  z.object(m365Args),
+);
+
+export const m365Devices = tool(
+  { name: "m365_devices", class: "read", targetArgs: [], secretArgs: ["clientSecret"] },
+  "List the laptops and phones managed in Intune: name, OS, serial, user, compliance and last check-in. Calls Microsoft Graph.",
+  z.object(m365Args),
+);
+
+export const m365ServiceHealth = tool(
+  { name: "m365_service_health", class: "read", targetArgs: [], secretArgs: ["clientSecret"] },
+  "Microsoft 365's open service incidents and advisories, devices out of compliance, users Entra ID flags as at risk, and when MOSS's app secret expires. Calls Microsoft Graph.",
+  z.object(m365Args),
+);
+
+// AWS: read-only, with an IAM user's access key and the read-only policy MOSS shows.
+const awsArgs = {
+  accessKeyId: z
+    .string()
+    .regex(/^(AKIA|ASIA)[A-Z0-9]{16}$/)
+    .describe("The IAM user's access key ID"),
+  secretAccessKey: secretHandle.describe("Its secret access key, stored as a secret"),
+  regions: z
+    .string()
+    .regex(/^[a-z0-9, -]{9,200}$/)
+    .describe("The regions to read, comma-separated (e.g. ap-southeast-2, us-east-1)"),
+  timeoutMs,
+};
+
+export const awsInventory = tool(
+  { name: "aws_inventory", class: "read", targetArgs: [], secretArgs: ["secretAccessKey"] },
+  "List the EC2 instances (name, type, state, addresses, security groups) and RDS databases in the AWS account's regions. Calls AWS's APIs.",
+  z.object(awsArgs),
+);
+
+export const awsAlarms = tool(
+  { name: "aws_alarms", class: "read", targetArgs: [], secretArgs: ["secretAccessKey"] },
+  "List the AWS account's CloudWatch alarms and their state (OK, ALARM, INSUFFICIENT_DATA) in its regions. Calls AWS's APIs.",
+  z.object(awsArgs),
+);
+
+export const awsExposure = tool(
+  { name: "aws_exposure", class: "read", targetArgs: [], secretArgs: ["secretAccessKey"] },
+  "Find what the internet can reach in the AWS account (instances with public addresses, security groups open to the world on " +
+    "sensitive ports, public S3 buckets, publicly accessible databases) and account weak spots (root without MFA, root access keys, " +
+    "access keys older than 90 days). Calls AWS's APIs.",
+  z.object(awsArgs),
+);
+
+// Cisco Meraki: read-only, through the Dashboard API.
+const merakiArgs = { apiKey: secretHandle.describe("A Meraki Dashboard API key (read-only organisation admin), stored as a secret"), timeoutMs };
+
+export const merakiDevices = tool(
+  { name: "meraki_devices", class: "read", targetArgs: [], secretArgs: ["apiKey"] },
+  "List Meraki devices and whether they're online, appliance uplinks with packet loss and latency, and site-to-site VPN peers. Calls api.meraki.com.",
+  z.object(merakiArgs),
+);
+
+export const merakiNetwork = tool(
+  { name: "meraki_network", class: "read", targetArgs: [], secretArgs: ["apiKey"] },
+  "List the clients each Meraki network has seen in the last day: name, MAC, address, maker and OS. Calls api.meraki.com.",
+  z.object(merakiArgs),
+);
+
+// Google Workspace: read-only, through a service account with domain-wide delegation.
+const gwsArgs = {
+  serviceAccount: secretHandle.describe("The service account's JSON key, stored as a secret"),
+  adminEmail: z.email().describe("A Workspace admin the service account acts as"),
+  timeoutMs,
+};
+
+export const gworkspaceUsers = tool(
+  { name: "gworkspace_users", class: "read", targetArgs: [], secretArgs: ["serviceAccount"] },
+  "List the people in Google Workspace: email, name, suspended, admin, 2-step verification and last sign-in. Calls Google's Admin SDK.",
+  z.object(gwsArgs),
+);
+
+export const gworkspaceDevices = tool(
+  { name: "gworkspace_devices", class: "read", targetArgs: [], secretArgs: ["serviceAccount"] },
+  "List the phones, tablets and Chromebooks Google Workspace manages: model, OS, serial, user, status and last sync. Calls Google's Admin SDK.",
+  z.object(gwsArgs),
+);
+
+export const gworkspaceAlerts = tool(
+  { name: "gworkspace_alerts", class: "read", targetArgs: [], secretArgs: ["serviceAccount"] },
+  "List Google Workspace Alert Center alerts from the last 7 days that aren't closed (suspicious sign-ins, phishing, leaked passwords and the like). Calls Google's Alert Center API.",
+  z.object(gwsArgs),
+);
+
+export const proxmoxInventory = tool(
+  { name: "proxmox_inventory", class: "read", targetArgs: ["target"], secretArgs: ["token"] },
+  "List a Proxmox VE cluster's nodes (with their addresses) and every VM and container with its MAC addresses, the addresses " +
+    "Proxmox knows (containers' interfaces, VMs with the QEMU guest agent), whether it starts at boot, and its OS type.",
+  z.object(proxmoxApi),
+);
+
+export const pbsStatus = tool(
+  { name: "pbs_status", class: "read", targetArgs: ["target"], secretArgs: ["token"] },
+  "Read a Proxmox Backup Server: each datastore's use, and when each guest (backup group) was last backed up.",
+  z.object({
+    ...apiCommon,
+    token: secretHandle.describe("A Proxmox Backup Server API token stored as a secret, in the form USER@REALM!TOKENID:SECRET"),
+    port: port.default(8007),
   }),
 );
 
@@ -284,6 +526,11 @@ export const homeassistantStates = tool(
       .regex(/^[a-z_]{1,32}$/)
       .optional()
       .describe("Only this domain, e.g. sensor, switch, binary_sensor"),
+    entity: z
+      .string()
+      .regex(HA_ENTITY_ID)
+      .optional()
+      .describe("Just this entity, e.g. sensor.ups_load"),
     limit: z.number().int().min(1).max(500).default(200),
   }),
 );
@@ -318,6 +565,45 @@ export const homeassistantDevices = tool(
   z.object({ ...haConnection, limit: z.number().int().min(1).max(1000).default(500) }),
 );
 
+// --- Vulnerability scanning (read-only probes; the gate scopes targets like any other tool) ------------
+const scanPorts = z.array(port).min(1).max(20);
+
+export const vulnScan = tool(
+  { name: "vuln_scan", class: "read", targetArgs: ["target"] },
+  "Scan one host for known weaknesses with nmap. Profile 'safe': nmap's safe and vuln scripts, with anything intrusive, " +
+    "denial-of-service, brute-force, exploit, fuzzing or third-party excluded (service versions, TLS ciphers, known " +
+    "misconfigurations). Profile 'cve': look up known CVEs for each service version (sends service names and versions to " +
+    "vulners.com, so the owner must allow it in Settings). Ports default to the 100 most common.",
+  z.object({
+    target: hostIp,
+    profile: z.enum(["safe", "cve"]).default("safe"),
+    ports: scanPorts.optional(),
+  }),
+);
+
+export const nucleiScan = tool(
+  { name: "nuclei_scan", class: "read", targetArgs: ["target"] },
+  "Check one host with Nuclei's community templates for known vulnerabilities, misconfigurations, exposed admin panels " +
+    "and default pages. Only non-intrusive templates run (no denial-of-service, fuzzing, brute force or default-login " +
+    "attempts), rate-limited, with no out-of-band callbacks. Ports default to 80 and 443.",
+  z.object({
+    target: hostIp,
+    ports: scanPorts.max(10).optional(),
+    severity: z.array(z.enum(["info", "low", "medium", "high", "critical"])).min(1).max(5).default(["medium", "high", "critical"]),
+  }),
+);
+
+export const tlsAudit = tool(
+  { name: "tls_audit", class: "read", targetArgs: ["target"] },
+  "Audit a TLS service in depth with testssl.sh: protocol versions, weak ciphers, certificate problems and known TLS " +
+    "vulnerabilities (Heartbleed, ROBOT and the like). Takes a minute or two.",
+  z.object({
+    target: hostIp,
+    port: port.default(443),
+    hostname: hostname.optional().describe("The name to present (SNI), if the service hosts several"),
+  }),
+);
+
 export const piholeSummary = tool(
   { name: "pihole_summary", class: "read", targetArgs: ["target"], secretArgs: ["password"] },
   "Read Pi-hole (v6) statistics: queries today, how many were blocked, active clients, and the busiest clients.",
@@ -326,6 +612,18 @@ export const piholeSummary = tool(
     password: secretHandle.describe("The Pi-hole web or app password stored as a secret"),
     port: port.default(80),
     scheme: z.enum(["http", "https"]).default("http"),
+  }),
+);
+
+export const piholeClients = tool(
+  { name: "pihole_clients", class: "read", targetArgs: ["target"], secretArgs: ["password"] },
+  "List the devices Pi-hole (v6) has seen on the network: MAC address, maker, addresses and the names they resolve to, and how many queries each made.",
+  z.object({
+    ...apiCommon,
+    password: secretHandle.describe("The Pi-hole web or app password stored as a secret"),
+    port: port.default(80),
+    scheme: z.enum(["http", "https"]).default("http"),
+    limit: z.number().int().min(1).max(500).default(300),
   }),
 );
 
@@ -338,6 +636,19 @@ export const adguardStats = tool(
     password: secretHandle.describe("That user's password stored as a secret"),
     port: port.default(80),
     scheme: z.enum(["http", "https"]).default("http"),
+  }),
+);
+
+export const adguardClients = tool(
+  { name: "adguard_clients", class: "read", targetArgs: ["target"], secretArgs: ["password"] },
+  "List AdGuard Home's clients: the ones set up by hand (with their addresses and MACs) and the ones it found itself, with their names.",
+  z.object({
+    ...apiCommon,
+    user: z.string().min(1).max(64).describe("The AdGuard Home user name"),
+    password: secretHandle.describe("That user's password stored as a secret"),
+    port: port.default(80),
+    scheme: z.enum(["http", "https"]).default("http"),
+    limit: z.number().int().min(1).max(500).default(300),
   }),
 );
 
@@ -409,6 +720,13 @@ export const hostReboot = tool(
   z.object({ ...sshArgs, delayMinutes: z.number().int().min(1).max(60).default(1) }),
 );
 
+export const hostShutdown = tool(
+  { name: "host_shutdown", class: "write", targetArgs: ["target"], secretArgs: ["key"] },
+  "Schedule a clean power-off of a Linux server over SSH (sudo -n shutdown -h), a minute or more ahead, for example in a power " +
+    "cut. It stays off until someone switches it on. Needs passwordless sudo for shutdown. Only runs as part of an approved change.",
+  z.object({ ...sshArgs, delayMinutes: z.number().int().min(1).max(60).default(1) }),
+);
+
 export const homeassistantSwitch = tool(
   { name: "homeassistant_switch", class: "write", targetArgs: ["target"], secretArgs: ["token"] },
   "Turn a Home Assistant switch, light, fan or input_boolean on or off (or toggle it), then report its new state. Only runs " +
@@ -432,6 +750,73 @@ export const homeassistantPowerCycle = tool(
     entity: z.string().regex(/^switch\.[a-z0-9_]{1,100}$/, "A switch entity id, e.g. switch.modem_plug"),
     offSeconds: z.number().int().min(5).max(120).default(15),
   }),
+);
+
+const proxmoxGuest = {
+  ...proxmoxApi,
+  node: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9.-]{0,62}$/, "A Proxmox node name"),
+  kind: z.enum(["vm", "container"]),
+  vmid: z.number().int().min(100).max(999_999_999),
+};
+
+export const proxmoxSnapshot = tool(
+  { name: "proxmox_snapshot", class: "write", targetArgs: ["target"], secretArgs: ["token"] },
+  "Take a snapshot of a Proxmox VM or container, and wait for it to finish. Make it the first step of a change to that guest, " +
+    "so the change can be rolled back. Only runs as part of an approved change.",
+  z
+    .object({
+      ...proxmoxGuest,
+      name: z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{1,39}$/, "A snapshot name: a letter, then letters, digits, - or _"),
+      description: z.string().max(200).optional(),
+    })
+    .strict(),
+);
+
+export const proxmoxGuestPower = tool(
+  { name: "proxmox_guest_power", class: "write", targetArgs: ["target"], secretArgs: ["token"] },
+  "Shut down (cleanly), start or reboot a Proxmox VM or container, wait for it, and report its state. Only runs as part of an approved change.",
+  z.object({ ...proxmoxGuest, action: z.enum(["shutdown", "start", "reboot"]) }).strict(),
+);
+
+const blockArgs = {
+  alias: z
+    .string()
+    .regex(/^[A-Za-z0-9_]{1,31}$/)
+    .default("moss_blocked")
+    .describe("The firewall alias the owner's block rule uses"),
+  address: ipv4,
+  action: z.enum(["add", "remove"]),
+};
+
+export const opnsenseBlock = tool(
+  { name: "opnsense_block", class: "write", targetArgs: ["target"], secretArgs: ["password"] },
+  "Block or unblock a device on OPNsense by adding or removing its address in the moss_blocked alias (the owner's own block rule " +
+    "uses it; MOSS never edits rules). Only runs as part of an approved change.",
+  z.object({ ...opnsenseApi, ...blockArgs }).strict(),
+);
+
+export const pfsenseBlock = tool(
+  { name: "pfsense_block", class: "write", targetArgs: ["target"], secretArgs: ["apiKey"] },
+  "Block or unblock a device on pfSense by adding or removing its address in the moss_blocked alias, and apply. Only runs as part " +
+    "of an approved change.",
+  z.object({ ...pfsenseApi, ...blockArgs }).strict(),
+);
+
+export const cloudflareDnsRecord = tool(
+  { name: "cloudflare_dns_record", class: "write", targetArgs: [], secretArgs: ["apiToken"] },
+  "Create, update or delete one DNS record in a Cloudflare zone. Only runs as part of an approved change.",
+  z
+    .object({
+      apiToken: cloudflareToken,
+      zone: dnsName.describe("The zone, e.g. example.com"),
+      action: z.enum(["upsert", "delete"]),
+      type: z.enum(["A", "AAAA", "CNAME", "TXT"]),
+      name: dnsName.describe("The full record name, e.g. moss.example.com"),
+      content: z.string().min(1).max(500).optional(),
+      proxied: z.boolean().default(false),
+      timeoutMs,
+    })
+    .strict(),
 );
 
 export const piholeDomainRule = tool(
@@ -556,6 +941,28 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     serviceStatus,
     dockerPs,
     proxmoxStatus,
+    proxmoxInventory,
+    dockerApiContainers,
+    tailscaleDevices,
+    mossReleases,
+    fortigateStatus,
+    m365Users,
+    m365Devices,
+    m365ServiceHealth,
+    gworkspaceUsers,
+    gworkspaceDevices,
+    gworkspaceAlerts,
+    merakiDevices,
+    merakiNetwork,
+    awsInventory,
+    awsAlarms,
+    awsExposure,
+    cloudflareDns,
+    cloudflareTunnels,
+    nutStatus,
+    opnsenseStatus,
+    pfsenseStatus,
+    pbsStatus,
     truenasStatus,
     synologyStatus,
     homeassistantStates,
@@ -563,12 +970,20 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     homeassistantLogs,
     homeassistantDevices,
     piholeSummary,
+    piholeClients,
     adguardStats,
+    adguardClients,
     serviceRestart,
     containerRestart,
     hostReboot,
+    hostShutdown,
     homeassistantSwitch,
     homeassistantPowerCycle,
+    proxmoxSnapshot,
+    cloudflareDnsRecord,
+    opnsenseBlock,
+    pfsenseBlock,
+    proxmoxGuestPower,
     piholeDomainRule,
     piholeLocalDns,
     adguardRule,
@@ -577,6 +992,9 @@ export const BUILT_IN_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
     unifiDhcpReservation,
     unifiWlanEnable,
     unifiFirewall,
+    vulnScan,
+    nucleiScan,
+    tlsAudit,
     configBackup,
   ].map((t) => [t.manifest.name, t as unknown as ToolDefinition]),
 );
@@ -622,8 +1040,65 @@ export const homeassistantPublish = tool(
   }),
 );
 
+// PagerDuty: MOSS paging the on-call person for its incidents (never agents).
+const pdRoutingKey = secretHandle.describe("The service's Events API V2 integration key, stored as a secret");
+
+export const pagerdutyEvent = tool(
+  { name: "pagerduty_event", class: "read", targetArgs: [], secretArgs: ["routingKey"] },
+  "Trigger or resolve a PagerDuty alert for a MOSS incident.",
+  z
+    .object({
+      routingKey: pdRoutingKey,
+      action: z.enum(["trigger", "acknowledge", "resolve"]),
+      dedupKey: z.uuid(),
+      summary: z.string().min(1).max(1024).optional(),
+      severity: z.enum(["critical", "error", "warning", "info"]).default("error"),
+      source: z.string().min(1).max(255).default("MOSS"),
+      timeoutMs,
+    })
+    .strict(),
+);
+
+export const pagerdutyChange = tool(
+  { name: "pagerduty_change", class: "read", targetArgs: [], secretArgs: ["routingKey"] },
+  "Send a PagerDuty change event (shown on the service's timeline; pages nobody). Used to test the connection.",
+  z.object({ routingKey: pdRoutingKey, summary: z.string().min(1).max(1024), timeoutMs }).strict(),
+);
+
+export const pagerdutyIncidents = tool(
+  { name: "pagerduty_incidents", class: "read", targetArgs: [], secretArgs: ["apiKey"] },
+  "List PagerDuty incidents from the last day that MOSS raised, with who acknowledged or resolved them.",
+  z.object({ apiKey: secretHandle.describe("A read-only PagerDuty REST API key, stored as a secret"), timeoutMs }).strict(),
+);
+
+// Single sign-on, only ever called by the gate for a person signing in (never by agents).
+const ssoProvider = z.enum(["microsoft", "google"]);
+
+export const oidcExchange = tool(
+  { name: "oidc_exchange", class: "read", targetArgs: [], secretArgs: ["clientSecret"] },
+  "Exchange a sign-in code from Microsoft or Google for an ID token.",
+  z
+    .object({
+      provider: ssoProvider,
+      tenantId: z.guid().optional(),
+      clientId: z.string().min(1).max(200),
+      clientSecret: secretHandle,
+      code: z.string().min(1).max(4000),
+      redirectUri: z.url().max(500),
+      codeVerifier: z.string().regex(/^[A-Za-z0-9_-]{43,128}$/),
+      timeoutMs,
+    })
+    .strict(),
+);
+
+export const oidcKeys = tool(
+  { name: "oidc_keys", class: "read", targetArgs: [] },
+  "Fetch Microsoft's or Google's published keys for checking sign-in tokens.",
+  z.object({ provider: ssoProvider, tenantId: z.guid().optional(), timeoutMs }).strict(),
+);
+
 export const SYSTEM_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
-  [homeassistantNotify, homeassistantPublish].map((t) => [t.manifest.name, t as unknown as ToolDefinition]),
+  [homeassistantNotify, homeassistantPublish, oidcExchange, oidcKeys, pagerdutyEvent, pagerdutyChange, pagerdutyIncidents].map((t) => [t.manifest.name, t as unknown as ToolDefinition]),
 );
 
 /** The JSON Schema handed to the LLM for a tool's input. */

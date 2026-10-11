@@ -1,5 +1,5 @@
 // Incidents, change management and the event outbox against Postgres.
-import { agents, assets, events, incidentComments, models, notifications, providers, roles, userRoles, users, type Database } from "@moss/db";
+import { agents, assets, events, incidentComments, models, notifications, providers, roles, secretGrants, secrets, userRoles, users, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { BUILT_IN_TOOLS, type ToolDefinition } from "@moss/tools";
 import { asc, eq } from "drizzle-orm";
@@ -8,16 +8,20 @@ import { z } from "zod";
 import { hashPassword } from "./auth/password.js";
 import {
   approveChange,
+  cancelChange,
   completeChange,
   createChangeRequest,
   getChange,
   instantiateTemplate,
   markVerifying,
+  recordManualResult,
   rejectChange,
+  requestAccess,
   startChange,
   upsertStandardTemplate,
 } from "./services/changes.js";
 import { dispatchEvents } from "./services/events.js";
+import { agentToolGrants } from "./services/tool-grants.js";
 import { addIncidentComment, createIncident, getIncident, updateIncident } from "./services/incidents.js";
 import { bootstrapOrg } from "./store/bootstrap.js";
 import { setSetting } from "./store/settings-store.js";
@@ -146,6 +150,20 @@ describe.skipIf(!TEST_DATABASE_URL)("incidents and changes (postgres)", () => {
       expect((await approveChange(db, orgId, cr.id, ownerId)).status).toBe("approved");
     });
 
+    it("counts the person who prompted an agent's change as its requester", async () => {
+      const cr = await createChangeRequest(db, orgId, { ...base, type: "normal", plannedCalls: [{ tool: "ping", args: { target: "10.0.0.1" } }], promptedByUserId: ownerId }, agent(), opts);
+      expect(cr).toMatchObject({ requestedByAgentId: agentId, requestedByUserId: ownerId });
+      await setSetting(db, orgId, "changes.require_separate_approver", true);
+      await expect(approveChange(db, orgId, cr.id, ownerId)).rejects.toThrow(/someone other than the requester/);
+      await setSetting(db, orgId, "changes.require_separate_approver", false);
+    });
+
+    it("lets only the requester or an approver cancel a change", async () => {
+      const cr = await createChangeRequest(db, orgId, { ...base, type: "normal", plannedCalls: [{ tool: "ping", args: { target: "10.0.0.1" } }] }, agent(), opts);
+      await expect(cancelChange(db, orgId, cr.id, { type: "user", id: viewerId })).rejects.toThrow(/Only the person who asked/);
+      expect((await cancelChange(db, orgId, cr.id, owner())).status).toBe("cancelled");
+    });
+
     it("detects conflicting changes on the same asset", async () => {
       const mk = (start: string, end: string) =>
         createChangeRequest(
@@ -228,6 +246,18 @@ describe.skipIf(!TEST_DATABASE_URL)("incidents and changes (postgres)", () => {
       expect(full!.notes.map((n) => n.body)).toEqual(["Submitted for approval.", "Approved.", "Execution started.", "Planned calls executed; verifying.", "web responds on 80/tcp"]);
       expect((await getIncident(db, orgId, inc.id))!.comments.map((c) => c.body)).toEqual([`CR-${cr.number} raised: Restart dnsmasq`, `CR-${cr.number} finished: succeeded.`]);
     });
+
+    it("lets only one of two racing runs start a change, and only one of an approve and a reject win", async () => {
+      const cr = await createChangeRequest(db, orgId, { ...base, type: "normal", plannedCalls: [{ tool: "restart_service", args: { host: "192.168.1.6", service: "web" } }] }, agent(), opts);
+      const decided = await Promise.allSettled([approveChange(db, orgId, cr.id, ownerId, { force: true }), rejectChange(db, orgId, cr.id, ownerId)]);
+      expect(decided.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+
+      const run = await createChangeRequest(db, orgId, { ...base, type: "normal", plannedCalls: [{ tool: "restart_service", args: { host: "192.168.1.7", service: "web" } }] }, agent(), opts);
+      await approveChange(db, orgId, run.id, ownerId, { force: true });
+      const started = await Promise.allSettled([startChange(db, orgId, run.id, agent()), startChange(db, orgId, run.id, agent())]);
+      expect(started.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      expect((await getChange(db, orgId, run.id))!.notes.filter((n) => n.body === "Execution started.")).toHaveLength(1);
+    });
   });
 
   describe("incident/change consistency", () => {
@@ -276,6 +306,75 @@ describe.skipIf(!TEST_DATABASE_URL)("incidents and changes (postgres)", () => {
       await dispatchEvents(db, async (e) => void seen.push(e.type), 500);
       expect(seen).toEqual(["change.approved"]);
       expect(await dispatchEvents(db, async () => {}, 500)).toBe(0);
+    });
+  });
+
+  describe("changes people raise", () => {
+    it("for an agent: the agent is the one told to run it once approved", async () => {
+      const cr = await createChangeRequest(
+        db,
+        orgId,
+        { type: "normal", ...base, plannedCalls: [{ tool: "restart_service", args: { host: "10.0.0.5", service: "dnsmasq" } }], forAgentId: agentId },
+        owner(),
+        opts,
+      );
+      expect(cr).toMatchObject({ status: "submitted", requestedByUserId: ownerId, requestedByAgentId: agentId });
+      await expect(createChangeRequest(db, orgId, { type: "normal", ...base, plannedCalls: [], forAgentId: agentId }, owner(), opts)).rejects.toThrow(/at least one planned tool call/);
+      await expect(createChangeRequest(db, orgId, { type: "normal", ...base, plannedCalls: [{ tool: "restart_service", args: { host: "x", service: "y" } }], forAgentId: otherAgentId }, agent(), opts)).rejects.toThrow(/for themselves/);
+    });
+
+    it("by hand: no tool calls, approved like any change, and the person records the result", async () => {
+      const cr = await createChangeRequest(db, orgId, { type: "normal", ...base, title: "Replace the switch", manual: true }, owner(), opts);
+      expect(cr).toMatchObject({ status: "submitted", plannedCalls: [], requestedByAgentId: null });
+      await expect(recordManualResult(db, orgId, cr.id, "succeeded", "done", owner())).rejects.toThrow(/can't move/);
+      await setSetting(db, orgId, "changes.require_separate_approver", false);
+      await approveChange(db, orgId, cr.id, ownerId);
+      await expect(recordManualResult(db, orgId, cr.id, "succeeded", "done", agent())).rejects.toThrow(/Only a person/);
+      await recordManualResult(db, orgId, cr.id, "succeeded", "Swapped it; all ports up.", owner());
+      expect((await getChange(db, orgId, cr.id))!.status).toBe("succeeded");
+      await expect(createChangeRequest(db, orgId, { type: "normal", ...base, manual: true }, agent(), opts)).rejects.toThrow(/Only a person/);
+    });
+  });
+
+  describe("@mentions", () => {
+    it("stores who was mentioned and notifies the people (not the author)", async () => {
+      const inc = await createIncident(db, orgId, { type: "request", title: "New printer" }, owner());
+      const c = await addIncidentComment(db, orgId, inc.id, "@V can you approve the purchase? @O fyi", owner());
+      expect(c.mentions).toEqual([{ type: "user", id: viewerId }, { type: "user", id: ownerId }]);
+      const mine = await db.select().from(notifications).where(eq(notifications.userId, viewerId));
+      expect(mine.find((n) => n.kind === "mention")).toMatchObject({ title: `O mentioned you on INC-${inc.number}`, link: `/incidents/${inc.id}` });
+      expect((await db.select().from(notifications).where(eq(notifications.userId, ownerId))).some((n) => n.kind === "mention")).toBe(false);
+    });
+  });
+
+  describe("access requests", () => {
+    it("asks for tools and secrets through a change, and approving grants exactly that", async () => {
+      const [secret] = await db
+        .insert(secrets)
+        .values({ orgId, name: "router-pw", type: "password", ciphertext: "x", wrappedDataKey: "y" })
+        .returning();
+      const known = new Set(["ping", "snmp_get"]);
+      await expect(requestAccess(db, orgId, agentId, { tools: ["format_disk"], reason: "x" }, known)).rejects.toThrow(/No such tool/);
+      await expect(requestAccess(db, orgId, agentId, { secrets: ["nope"], reason: "x" }, known)).rejects.toThrow(/No such secret/);
+
+      const cr = await requestAccess(db, orgId, agentId, { tools: ["snmp_get"], secrets: ["secret:router-pw"], reason: "Read the router's interfaces" }, known);
+      expect(cr).toMatchObject({ status: "submitted", plannedCalls: [], accessGrant: { tools: ["snmp_get"], secretIds: [secret!.id] } });
+      expect(cr.title).toBe("Access for Sam: snmp_get, secret:router-pw");
+      expect(await agentToolGrants(db, agentId)).not.toContain("snmp_get");
+
+      const done = await approveChange(db, orgId, cr.id, ownerId);
+      expect(done.status).toBe("succeeded");
+      expect(await agentToolGrants(db, agentId)).toContain("snmp_get");
+      expect(await db.select().from(secretGrants).where(eq(secretGrants.agentId, agentId))).toHaveLength(1);
+      const evs = await db.select().from(events).where(eq(events.orgId, orgId));
+      expect(evs.some((e) => e.type === "change.access_granted" && (e.payload as { changeId: string }).changeId === cr.id)).toBe(true);
+      expect(evs.some((e) => e.type === "change.approved" && (e.payload as { changeId: string }).changeId === cr.id)).toBe(false);
+
+      await expect(requestAccess(db, orgId, agentId, { tools: ["snmp_get"], secrets: ["router-pw"], reason: "again" }, known)).rejects.toThrow(/already have/);
+      // A rejected request grants nothing.
+      const other = await requestAccess(db, orgId, otherAgentId, { tools: ["ping"], reason: "x" }, known);
+      await rejectChange(db, orgId, other.id, ownerId, "Not needed");
+      expect(await agentToolGrants(db, otherAgentId)).not.toContain("ping");
     });
   });
 });

@@ -1,14 +1,18 @@
-import { getSetting, totpUri, type SettingKey } from "@moss/core";
+import { CHAT_NAMES, CHAT_PLATFORMS, getSetting, listChatLinks, loadChatModule, totpUri, type SettingKey } from "@moss/core";
 import { cookies } from "next/headers";
 import QRCode from "qrcode";
 import { ActionForm } from "@/components/action-form";
 import { SelectField, TextField } from "@/components/field";
 import { PageHeader } from "@/components/page";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
-import { confirmTotpAction, disableTotpAction, setMotionAction, startTotpAction, toggleSettingAction } from "./actions";
-import { SettingsTabs } from "./tabs";
+import { confirmTotpAction, disableTotpAction, setMotionAction, setSetupChecklistHiddenAction, startTotpAction, toggleSettingAction } from "./actions";
+import { ConnectChat } from "./chat-connect";
+import { HttpsCard } from "./https-card";
+import { SignInAccounts } from "./sign-in-accounts";
+import { unlinkMyChatAction } from "./integrations/chat/actions";
 
 export const metadata = { title: "Settings" };
 
@@ -33,6 +37,12 @@ const TOGGLES: { key: SettingKey; title: string; description: string; danger?: b
     permission: "settings.manage",
   },
   {
+    key: "tools.allow_vulners",
+    title: "Allow CVE lookups",
+    description: "Let agents look up known vulnerabilities for the software versions they find (vuln_scan's cve profile). It sends service names and versions to vulners.com.",
+    permission: "settings.manage",
+  },
+  {
     key: "tools.allow_dangerous",
     title: "Allow dangerous tools",
     description: "Permit tools marked dangerous (for example factory resets), still only through approved changes.",
@@ -41,17 +51,54 @@ const TOGGLES: { key: SettingKey; title: string; description: string; danger?: b
   },
 ];
 
-export default async function SettingsPage() {
-  const user = await requireUser();
+export default async function SettingsPage({ searchParams }: PageProps<"/settings">) {
+  const user = await requireUser({ unblocks: "enrol_totp" });
+  const q = await searchParams;
   const values = Object.fromEntries(await Promise.all(TOGGLES.map(async (t) => [t.key, await getSetting(db(), user.orgId, t.key)] as const)));
   const pendingSecret = (await cookies()).get("moss_totp_pending")?.value;
   const qr = pendingSecret ? await QRCode.toDataURL(totpUri(pendingSecret, user.email), { margin: 1, width: 200 }) : null;
+  const [chatApps, myLinks] = await Promise.all([
+    Promise.all(CHAT_PLATFORMS.map(async (p) => ({ p, on: (await loadChatModule(db(), user.orgId, p)).enabled }))),
+    listChatLinks(db(), user.orgId, user.id),
+  ]);
+  const chatOn = chatApps.filter((c) => c.on);
 
   return (
     <>
       <PageHeader title="Settings" />
-      <SettingsTabs current="/settings" />
+      {user.blocker === "enrol_totp" && (
+        <Alert className="mb-6" role="alert">
+          <AlertTitle>Set up two-factor sign-in to carry on</AlertTitle>
+          <AlertDescription>The password policy requires it for your account. Use the Two-factor authentication card below; it takes a minute with an authenticator app.</AlertDescription>
+        </Alert>
+      )}
       <div className="grid gap-6 lg:grid-cols-2">
+        <HttpsCard orgId={user.orgId} canManage={user.permissions.has("settings.manage")} />
+        <SignInAccounts user={user} linked={typeof q.sso_linked === "string" ? q.sso_linked : undefined} error={typeof q.sso_error === "string" ? q.sso_error.slice(0, 300) : undefined} />
+        {(chatOn.length > 0 || myLinks.length > 0) && (
+          <Card id="chat-apps">
+            <CardHeader>
+              <CardTitle>Telegram and Discord</CardTitle>
+              <CardDescription>Get your MOSS notifications on your phone, approve changes with a tap, and talk to your agents.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 text-sm">
+              {myLinks.map((l) => (
+                <div key={l.id} className="flex flex-wrap items-center gap-3">
+                  <span>
+                    Connected to {CHAT_NAMES[l.platform]}
+                    {l.username ? <> as <span className="font-mono">@{l.username}</span></> : null}.
+                  </span>
+                  <ActionForm action={unlinkMyChatAction.bind(null, l.id)} submitLabel="Disconnect" submitVariant="outline" inline />
+                </div>
+              ))}
+              {chatOn
+                .filter((c) => !myLinks.some((l) => l.platform === c.p))
+                .map((c) => (
+                  <ConnectChat key={c.p} platform={c.p} name={CHAT_NAMES[c.p]} />
+                ))}
+            </CardContent>
+          </Card>
+        )}
         <Card>
           <CardHeader>
             <CardTitle>Display</CardTitle>
@@ -70,6 +117,12 @@ export default async function SettingsPage() {
                 ]}
               />
             </ActionForm>
+            {user.preferences.hideSetupChecklist && (
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t-2 pt-4 text-sm">
+                <span>The dashboard&apos;s Getting started checklist is dismissed.</span>
+                <ActionForm action={setSetupChecklistHiddenAction.bind(null, false)} submitLabel="Show it again" submitVariant="outline" inline />
+              </div>
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -123,6 +176,7 @@ export default async function SettingsPage() {
                   <code className="break-all">{pendingSecret}</code>
                 </details>
                 <TextField label="Code" name="code" inputMode="numeric" autoComplete="one-time-code" maxLength={7} required />
+                {user.hasPassword && <TextField label="Confirm your password" name="password" type="password" autoComplete="current-password" required />}
               </ActionForm>
             ) : (
               <ActionForm action={startTotpAction} submitLabel="Set up two-factor" />

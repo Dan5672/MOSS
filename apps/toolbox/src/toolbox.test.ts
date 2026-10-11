@@ -62,6 +62,10 @@ describe("runTool", () => {
     const exec: Exec = async (file, args) => (calls.push([file, args]), { stdout: NMAP_XML, stderr: "", code: 0 });
     await runTool("nmap_scan", { targets: ["192.168.1.0/30"], profile: "top100" }, exec);
     expect(calls).toEqual([["nmap", ["-sS", "--top-ports", "100", "-T4", "--privileged", "-oX", "-", "192.168.1.0/30"]]]);
+    // Names are looked up with the network's DNS server when the gate passes one.
+    await runTool("nmap_scan", { targets: ["192.168.1.0/30"], profile: "ping", dnsServers: ["192.168.1.1"] }, exec);
+    expect(calls[1]![1]).toEqual(["-sn", "--dns-servers", "192.168.1.1", "--privileged", "-oX", "-", "192.168.1.0/30"]);
+    await expect(runTool("nmap_scan", { targets: ["192.168.1.0/30"], profile: "ping", dnsServers: ["--script=x"] }, exec)).rejects.toThrow();
   });
 
   it("falls back to ICMP discovery when every address answers TCP probes", async () => {

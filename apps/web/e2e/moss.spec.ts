@@ -1,10 +1,12 @@
 // One story through the UI, in order: a new owner sets MOSS up and runs their IT department.
-import { createChangeRequest, dispatchEvents, encryptSecret, handleMonitorDown, handleMonitorUp, parseMasterKey, totpCode } from "@moss/core";
-import { agents, configBackups, createDb, type Database } from "@moss/db";
+import { createChangeRequest, dispatchEvents, encryptSecret, handleIncoming, handleMonitorDown, handleMonitorUp, parseMasterKey, removeLicence, saveLicence, signLicence, totpCode } from "@moss/core";
+import { agentRuns, agents, configBackups, createDb, modules, monitors, secrets, users, type Database } from "@moss/db";
 import { expect, test, type Page } from "@playwright/test";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import { E2E_DATABASE_URL, E2E_MASTER_KEY_HEX } from "../playwright.config";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { E2E_DATABASE_URL, E2E_GATE_PORT, E2E_LICENCE_DIR, E2E_MASTER_KEY_HEX, E2E_TLS_DIR } from "../playwright.config";
 
 test.describe.configure({ mode: "serial" });
 
@@ -13,6 +15,19 @@ const VIEWER = { name: "Vic Viewer", email: "vic@home.test", password: "viewer-p
 
 let page: Page;
 let ownerTotpSecret = "";
+let lastTotpStep = 0;
+
+/**
+ * A code MOSS hasn't accepted yet: it takes each 30-second step once, and one step ahead for clock drift. So it's
+ * the current step's code, or the next one's if this step was used, waiting for the step to turn if both were.
+ */
+async function freshTotp(secret = ownerTotpSecret) {
+  const now = Math.floor(Date.now() / 30_000);
+  const step = Math.max(now, lastTotpStep + 1);
+  if (step > now + 1) await new Promise((r) => setTimeout(r, (step - 1) * 30_000 - Date.now() + 500));
+  lastTotpStep = step;
+  return totpCode(secret, step * 30_000);
+}
 test.beforeAll(async ({ browser }) => {
   page = await browser.newPage();
 });
@@ -61,15 +76,26 @@ test("first run: setup creates the owner and signs them in", async () => {
 
 test("networks: allow a subnet", async () => {
   await page.getByRole("link", { name: "Networks" }).first().click();
+  await page.getByRole("button", { name: "Add a network" }).click();
   await page.getByLabel("CIDR").fill("192.168.50.7/24");
   await page.getByLabel("Name").fill("Home LAN");
   await page.getByRole("button", { name: "Save network" }).click();
+  await expect(page.getByText("192.168.50.0/24 is now allowed.")).toBeVisible();
+  await page.keyboard.press("Escape");
   const row = page.getByRole("row", { name: /192\.168\.50\.0\/24/ });
   await expect(row).toContainText("allowed");
+  // Its DNS server, so scans can look device names up.
+  await row.getByLabel("DNS server for 192.168.50.0/24").fill("192.168.50.1");
+  await row.getByRole("button", { name: "Set" }).click();
+  await expect(page.getByText("Scans of 192.168.50.0/24 now look names up with 192.168.50.1.")).toBeVisible();
 });
 
 test("models: add a local provider and a model", async () => {
+  // Models live under Agents now; the old address still works.
   await page.goto("/models");
+  await expect(page).toHaveURL(/\/agents\/models$/);
+  await expect(page.getByRole("navigation", { name: "Agents" }).getByRole("link", { name: "Models" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("navigation", { name: "Agents" }).getByRole("link", { name: "Wiki" })).toHaveCount(0);
   await page.getByLabel("Type").selectOption("ollama");
   await page.getByLabel("Name", { exact: true }).fill("Local Ollama");
   await page.getByLabel("Base URL (optional for hosted providers)").fill("http://127.0.0.1:11434/v1");
@@ -101,6 +127,9 @@ test("models: add a local provider and a model", async () => {
 
 test("agents: hire, budget, pause and resume", async () => {
   await page.goto("/agents");
+  // Hiring lives behind a button at the top right.
+  await expect(page.getByRole("button", { name: "Hire Nina" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Hire an agent" }).click();
   await page.getByRole("button", { name: "Hire Nina" }).click();
   await expect(page.getByRole("heading", { name: "Nina" })).toBeVisible();
   await expect(page.getByText("Network Discovery")).toBeVisible();
@@ -111,7 +140,7 @@ test("agents: hire, budget, pause and resume", async () => {
   await page.getByRole("button", { name: /^Discover devices on all allowed networks/ }).click();
   await expect(page.getByRole("textbox", { name: "Task", exact: true })).toHaveValue(/^Discover devices on all allowed networks/);
 
-  await page.getByLabel("Per").selectOption("day");
+  await page.getByRole("combobox", { name: "Per", exact: true }).selectOption("day");
   await page.getByLabel("Hard limit").fill("2");
   await page.getByRole("button", { name: "Set budget" }).click();
   await expect(page.getByText("Budget saved.")).toBeVisible();
@@ -151,7 +180,7 @@ test("agents: each agent's mascot can be picked from the registry, defaulting by
   await expect(page.getByText("Saved Nina's look.")).toBeVisible();
 });
 
-test("agents: schedules read as words and can be edited, turned off, added and deleted", async () => {
+test("agents: recurring tasks read as words and can be edited, turned off, added and deleted", async () => {
   await page.goto("/agents");
   await page.getByRole("link", { name: "Nina", exact: true }).click();
   // The Network Admin template's "30 2 * * *".
@@ -159,38 +188,57 @@ test("agents: schedules read as words and can be edited, turned off, added and d
   await expect(page.getByText("30 2 * * *")).toHaveCount(0);
 
   await page.getByText("Edit", { exact: true }).click();
-  const edit = page.locator("form", { has: page.getByRole("button", { name: "Save schedule" }) });
+  const edit = page.locator("form", { has: page.getByRole("button", { name: "Save recurring task" }) });
   await edit.getByRole("combobox", { name: "Repeats", exact: true }).selectOption("every_hours");
   // By role: getByLabel would match the label's whole text, which includes the select's options.
   await edit.getByRole("combobox", { name: "Every", exact: true }).selectOption("6");
   await edit.getByRole("spinbutton", { name: "Minutes past the hour" }).fill("15");
   await expect(edit.getByText("Runs: Every 6 hours, at 15 past")).toBeVisible();
-  await edit.getByRole("button", { name: "Save schedule" }).click();
-  await expect(page.getByText("Schedule saved: Every 6 hours, at 15 past.")).toBeVisible();
+  await edit.getByRole("button", { name: "Save recurring task" }).click();
+  await expect(page.getByText("Recurring task saved: Every 6 hours, at 15 past.")).toBeVisible();
 
   await page.getByRole("button", { name: "Turn off" }).click();
   await expect(page.getByText("off", { exact: true })).toBeVisible();
 
-  await page.getByText("Add a schedule").click();
-  const add = page.locator("form", { has: page.getByRole("button", { name: "Add schedule" }) });
+  await page.getByText("Add a recurring task").click();
+  const add = page.locator("form", { has: page.getByRole("button", { name: "Add recurring task" }) });
   await add.getByRole("combobox", { name: "Repeats", exact: true }).selectOption("weekly");
   await add.getByRole("checkbox", { name: "Mon" }).uncheck();
   await add.getByRole("checkbox", { name: "Sat" }).check();
   await add.getByLabel("At", { exact: true }).fill("07:30");
   await add.getByRole("textbox", { name: "Task", exact: true }).fill("Check the backup NAS has space left.");
-  await add.getByRole("button", { name: "Add schedule" }).click();
-  await expect(page.getByText("Scheduled: Saturdays at 07:30.")).toBeVisible();
+  await add.getByRole("button", { name: "Add recurring task" }).click();
+  await expect(page.getByText("Recurring task added: Saturdays at 07:30.")).toBeVisible();
 
   // Custom cron is validated on the server. (The add form stays open after a save.)
   await add.getByRole("combobox", { name: "Repeats", exact: true }).selectOption("custom");
   await add.getByRole("textbox", { name: "Cron expression" }).fill("* * * * *");
   await add.getByRole("textbox", { name: "Task", exact: true }).fill("Too often.");
-  await add.getByRole("button", { name: "Add schedule" }).click();
+  await add.getByRole("button", { name: "Add recurring task" }).click();
   await expect(add.getByRole("alert")).toContainText("more than every 5 minutes");
 
+  // Everyone's recurring tasks, in one list: added from the top, filtered and sorted.
+  await page.goto("/agents/recurring");
+  await expect(page.getByText("Check the backup NAS has space left.").first()).toBeVisible();
+  await expect(page.getByText("Saturdays at 07:30", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "New recurring task" }).click();
+  const fresh = page.getByRole("dialog", { name: "New recurring task" });
+  await fresh.getByLabel("Agent").selectOption({ label: "Nina (Network Admin)" });
+  await fresh.getByLabel("Task").fill("Check the printer has toner.");
+  await fresh.getByRole("button", { name: "Add recurring task" }).click();
+  await expect(page.getByText(/^Recurring task added/)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("cell", { name: "Check the printer has toner." })).toBeVisible();
+  await page.getByLabel("Search tasks").fill("toner");
+  await page.getByRole("button", { name: "Filter" }).click();
+  await expect(page.getByRole("row")).toHaveCount(2); // the header and the match
+  await page.goto("/agents/recurring?status=off");
+  await expect(page.getByText("No recurring tasks match.").or(page.getByRole("cell", { name: "off" }).first())).toBeVisible();
+  await page.goto("/agents/recurring?sort=agent&dir=desc");
+  await expect(page.getByRole("columnheader", { name: /^Agent/ })).toHaveAttribute("aria-sort", "descending");
   page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "Delete" }).first().click();
-  await expect(page.getByText("Schedule deleted.")).toBeVisible();
+  await expect(page.getByText("Recurring task deleted.")).toBeVisible();
 });
 
 test("agents: tool access shows who can use each tool, and the knowledge base can be edited", async () => {
@@ -216,35 +264,45 @@ test("agents: tool access shows who can use each tool, and the knowledge base ca
   await nmap.getByRole("button", { name: "Save access" }).click();
   await expect(nmap.getByRole("link", { name: /Nina/ })).toBeVisible();
 
-  await page.getByRole("link", { name: "Knowledge base" }).click();
-  await expect(page.getByText("No notes yet.")).toBeVisible();
-  const add = page.locator("form", { has: page.getByRole("button", { name: "Add note" }) });
-  await add.getByLabel("Title", { exact: true }).fill("ISP gateway");
-  await add.getByLabel("Subject", { exact: true }).fill("192.168.50.1");
-  await add.getByLabel("Note", { exact: true }).fill("The ISP's gateway. Its open ports are expected.");
-  await add.getByLabel("Tags", { exact: true }).fill("gateway, expected");
-  await add.getByRole("button", { name: "Add note" }).click();
-  await expect(page.getByText('Saved "ISP gateway".')).toBeVisible();
-  await expect(page.getByRole("heading", { name: "ISP gateway" })).toBeVisible();
+  // The wiki (it grew out of the knowledge base): pages in a tree, Markdown, links, history.
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Wiki" }).click(); // the sidebar; it left the Agents tabs
+  await expect(page.getByText("No pages yet.")).toBeVisible();
+  await page.getByRole("link", { name: "New page" }).click();
+  await page.getByLabel("Title", { exact: true }).fill("Network");
+  await page.getByRole("textbox", { name: "Page", exact: true }).fill("# Layout\n- One LAN: 192.168.50.0/24\n- The router is the [[ISP gateway]]");
+  await page.getByRole("button", { name: "Create page" }).click();
+  await expect(page.getByRole("heading", { name: "Network", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Layout" })).toBeVisible();
+  // A link to a page that doesn't exist yet isn't a link.
+  await expect(page.getByRole("link", { name: "ISP gateway" })).toHaveCount(0);
 
-  await page.getByRole("searchbox", { name: "Search notes" }).or(page.getByLabel("Search notes")).fill("nothing-like-this");
-  await page.getByRole("button", { name: "Search" }).click();
-  await expect(page.getByText('Nothing matches "nothing-like-this".')).toBeVisible();
-  await page.getByLabel("Search notes").fill("gateway");
-  await page.getByRole("button", { name: "Search" }).click();
-  await expect(page.getByRole("heading", { name: "ISP gateway" })).toBeVisible();
-  // Searching loads a new page; wait until it's interactive before using a form on it.
-  await page.waitForLoadState("networkidle");
+  await page.getByRole("link", { name: "New page under this" }).click();
+  await page.getByLabel("Title", { exact: true }).fill("ISP gateway");
+  await page.getByRole("textbox", { name: "Page", exact: true }).fill("The ISP's gateway. Its open ports are **expected**.");
+  await page.getByRole("button", { name: "Create page" }).click();
+  await expect(page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link", { name: "Network" })).toBeVisible();
+  await expect(page.locator("strong", { hasText: "expected" })).toBeVisible();
 
-  page.once("dialog", (d) => d.accept());
-  await page.getByRole("button", { name: "Delete" }).click();
-  await expect(page.getByText("Note deleted.")).toBeVisible();
+  // Now the link works, and an edit is kept in the history.
+  await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link", { name: "Network" }).click();
+  await expect(page.getByRole("link", { name: "ISP gateway" }).first()).toBeVisible();
+  await page.getByRole("link", { name: "Edit" }).click();
+  await page.getByRole("textbox", { name: "Page", exact: true }).fill("# Layout\n- One LAN: 192.168.50.0/24\n- IoT VLAN: 192.168.60.0/24\n- The router is the [[ISP gateway]]");
+  await page.getByRole("button", { name: "Save page" }).click();
+  await page.getByRole("link", { name: "History" }).click();
+  await expect(page.getByText("2 versions.")).toBeVisible();
+  await expect(page.getByRole("region").or(page.locator("pre")).filter({ hasText: "+ - IoT VLAN: 192.168.60.0/24" }).first()).toBeVisible();
+
+  await page.goto("/wiki?q=gateway");
+  await expect(page.getByRole("list", { name: "Search results" })).toContainText("ISP gateway");
 });
 
 test("settings: secrets are scoped to hosts and tools, granted to agents, and never shown", async () => {
   await page.goto("/settings");
   await page.getByRole("link", { name: "Secrets" }).click();
   await expect(page.getByText("No secrets yet.")).toBeVisible();
+  // The form lives behind a button at the top right.
+  await page.getByRole("button", { name: "Add a secret" }).click();
   const add = page.locator("form", { has: page.getByRole("button", { name: "Save secret" }) });
   await add.getByLabel("Name", { exact: true }).fill("unifi-api");
   await add.getByRole("textbox", { name: "Value" }).fill("super-secret-key-value");
@@ -259,12 +317,21 @@ test("settings: secrets are scoped to hosts and tools, granted to agents, and ne
 
   await hosts.fill("192.168.50.1");
   await add.getByRole("checkbox", { name: /^Nina/ }).check();
+  // Tools are grouped; a whole group can be ticked at once.
+  await add.getByRole("checkbox", { name: "All unifi tools" }).check();
+  await expect(add.getByRole("checkbox", { name: "unifi_firewall" })).toBeChecked();
+  // A pasted note isn't a key.
+  await add.getByRole("textbox", { name: "Value" }).fill("Key for the UniFi console: super-secret-key-value (read only)");
   await add.getByRole("button", { name: "Save secret" }).click();
-  await expect(page.getByText("Saved secret:unifi-api.")).toBeVisible();
+  await expect(add.getByRole("alert")).toContainText("reads like a sentence or a note");
+  await add.getByRole("textbox", { name: "Value" }).fill("super-secret-key-value");
+  await add.getByRole("button", { name: "Save secret" }).click();
+  await expect(page.getByText("Saved secret:unifi-api (22 characters).")).toBeVisible();
+  await page.keyboard.press("Escape");
 
   const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: "secret:unifi-api" }) });
   await expect(card).toContainText("192.168.50.1");
-  await expect(card).toContainText("unifi_clients");
+  await expect(card).toContainText("unifi_firewall");
   await expect(card).toContainText("Nina");
   await expect(page.getByText("super-secret-key-value")).toHaveCount(0);
 
@@ -315,6 +382,17 @@ test("agents: custom tools are uploaded as definitions, validated, granted and s
   page.once("dialog", (d) => d.accept());
   await card.getByRole("button", { name: "Delete" }).click();
   await expect(page.getByText("Deleted plex_sessions.")).toBeVisible();
+
+  // The catalog: ready-made definitions, installed switched off for review.
+  const catalog = page.getByRole("list", { name: "Catalog" });
+  const frigate = catalog.getByRole("listitem").filter({ hasText: "Frigate NVR health" });
+  await frigate.getByRole("button", { name: "Install frigate_stats" }).click();
+  await expect(page.getByText("Installed frigate_stats, switched off.")).toBeVisible();
+  await expect(frigate.getByText("Installed as frigate_stats")).toBeVisible();
+  // A URL import can't reach into the local network.
+  await page.getByLabel("Import a definition from a URL").fill("https://127.0.0.1/tool.yaml");
+  await page.getByRole("button", { name: "Import" }).click();
+  await expect(page.getByText(/private or local network/)).toBeVisible();
 });
 
 test("settings: config backups are listed, downloaded through the gate, and deleted", async () => {
@@ -379,42 +457,110 @@ test("settings: the Motion setting can override the device's reduced-motion pref
 
 test("agents: hire a custom agent with chosen skills", async () => {
   await page.goto("/agents");
+  await page.getByRole("button", { name: "Hire an agent" }).click();
   const form = page.locator("form", { has: page.getByRole("button", { name: "Hire custom agent" }) });
   await form.getByLabel("Name").fill("Wren");
   await form.getByLabel("Job title").fill("Backup Admin");
   await form.getByLabel("Instructions").fill("You look after backups. Check the NAS is reachable each morning.");
   await form.getByLabel("Service Health Checks").check();
-  await form.getByLabel("Incident Management").check();
+  // How MOSS works (tickets, changes, the wiki...) is built in, not a choice.
+  await expect(form.getByLabel("Incident Management")).toHaveCount(0);
   await form.getByRole("button", { name: "Hire custom agent" }).click();
 
   await expect(page.getByRole("heading", { name: "Wren" })).toBeVisible();
   await expect(page.getByText("Backup Admin").first()).toBeVisible();
-  // Only the chosen skills are granted; the rest stay available to add.
+  // Breadcrumbs: B1 / Agents / Wren, and Agents leads back.
+  const crumbs = page.getByRole("navigation", { name: "Breadcrumb" });
+  await expect(crumbs).toContainText("B1/AGENTS/WREN");
+  await crumbs.getByRole("link", { name: "AGENTS" }).click();
+  await expect(page).toHaveURL(/\/agents$/);
+  await page.getByRole("link", { name: "Wren", exact: true }).first().click();
+  await expect(page.getByRole("heading", { name: "Wren" })).toBeVisible();
+  // Only the chosen skills are granted; the rest stay available to add. The core ones are built in.
   const granted = page.getByRole("listitem").filter({ has: page.getByRole("button", { name: "Remove" }) });
-  await expect(granted).toHaveCount(2);
+  await expect(granted).toHaveCount(1);
   await expect(granted.filter({ hasText: "Service Health Checks" })).toHaveCount(1);
-  await expect(granted.filter({ hasText: "Incident Management" })).toHaveCount(1);
+  await page.getByText("Built in:").click();
+  await expect(page.getByRole("list", { name: "Built-in skills" })).toContainText("Incident Management");
 
-  // Chat: the message is stored and a run is queued (no worker runs in this suite, so no reply).
-  await page.getByRole("link", { name: "Chat" }).click();
-  await expect(page.getByRole("heading", { name: "Chat with Wren" })).toBeVisible();
-  await page.getByLabel("Message").fill("Is the NAS backed up?");
+  // Chat: the agent page's Chat opens the DM with Wren (no worker runs in this suite, so no reply).
+  await page.getByRole("main").getByRole("link", { name: "Chat" }).click();
+  await expect(page.getByRole("heading", { name: "Wren", exact: true })).toBeVisible();
+  await page.getByLabel("Message", { exact: true }).fill("Is the NAS backed up?");
   await page.getByRole("button", { name: "Send" }).click();
-  await expect(page.getByRole("list", { name: "Conversation" })).toContainText("Is the NAS backed up?");
-  await expect(page.getByRole("status")).toContainText("Wren is working on a reply");
+  await expect(page.getByRole("list", { name: "Messages" })).toContainText("Is the NAS backed up?");
+  // The DM is listed beside the conversation, Slack-style.
+  await expect(page.getByRole("navigation", { name: "Chats" }).getByRole("link", { name: "Wren" })).toBeVisible();
+
+  // Chat opens on the company-wide #general channel, which everyone is in.
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Chat" }).click();
+  await expect(page.getByRole("heading", { name: "#general" })).toBeVisible();
+  await page.getByText("Members (", { exact: false }).click();
+  await expect(page.getByRole("complementary", { name: "Members" })).toContainText("(you)");
+  await expect(page.getByRole("button", { name: "Leave channel" })).toHaveCount(0);
+
+  // A channel: agents answer when @mentioned there.
+  await page.getByRole("button", { name: "New channel" }).click();
+  const create = page.getByRole("dialog", { name: "New channel" });
+  await create.getByLabel("Name").fill("backups");
+  await create.getByLabel("Topic").fill("Backups and the NAS");
+  await create.getByRole("button", { name: "Create channel" }).click();
+  await expect(page.getByRole("heading", { name: "#backups" })).toBeVisible();
+  const box = page.getByLabel("Message", { exact: true });
+  await box.pressSequentially("@Wr");
+  await box.press("Enter");
+  await box.pressSequentially("did last night's backup finish?");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByRole("list", { name: "Messages" }).locator("strong", { hasText: "@Wren" })).toBeVisible();
+  // Mentioning Wren brought her into the channel.
+  await page.getByText("Members (", { exact: false }).click();
+  await expect(page.getByRole("complementary", { name: "Members" }).getByRole("link", { name: "Wren" })).toBeVisible();
+  // The message box stays on screen, however long the history.
+  await expect(page.getByRole("button", { name: "Send" })).toBeInViewport();
+
+  // A run that ended with a question: answer it from the run page, and it lands in the DM.
+  const db = createDb(E2E_DATABASE_URL);
+  const [wren] = await db.select().from(agents).where(eq(agents.name, "Wren"));
+  const [run] = await db
+    .insert(agentRuns)
+    .values({ orgId: wren!.orgId, agentId: wren!.id, trigger: "manual", task: "Check the backups", status: "succeeded", summary: "Two backups failed. Should I retry them tonight?", endedAt: new Date() })
+    .returning();
+  await db.$client.end();
+  await page.goto(`/runs/${run!.id}`);
+  await expect(page.getByRole("heading", { name: "Wren asked" })).toBeVisible();
+  await page.getByLabel("Your answer").fill("Yes, after 22:00.");
+  await page.getByRole("button", { name: "Reply" }).click();
+  await expect(page.getByRole("heading", { name: "Wren", exact: true })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Messages" })).toContainText("Should I retry them tonight?");
+  await expect(page.getByRole("list", { name: "Messages" })).toContainText("Yes, after 22:00.");
 });
 
 test("incidents: raise, comment and update", async () => {
   await page.goto("/incidents");
-  await page.getByLabel("Title").fill("Printer offline");
-  await page.getByLabel("Description").fill("Nobody can print since this morning.");
-  await page.getByLabel("Priority").selectOption("P2");
-  await page.getByRole("button", { name: "Raise incident" }).click();
+  // The form lives behind a button at the top right, not on the page.
+  await expect(page.getByLabel("Title")).toHaveCount(0);
+  await page.getByRole("button", { name: "Raise an incident" }).click();
+  const dialog = page.getByRole("dialog", { name: "Raise an incident" });
+  await dialog.getByLabel("Title").fill("Printer offline");
+  await dialog.getByLabel("Description").fill("Nobody can print since this morning.");
+  await dialog.getByLabel("Priority").selectOption("P2");
+  await dialog.getByRole("button", { name: "Raise incident" }).click();
   await expect(page.getByRole("heading", { name: /INC-\d+: Printer offline/ })).toBeVisible();
 
   await page.getByLabel("Comment").fill("Checked the cable.");
   await page.getByRole("button", { name: "Add comment" }).click();
   await expect(page.getByText("Checked the cable.")).toBeVisible();
+
+  // @mentions: typing @ suggests agents and people; the mention is highlighted in the comment.
+  const box = page.getByLabel("Comment");
+  await expect(box).toHaveValue("");
+  await box.pressSequentially("Over to you @Ni");
+  await expect(page.getByRole("option", { name: /@Nina/ })).toBeVisible();
+  await box.press("Enter");
+  await expect(box).toHaveValue("Over to you @Nina ");
+  await box.pressSequentially("please check the driver.");
+  await page.getByRole("button", { name: "Add comment" }).click();
+  await expect(page.locator("strong", { hasText: "@Nina" })).toBeVisible();
 
   await page.getByLabel("Status").selectOption("in_progress");
   await page.getByRole("button", { name: "Save" }).click();
@@ -448,6 +594,81 @@ test("changes: approve what an agent submitted", async () => {
   await expect(page.getByRole("button", { name: "Approve" })).toHaveCount(0);
 });
 
+test("changes: a person raises one by hand, it's approved, and they record the result", async () => {
+  await page.goto("/changes");
+  await page.getByRole("button", { name: "Raise a change" }).click();
+  const dialog = page.getByRole("dialog", { name: "Raise a change" });
+  await dialog.getByLabel("Title").fill("Replace the garage switch");
+  await dialog.getByLabel("What and why").fill("It drops links every evening.");
+  await dialog.getByLabel("How it will be checked").fill("All garage devices answer ping.");
+  await dialog.getByLabel("How to undo it").fill("Put the old switch back.");
+  await dialog.getByRole("button", { name: "Submit for approval" }).click();
+  await expect(page.getByRole("heading", { name: /CR-\d+: Replace the garage switch/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Carried out by hand" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Approve" }).click();
+  await expect(page.getByText("Approved. Go ahead and make the change, then record the result here.")).toBeVisible();
+  await page.getByLabel("What happened").fill("Swapped it; all ports up.");
+  await page.getByRole("button", { name: "Record result" }).click();
+  await expect(page.getByText("Recorded: the change succeeded.")).toBeVisible();
+  await expect(page.getByText("succeeded", { exact: true }).first()).toBeVisible();
+
+  // For an agent: its exact tool calls, checked against the tool's schema.
+  await page.goto("/changes");
+  await page.getByRole("button", { name: "Raise a change" }).click();
+  const d2 = page.getByRole("dialog", { name: "Raise a change" });
+  await d2.getByLabel("Title").fill("Wake the media PC");
+  await d2.getByLabel("What and why").fill("For the backup window.");
+  await d2.getByLabel("Carried out by").selectOption({ label: "Nina (Network Admin)" });
+  await d2.getByRole("combobox", { name: "Tool", exact: true }).selectOption("wake_on_lan");
+  await d2.getByRole("button", { name: "Add call" }).click();
+  await d2.getByLabel("Arguments for call 1, wake_on_lan").fill('{ "mac": "not-a-mac", "broadcast": "192.168.50.255" }');
+  await d2.getByLabel("How it will be checked").fill("It answers ping.");
+  await d2.getByLabel("How to undo it").fill("Nothing to undo.");
+  await d2.getByRole("button", { name: "Submit for approval" }).click();
+  await expect(d2.getByText(/Planned call 1 \(wake_on_lan\)/)).toBeVisible();
+  await d2.getByLabel("Arguments for call 1, wake_on_lan").fill('{ "mac": "aa:bb:cc:dd:ee:ff", "broadcast": "192.168.50.255" }');
+  await d2.getByRole("button", { name: "Submit for approval" }).click();
+  await expect(page.getByRole("heading", { name: /CR-\d+: Wake the media PC/ })).toBeVisible();
+  await expect(page.getByText(/Nina runs these once it's approved/)).toBeVisible();
+
+  // Only the title is required.
+  await page.goto("/changes");
+  await page.getByRole("button", { name: "Raise a change" }).click();
+  const d3 = page.getByRole("dialog", { name: "Raise a change" });
+  await d3.getByLabel("Title").fill("Tidy the cupboard cables");
+  await d3.getByRole("button", { name: "Submit for approval" }).click();
+  await expect(page.getByRole("heading", { name: /CR-\d+: Tidy the cupboard cables/ })).toBeVisible();
+
+  // The board: one column per stage, and a card's ref opens the change.
+  await page.goto("/changes");
+  await page.getByRole("navigation", { name: "Layout" }).getByRole("link", { name: "Board" }).click();
+  const waiting = page.getByRole("listitem", { name: /^Waiting for approval/ });
+  await expect(waiting.getByText("Wake the media PC")).toBeVisible();
+  await expect(page.getByRole("listitem", { name: /^Done/ }).getByText("Replace the garage switch")).toBeVisible();
+
+  // Dragging a change to Approved approves it (after confirming); Reject asks for a reason.
+  const approved = page.getByRole("listitem", { name: /^Approved/ });
+  await waiting.getByRole("link", { name: /Tidy the cupboard cables/ }).dragTo(approved);
+  const confirm = page.getByRole("dialog", { name: /^Approve CR-\d+\?/ });
+  await confirm.getByRole("button", { name: "Approve" }).click();
+  await expect(confirm).toHaveCount(0);
+  await expect(approved.getByText("Tidy the cupboard cables")).toBeVisible();
+  const wake = waiting.locator("div[draggable]").filter({ hasText: "Wake the media PC" });
+  await wake.getByRole("button", { name: /^Reject CR-/ }).click();
+  const reject = page.getByRole("dialog", { name: /^Reject CR-\d+\?/ });
+  await expect(reject.getByLabel("Reason")).toHaveAttribute("required", ""); // a reason is required
+  await reject.getByLabel("Reason").fill("Not needed this week.");
+  await reject.getByRole("button", { name: "Reject" }).click();
+  await expect(page.getByRole("listitem", { name: /^Closed without running/ }).getByText("Wake the media PC")).toBeVisible();
+
+  await approved.getByRole("link", { name: /Tidy the cupboard cables/ }).click();
+  await expect(page.getByRole("heading", { name: /CR-\d+: Tidy the cupboard cables/ })).toBeVisible();
+  await page.goto("/changes?view=all");
+  await page.getByRole("link", { name: /^CR-\d+$/ }).first().click();
+  await expect(page.getByRole("heading", { name: /^CR-\d+: / })).toBeVisible();
+});
+
 /** What the worker does with monitor events (the e2e stack runs no worker). */
 async function dispatchMonitorEvents(db: Database) {
   await dispatchEvents(db, async (e) => {
@@ -462,6 +683,8 @@ test("monitoring: add checks, and warn about targets outside allowed networks", 
   const [nina] = await db.select().from(agents).where(eq(agents.name, "Nina"));
 
   await page.getByRole("link", { name: "Monitoring" }).first().click();
+  // The form lives behind a button at the top right.
+  await page.getByRole("button", { name: "Add a monitor" }).click();
   await page.getByLabel("Name", { exact: true }).fill("NAS web");
   await page.getByRole("combobox", { name: /^Check type/ }).selectOption("http");
   await page.getByLabel("Target", { exact: true }).fill("192.168.50.10");
@@ -469,21 +692,115 @@ test("monitoring: add checks, and warn about targets outside allowed networks", 
   await page.getByLabel("Keyword (optional)").fill("Synology");
   await page.getByLabel("Responder").selectOption(`agent:${nina!.id}`);
   await page.getByLabel("Incident priority").selectOption("P2");
+  await page.getByLabel("Agent instructions (optional)").fill("This is the NAS. Check the UPS first.");
   await page.getByRole("button", { name: "Add monitor" }).click();
   await expect(page.getByRole("heading", { name: "NAS web" })).toBeVisible();
   await expect(page.getByText("http://192.168.50.10:5000/")).toBeVisible();
   await expect(page.getByText("MOSS will not check this target")).toHaveCount(0);
+  await expect(page.getByRole("definition").filter({ hasText: "This is the NAS. Check the UPS first." })).toBeVisible();
+  const [nas] = await db.select().from(monitors).where(eq(monitors.name, "NAS web"));
+  const [owner] = await db.select().from(users).where(eq(users.email, OWNER.email));
+  expect(nas).toMatchObject({ agentInstructions: "This is the NAS. Check the UPS first.", agentInstructionsBy: owner!.id });
 
   await page.goto("/monitoring");
+  await page.getByRole("button", { name: "Add a monitor" }).click();
   await page.getByLabel("Name", { exact: true }).fill("Cloud DNS");
   await page.getByRole("combobox", { name: /^Check type/ }).selectOption("tcp");
   await page.getByLabel("Target", { exact: true }).fill("8.8.8.8");
   await page.getByLabel("Port", { exact: true }).fill("53");
   await page.getByRole("button", { name: "Add monitor" }).click();
+  // A public address needs no network entry for a monitor.
+  await expect(page.getByRole("heading", { name: "Cloud DNS" })).toBeVisible();
+  await expect(page.getByText("MOSS will not check this target")).toHaveCount(0);
+
+  // A private address outside the allowed networks does.
+  await page.goto("/monitoring");
+  await page.getByRole("button", { name: "Add a monitor" }).click();
+  await page.getByLabel("Name", { exact: true }).fill("Lab box");
+  await page.getByRole("combobox", { name: /^Check type/ }).selectOption("tcp");
+  await page.getByLabel("Target", { exact: true }).fill("172.16.5.5");
+  await page.getByLabel("Port", { exact: true }).fill("22");
+  await page.getByRole("button", { name: "Add monitor" }).click();
   await expect(page.getByText("MOSS will not check this target")).toBeVisible();
   await expect(page.getByText(/not inside an allowed network/)).toBeVisible();
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   await expect(page.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
+
+  // A metric monitor: an interface's traffic over SNMP, with a stored secret and a threshold.
+  const secretId = randomUUID();
+  await db.insert(secrets).values({ id: secretId, orgId: nina!.orgId, name: "router-snmp", type: "password", ...encryptSecret(parseMasterKey(Buffer.from(E2E_MASTER_KEY_HEX)), secretId, "c0mmunity") });
+  await page.goto("/monitoring");
+  await page.getByRole("button", { name: "Add a monitor" }).click();
+  await page.getByLabel("Name", { exact: true }).fill("Uplink");
+  await page.getByRole("combobox", { name: /^Check type/ }).selectOption("snmp");
+  await page.getByLabel("Target", { exact: true }).fill("192.168.50.1");
+  await page.locator('select[name="secret"]').selectOption("router-snmp");
+  await page.getByLabel("Interface number (ifIndex)").fill("3");
+  await page.locator('select[name="metric"]').selectOption("inBps");
+  await page.getByLabel("Degraded above").fill("50000000");
+  await page.getByRole("button", { name: "Add monitor" }).click();
+  await expect(page.getByRole("heading", { name: "Uplink" })).toBeVisible();
+  await expect(page.getByText("192.168.50.1 interface 3")).toBeVisible();
+  // What a check records, as the worker would store it.
+  const [uplink] = await db.select().from(monitors).where(eq(monitors.name, "Uplink"));
+  expect(uplink!.config).toMatchObject({ secret: "router-snmp", ifIndex: 3, metric: "inBps", warnAbove: 50_000_000 });
+  await db
+    .update(monitors)
+    .set({ lastResult: { ok: true, message: "eth3 up", at: new Date().toISOString(), value: 2_000_000, unit: "bps", values: { inBps: 2_000_000, outBps: 640_000 } } })
+    .where(eq(monitors.id, uplink!.id));
+  await page.reload();
+  await expect(page.getByText("Latest inBps")).toBeVisible();
+  await expect(page.getByLabel("Latest values")).toContainText("outBps640 kbps");
+});
+
+test("monitoring dashboards: a starter Overview, editing cards, and TV mode", async () => {
+  await page.goto("/monitoring");
+  await page.getByRole("navigation", { name: "Monitoring" }).getByRole("link", { name: "Dashboards" }).click();
+  // The first visit makes a shared Overview from the monitors.
+  await page.getByRole("list", { name: "Dashboards" }).getByRole("link", { name: /Overview/ }).click();
+  await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
+  for (const card of ["Status", "Open incidents", "Last 24 hours", "Response times", "Uplink"]) {
+    await expect(page.getByRole("region", { name: card })).toBeVisible();
+  }
+  await expect(page.getByRole("region", { name: "Status" }).getByRole("link", { name: "NAS web" })).toBeVisible();
+
+  // Add a gauge for the uplink's traffic.
+  await page.getByRole("button", { name: "Edit" }).click();
+  await page.getByLabel("Card to add").selectOption("gauge");
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Gauge settings" });
+  await settings.getByLabel("Title (optional)").fill("Uplink in");
+  await settings.locator('select[name="monitor"]').selectOption({ label: "Uplink" });
+  await settings.getByLabel("Or a named value").fill("inBps");
+  await settings.getByLabel("Highest").fill("10000000");
+  await settings.getByLabel("Red from").fill("8000000");
+  await settings.getByRole("button", { name: "Apply" }).click();
+  // Wider, then save.
+  const toolbars = page.getByRole("toolbar");
+  await toolbars.last().getByRole("button", { name: "Wider" }).click();
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Dashboard saved.")).toBeVisible();
+  const gauge = page.getByRole("region", { name: "Uplink in" });
+  await expect(gauge.getByRole("img", { name: "Uplink: 2 Mbps" })).toBeVisible();
+
+  // TV mode: the same cards, no menus.
+  const url = page.url();
+  await page.goto(url.replace("/monitoring/dashboards/", "/tv/dashboards/"));
+  await expect(page.getByRole("link", { name: "Exit TV mode" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Uplink in" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Monitoring" })).toHaveCount(0);
+
+  // A personal dashboard, then deleting it.
+  await page.goto("/monitoring/dashboards");
+  await page.getByRole("button", { name: "New dashboard" }).click();
+  await page.getByRole("dialog", { name: "New dashboard" }).getByLabel("Name").fill("Scratch");
+  await page.getByRole("button", { name: "Create dashboard" }).click();
+  await expect(page.getByRole("heading", { name: "Scratch", level: 1 })).toBeVisible();
+  await expect(page.getByText("No cards yet. Edit, then add a card.")).toBeVisible();
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Delete" }).click();
+  await expect(page).toHaveURL(/\/monitoring\/dashboards$/);
+  await expect(page.getByRole("list", { name: "Dashboards" }).getByRole("link")).toHaveCount(1);
 });
 
 test("monitoring: an Uptime Kuma alert raises an incident for the responder agent", async () => {
@@ -534,10 +851,13 @@ test("monitoring: an Uptime Kuma alert raises an incident for the responder agen
   await expect(page.getByText("Monitors down")).toBeVisible();
 });
 
-test("modules: Home Assistant is connected, tested, switched on, and fills in the inventory", async () => {
+test("integrations: Home Assistant is connected, tested, switched on, and fills in the inventory", async () => {
+  // Modules were renamed Integrations; the old address still works.
   await page.goto("/settings/modules");
-  await expect(page.getByText("Not set up.")).toBeVisible();
-  await page.getByRole("link", { name: "Set up" }).click();
+  await expect(page).toHaveURL(/\/settings\/integrations$/);
+  // Home Assistant's card is the first.
+  await expect(page.getByText("Not set up.").first()).toBeVisible();
+  await page.getByRole("link", { name: "Set up" }).first().click();
   await expect(page.getByRole("heading", { name: "Home Assistant", exact: true })).toBeVisible();
 
   const connection = page.locator("#connection");
@@ -553,8 +873,8 @@ test("modules: Home Assistant is connected, tested, switched on, and fills in th
   await connection.getByRole("button", { name: "Test connection" }).click();
   await expect(page.getByText("Connected to Home Assistant 2026.9.2 (Home): 42 entities. All integrations loaded.")).toBeVisible();
 
-  await page.getByRole("button", { name: "Switch module on" }).click();
-  await expect(page.getByText("Home Assistant module switched on.")).toBeVisible();
+  await page.getByRole("button", { name: "Switch integration on" }).click();
+  await expect(page.getByText("Home Assistant integration switched on.")).toBeVisible();
 
   // Alerts: a webhook source with a token shown once, and the rest_command to paste.
   const alerts = page.locator("#alerts");
@@ -571,14 +891,202 @@ test("modules: Home Assistant is connected, tested, switched on, and fills in th
   await inventory.getByRole("button", { name: "Sync now" }).click();
   await expect(page.getByText("Matched 0 device(s) to the inventory, added 1, skipped 0 with no address on an allowed network.")).toBeVisible();
   await page.goto("/assets");
-  await expect(page.getByRole("link", { name: "Living room TV" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Living room TV", exact: true })).toBeVisible();
 
-  await page.goto("/settings/modules");
+  await page.goto("/settings/integrations");
   await expect(page.getByText("Using: alerts, inventory sync.")).toBeVisible();
   await page.getByRole("link", { name: "Configure" }).click();
   page.once("dialog", (d) => d.accept());
-  await page.getByRole("button", { name: "Switch module off" }).click();
-  await expect(page.getByText("Home Assistant module switched off")).toBeVisible();
+  await page.getByRole("button", { name: "Switch integration off" }).click();
+  await expect(page.getByText("Home Assistant integration switched off")).toBeVisible();
+});
+
+test("integrations: Telegram is set up, and a person connects their account with a one-time code", async () => {
+  const db = createDb(E2E_DATABASE_URL);
+  const [owner] = await db.select().from(users).where(eq(users.email, OWNER.email));
+  await page.goto("/settings/integrations");
+  await page.getByRole("link", { name: "Telegram", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Telegram", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Switch integration on" }).click();
+  await expect(page.getByText("Save the bot token first.")).toBeVisible();
+  const bot = page.locator("#bot");
+  await bot.getByLabel("Bot token").fill("not a token");
+  await bot.getByRole("button", { name: "Save token" }).click();
+  await expect(page.getByText("That doesn't look like a Telegram bot token (123456789:AA...).")).toBeVisible();
+  await bot.getByLabel("Bot token").fill("123456789:AAHe2eTelegramBotToken0123456789abcdef");
+  await bot.getByRole("button", { name: "Save token" }).click();
+  await expect(page.getByText("Saved the bot token.")).toBeVisible();
+  await page.getByRole("button", { name: "Switch integration on" }).click();
+  await expect(page.getByText("Telegram is on. The bot starts within a minute.")).toBeVisible();
+  const messages = page.locator("#messages");
+  await messages.getByLabel("Monitors degraded and back up").uncheck();
+  await messages.getByLabel("MOSS's address (for links)").fill("https://moss.test");
+  await messages.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Saved.", { exact: true })).toBeVisible();
+
+  // The person connects their own account: a code to send the bot.
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "Connect Telegram" }).click();
+  const code = ((await page.getByRole("status").filter({ hasText: "/link" }).locator("code").textContent()) ?? "").replace("/link ", "");
+  expect(code).toMatch(/^[A-Z2-9]{8}$/);
+  // What the bridge does when they send it.
+  const linked = await handleIncoming(db, { orgId: owner!.orgId, platform: "telegram", externalUserId: "e2e-tg-1", chatId: "1001", username: "dana", text: `/link ${code}` });
+  expect(linked.replies[0]).toMatch(/^Linked to Dana Owner/);
+  await page.reload();
+  await expect(page.locator("#chat-apps")).toContainText("Connected to Telegram as @dana.");
+  await page.goto("/settings/integrations/telegram");
+  await expect(page.getByRole("list", { name: "Connected to Telegram" })).toContainText("Dana Owner");
+  await page.goto("/settings");
+  await page.locator("#chat-apps").getByRole("button", { name: "Disconnect" }).click();
+  await expect(page.getByText("Disconnected.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Connect Telegram" })).toBeVisible();
+});
+
+test("integrations: Pi-hole is set up, tested, switched on, and names a device", async () => {
+  await page.goto("/settings/integrations");
+  await page.getByRole("link", { name: "Pi-hole", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Pi-hole", exact: true })).toBeVisible();
+  // Switching on needs the connection first.
+  await page.getByRole("button", { name: "Switch integration on" }).click();
+  await expect(page.getByText("Set up the connection first.")).toBeVisible();
+
+  const connection = page.locator("#connection");
+  await connection.getByLabel("Address", { exact: true }).fill("192.168.50.53");
+  await connection.getByLabel("Scheme").selectOption("http");
+  await connection.getByLabel("Port").fill("80");
+  await connection.getByLabel("App password").fill("wrong-password");
+  await connection.getByRole("button", { name: "Save connection" }).click();
+  await expect(page.getByText("Saved the connection and the credential.")).toBeVisible();
+  await connection.getByRole("button", { name: "Test connection" }).click();
+  await expect(page.getByText("Pi-hole refused the password (Pi-hole v6 is required)")).toBeVisible();
+  await connection.getByLabel("App password").fill("pihole-app-password");
+  await connection.getByRole("button", { name: "Save connection" }).click();
+  await expect(page.getByText("Saved the connection and the credential.")).toBeVisible();
+  await expect(connection.getByLabel("App password")).toHaveAttribute("placeholder", /^Saved/);
+  await connection.getByRole("button", { name: "Test connection" }).click();
+  await expect(page.getByText("Connected to Pi-hole: 4200 queries today, 15% blocked, blocking enabled.")).toBeVisible();
+
+  const features = page.locator("#features");
+  await features.getByLabel("Health checks").check();
+  await features.getByLabel("Device names").check();
+  await features.getByRole("button", { name: "Save features" }).click();
+  await expect(page.getByText("Saved.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Switch integration on" }).click();
+  await expect(page.getByText("Pi-hole is on.")).toBeVisible();
+
+  // Sync now: a health check makes its monitors; the device sync names a device.
+  const runs = page.getByRole("list", { name: "Last runs" });
+  await runs.getByRole("listitem").filter({ hasText: "Health checks" }).getByRole("button", { name: "Sync now" }).click();
+  await expect(page.getByText("Health checks: Blocking on, 15% of 4200 queries blocked")).toBeVisible();
+  await runs.getByRole("listitem").filter({ hasText: "Device names" }).getByRole("button", { name: "Sync now" }).click();
+  await expect(page.getByText("Device names: 0 matched, 1 added")).toBeVisible();
+  await page.reload();
+  await expect(page.locator("#status").getByRole("link", { name: /Pi-hole blocking/ })).toBeVisible();
+  await page.goto("/assets");
+  await expect(page.getByRole("link", { name: "octopi", exact: true })).toBeVisible();
+
+  await page.goto("/settings/integrations");
+  await expect(page.getByText("Using: health checks, device names.")).toBeVisible();
+});
+
+test("MOSS in Home Assistant: a token for the integration, and the small, safe API it opens", async () => {
+  await page.goto("/settings/integrations/home-assistant");
+  const section = page.locator("#integration");
+  await section.getByLabel("Token name").fill("Wall tablet");
+  await section.getByRole("button", { name: "Make a token" }).click();
+  const token = await section.getByLabel("New token").inputValue();
+  expect(token).toMatch(/^moss_ha_/);
+  await page.reload();
+  await expect(page.getByRole("list", { name: "Home Assistant tokens" })).toContainText("Wall tablet");
+  await expect(page.getByLabel("New token")).toHaveCount(0); // shown once
+
+  const api = (path: string, init: { method?: "GET" | "POST"; data?: unknown; auth?: string } = {}) =>
+    page.request.fetch(`/api/ha/v1/${path}`, { method: init.method ?? "GET", data: init.data, headers: { authorization: `Bearer ${init.auth ?? token}` } });
+  const state = await (await api("state")).json();
+  expect(state.summary).toMatchObject({ killSwitch: false, allowResume: false });
+  expect(state.agents.map((a: { name: string }) => a.name)).toContain("Nina");
+  expect(state.agents[0].picture).toMatch(/^data:image\/svg\+xml;base64,/);
+  expect(typeof (await (await api("events")).json()).cursor).toBe("number");
+  expect((await (await api("calendar")).json()).events).toBeInstanceOf(Array);
+  // Resuming agents is off unless the owner allows it; there's no endpoint for approving changes at all.
+  expect((await api("agents/resume", { method: "POST" })).status()).toBe(403);
+  expect((await api("changes/approve", { method: "POST" })).status()).toBe(404);
+  expect((await api("state", { auth: "moss_ha_wrong" })).status()).toBe(401);
+
+  // The integration itself, for installs without HACS.
+  const zip = await page.request.get("/api/integrations/home-assistant.zip");
+  expect(zip.headers()["content-type"]).toBe("application/zip");
+  expect((await zip.body()).includes(Buffer.from("moss/manifest.json"))).toBe(true);
+
+  // Revoking signs Home Assistant out.
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("list", { name: "Home Assistant tokens" }).getByRole("button", { name: "Revoke" }).click();
+  await expect(page.getByText("Token revoked")).toBeVisible();
+  expect((await api("state")).status()).toBe(401);
+});
+
+test("section tabs stay in the same place on every page of the section", async () => {
+  const y = async (path: string, label: string) => {
+    await page.goto(path);
+    return (await page.getByRole("navigation", { name: label }).boundingBox())!.y;
+  };
+  const settings = await Promise.all([y("/settings", "Settings")]);
+  for (const p of ["/settings/secrets", "/settings/backups", "/networks", "/users"]) expect(await y(p, "Settings")).toBe(settings[0]);
+  const agents = await y("/agents", "Agents");
+  for (const p of ["/agents/recurring", "/agents/tools", "/agents/custom-tools"]) expect(await y(p, "Agents")).toBe(agents);
+  expect(await y("/audit", "Activity")).toBe(await y("/runs", "Activity"));
+});
+
+test("tables: columns sort by clicking their header, and the order is in the URL", async () => {
+  await page.goto("/assets");
+  const ip = page.getByRole("columnheader", { name: /^IP/ });
+  await expect(ip).toHaveAttribute("aria-sort", "none");
+  await ip.getByRole("link").click();
+  await expect(page).toHaveURL(/sort=ip&dir=asc/);
+  await expect(page.getByRole("columnheader", { name: /^IP/ })).toHaveAttribute("aria-sort", "ascending");
+  await page.getByRole("columnheader", { name: /^IP/ }).getByRole("link").click();
+  await expect(page).toHaveURL(/sort=ip&dir=desc/);
+  await expect(page.getByRole("columnheader", { name: /^IP/ })).toHaveAttribute("aria-sort", "descending");
+});
+
+test("dashboard: Getting started can be dismissed, and brought back from Settings", async () => {
+  await page.goto("/");
+  const checklist = page.getByRole("region", { name: "Getting started" });
+  await expect(checklist).toBeVisible();
+  await checklist.getByRole("button", { name: "Dismiss" }).click();
+  await expect(page.getByText("Getting started dismissed.")).toBeVisible();
+  await expect(checklist).toHaveCount(0);
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "Show it again" }).click();
+  await expect(page.getByText("Getting started is back on the dashboard.")).toBeVisible();
+  await page.goto("/");
+  await expect(page.getByRole("region", { name: "Getting started" })).toBeVisible();
+});
+
+test("dashboard: cards can be removed, added back, moved and resized, and it's remembered", async () => {
+  await page.goto("/");
+  const grid = page.getByRole("region", { name: "Dashboard cards" });
+  await expect(grid.getByRole("heading", { name: "Token spend" })).toBeVisible();
+  await expect(grid.getByRole("list", { name: "Spend by agent" }).or(grid.getByText("Nothing yet.").first())).toBeVisible();
+
+  await page.getByRole("button", { name: "Customise" }).click();
+  await page.getByRole("button", { name: "Remove Audit tail" }).click();
+  await page.getByRole("button", { name: "Move Token spend earlier" }).click();
+  await page.getByRole("button", { name: /^Token spend size: Medium/ }).click();
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect(page.getByText("Dashboard saved.")).toBeVisible();
+
+  await page.reload();
+  await expect(grid.getByRole("heading", { name: "Audit tail" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Customise" }).click();
+  await expect(page.getByRole("button", { name: /^Token spend size: Wide/ })).toBeVisible();
+  await page.getByLabel("Card to add").selectOption({ label: "Audit tail: The latest actions, as they happen." });
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await page.getByRole("button", { name: "Reset to default" }).click();
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect(page.getByRole("button", { name: "Customise" })).toBeVisible(); // saved and back to normal
+  await page.reload();
+  await expect(grid.getByRole("heading", { name: "Audit tail" })).toBeVisible();
 });
 
 test("settings: the kill switch stops agents and shows everywhere", async () => {
@@ -607,6 +1115,11 @@ test("two-factor: enrol, then sign in with a code", async () => {
   const secret = (await page.locator("details code").textContent())!.trim();
   ownerTotpSecret = secret;
   await page.getByLabel("Code").fill(totpCode(secret));
+  // A session alone can't set up two-factor: it takes the password too.
+  await page.getByLabel("Confirm your password").fill("not-my-password");
+  await page.getByRole("button", { name: "Confirm" }).click();
+  await expect(page.getByText("Incorrect password.")).toBeVisible();
+  await page.getByLabel("Confirm your password").fill(OWNER.password);
   await page.getByRole("button", { name: "Confirm" }).click();
   await expect(page.getByText("Two-factor authentication is on for")).toBeVisible();
 
@@ -617,17 +1130,63 @@ test("two-factor: enrol, then sign in with a code", async () => {
   await page.getByLabel("Authenticator code").fill("000000");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByText("Incorrect email, password or code.")).toBeVisible();
-  await page.getByLabel("Authenticator code").fill(totpCode(secret));
+  await page.getByLabel("Authenticator code").fill(await freshTotp(secret));
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
 });
 
+test("integrations: the UPS shutdown plan, asked each time or approved in advance with a code", async () => {
+  // A key for the NAS only, so the agent the plan names can't use it anywhere else.
+  const db = createDb(E2E_DATABASE_URL);
+  const [owner] = await db.select().from(users).where(eq(users.email, OWNER.email));
+  const keyId = randomUUID();
+  await db.insert(secrets).values({ id: keyId, orgId: owner!.orgId, name: "nas-ssh-key", type: "ssh_key", allowedHosts: ["192.168.50.10"], allowedTools: ["host_shutdown"], ...encryptSecret(parseMasterKey(Buffer.from(E2E_MASTER_KEY_HEX)), keyId, "-----BEGIN OPENSSH PRIVATE KEY-----") });
+  await page.goto("/settings/integrations/nut");
+  const plan = page.locator("#shutdown-plan");
+  await expect(plan).toContainText("No steps yet.");
+  await plan.getByRole("button", { name: "Add a Linux server" }).click();
+  const add = page.getByRole("dialog", { name: "Add a Linux server" });
+  await add.getByLabel("Name").fill("NAS");
+  await add.getByLabel("Address").fill("192.168.50.10");
+  await add.getByLabel("Sign in as").fill("moss");
+  await add.locator('select[name="secret"]').selectOption("nas-ssh-key");
+  await add.getByRole("button", { name: "Add step" }).click();
+  await expect(page.getByText("Added NAS.")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(plan.getByRole("list", { name: "Shutdown steps" })).toContainText("moss@192.168.50.10");
+
+  await plan.locator('select[name="mode"]').selectOption("ask");
+  await plan.getByRole("button", { name: "Save plan settings" }).click();
+  await expect(page.getByText("Choose the agent that carries the plan out.")).toBeVisible();
+  await plan.locator('select[name="agentId"]').selectOption({ label: "Nina (Network Admin)" });
+  await plan.getByRole("button", { name: "Save plan settings" }).click();
+  await expect(page.getByText("Saved.", { exact: true })).toBeVisible();
+  await expect(plan).toContainText("Asks each time");
+
+  await page.reload();
+  await plan.locator('select[name="mode"]').selectOption("auto");
+  await plan.getByRole("button", { name: "Save plan settings" }).click();
+  await expect(page.getByText("Saved. Approve the plan below so it can run without asking.")).toBeVisible();
+  await page.reload();
+  await plan.getByLabel("Authenticator code").fill("000000");
+  await plan.getByRole("button", { name: "Approve this plan in advance" }).click();
+  await expect(page.getByText("That code didn't match.")).toBeVisible();
+  await plan.getByLabel("Authenticator code").fill(await freshTotp());
+  await plan.getByRole("button", { name: "Approve this plan in advance" }).click();
+  await expect(page.getByText("Approved. In a power cut, MOSS will run the plan without asking.")).toBeVisible();
+  await page.reload();
+  await expect(plan).toContainText("Approved in advance on");
+});
+
 test("users: a viewer can look but not approve or manage", async () => {
   await page.goto("/users");
+  await page.getByRole("button", { name: "Add a person" }).click();
   await page.getByLabel("Name").fill(VIEWER.name);
   await page.getByLabel("Email").fill(VIEWER.email);
   await page.getByLabel("Initial password").fill(VIEWER.password);
   await page.getByRole("button", { name: "Add person" }).click();
+  await expect(page.getByText(/^Added Vic Viewer\./)).toBeVisible();
+  await page.keyboard.press("Escape");
   await expect(page.getByRole("cell", { name: /Vic Viewer/ })).toBeVisible();
 
   await signOut();
@@ -644,7 +1203,7 @@ test("users: a viewer can look but not approve or manage", async () => {
   await page.goto("/monitoring");
   await expect(page.getByRole("link", { name: "NAS web" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add monitor" })).toHaveCount(0);
-  await page.goto("/settings/modules/home-assistant");
+  await page.goto("/settings/integrations/home-assistant");
   await expect(page.getByText("You don't have permission to view this page.")).toBeVisible();
 });
 
@@ -652,19 +1211,534 @@ test("basement: shows every agent at a desk or on a break, as a scene and as a l
   await page.goto("/");
   await page.getByRole("link", { name: "Basement" }).click();
   await expect(page.getByRole("heading", { name: "The Basement" })).toBeVisible();
-  await expect(page.getByRole("img", { name: /^\d+ agents?: \d+ at desks, \d+ on break\./ })).toBeVisible();
+  await expect(page.getByText(/^\d+ agents?: \d+ at desks, \d+ on break\./)).toBeAttached();
+
+  // The scene fits the page: no sideways scrolling, on a desktop or a phone.
+  const noSidewaysScroll = () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+  expect(await noSidewaysScroll()).toBe(true);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await noSidewaysScroll()).toBe(true);
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  // Clicking an agent in the scene shows what they're doing.
+  await page.getByRole("button", { name: /^Nina: .*Show what they're doing$/ }).click();
+  const panel = page.getByRole("dialog", { name: "Nina" });
+  await expect(panel).toContainText(/Network Admin · (hasn't run yet|working now|last run)/);
+  await expect(panel.getByRole("link", { name: "Nina's page" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
+
+  // The coffee machine keeps count.
+  await page.getByRole("button", { name: /^Coffee machine: 4 pots/ }).click();
+  await expect(page.getByRole("button", { name: /^Coffee machine: 5 pots/ })).toBeVisible();
+
+  // Pester the cat five times and someone sticks up for him.
+  const cat = page.getByRole("button", { name: /^Kernel, the office cat/ });
+  for (let i = 0; i < 5; i++) await cat.click();
+  await expect(page.getByText("Leave him alone!", { exact: true })).toBeVisible();
+
+  // Double-click the arcade cabinet: a game in a cabinet-styled modal, and the page doesn't move.
+  await page.evaluate(() => window.scrollTo(0, 200));
+  const scrolled = await page.evaluate(() => window.scrollY);
+  await page.getByRole("button", { name: "Arcade cabinet: play Packet Storm" }).dblclick();
+  const arcade = page.getByRole("dialog", { name: "PACKET STORM" });
+  await expect(arcade.getByRole("img", { name: "Packet Storm game screen" }).or(arcade.locator("canvas"))).toBeVisible();
+  await expect(arcade.getByText("Packet Storm. Press Space to start.")).toBeAttached();
+  await page.keyboard.press("Space");
+  await expect(arcade.getByText(/LEVEL 1 THE LAN\. Get ready\./)).toBeAttached();
+  await page.keyboard.down("ArrowLeft");
+  await page.waitForTimeout(300);
+  await page.keyboard.up("ArrowLeft");
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrolled);
+  await page.keyboard.press("p");
+  await expect(arcade.getByText("Paused.")).toBeAttached();
+  await arcade.getByRole("button", { name: "Sound off" }).click();
+  await expect(arcade.getByRole("button", { name: "Sound on" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(arcade).toHaveCount(0);
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrolled);
+  await expect(page.getByRole("button", { name: "Arcade cabinet: play Packet Storm" })).toBeFocused();
+
   const nina = page.getByRole("listitem").filter({ has: page.getByRole("link", { name: "Nina", exact: true }) });
   await expect(nina).toContainText(/WORKING|ON BREAK|RESPONDING/);
   await nina.getByRole("link", { name: "Nina", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Nina" })).toBeVisible();
 });
 
+test("assets: added from the top; each shows what agents can do with it, and a wizard sets up access", async () => {
+  await signOut();
+  await signIn(OWNER.email, OWNER.password, await freshTotp());
+  await page.goto("/assets");
+  for (const [name, ip] of [["Garage switch", "192.168.50.20"], ["Cloud box", "203.0.113.5"]] as const) {
+    await page.getByRole("button", { name: "Add an asset" }).click();
+    const d = page.getByRole("dialog", { name: "Add an asset" });
+    await d.getByLabel("Name").fill(name);
+    await d.getByLabel("IP address").fill(ip);
+    await d.getByRole("button", { name: "Add asset" }).click();
+    await expect(page.getByText(`Added ${name}.`)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("link", { name, exact: true })).toBeVisible();
+  }
+  await expect(page.getByRole("link", { name: "Agent access to Cloud box: No access. Set up access" })).toBeVisible();
+  await page.getByRole("link", { name: "Agent access to Garage switch: Look only. Set up access" }).click();
+
+  // The badge opens the wizard: network, sign-in, agents, check.
+  const w = page.getByRole("dialog", { name: "Agent access to Garage switch" });
+  await expect(w).toContainText("is on an allowed network");
+  await w.getByRole("button", { name: "Next" }).click();
+  await w.getByRole("radio", { name: /Give agents a new credential/ }).check();
+  await w.getByLabel("Kind").selectOption("password");
+  await expect(w.getByLabel("Secret name")).toHaveValue("garage-switch-password");
+  await w.getByLabel("Username", { exact: true }).fill("admin");
+  await w.getByLabel("Password", { exact: true }).fill("a-long-switch-password");
+  await w.getByRole("button", { name: "Next" }).click();
+  await expect(w.getByRole("checkbox", { name: /synology_status/ })).toBeChecked();
+  await w.getByRole("checkbox", { name: /^Nina/ }).check();
+  await w.getByRole("button", { name: "Next" }).click();
+  await expect(w).toContainText("Store secret:garage-switch-password, usable only against 192.168.50.20");
+  await w.getByRole("button", { name: "Set up access" }).click();
+  await expect(page.getByText(/Done: Stored secret:garage-switch-password \(22 characters\) for 192\.168\.50\.20; gave secret:garage-switch-password to Nina/)).toBeVisible();
+  await expect(page.getByText("Signs in", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("list", { name: "Credentials agents hold for it" })).toContainText("secret:garage-switch-password");
+
+  // Off the allowed networks: the wizard offers to allow it.
+  await page.goto("/assets");
+  await page.getByRole("link", { name: "Agent access to Cloud box: No access. Set up access" }).click();
+  const w2 = page.getByRole("dialog", { name: "Agent access to Cloud box" });
+  await expect(w2.getByRole("textbox", { name: /^Network/ })).toHaveValue("203.0.113.0/24");
+  await w2.getByRole("textbox", { name: /^Network/ }).fill("203.0.113.5/32");
+  await w2.getByRole("button", { name: "Next" }).click();
+  await w2.getByRole("radio", { name: /Look only/ }).check();
+  for (let i = 0; i < 2; i++) await w2.getByRole("button", { name: "Next" }).click();
+  await w2.getByRole("button", { name: "Set up access" }).click();
+  await expect(page.getByText("Done: Allowed 203.0.113.5/32.")).toBeVisible();
+  await expect(page.getByText("Look only", { exact: true }).first()).toBeVisible();
+});
+
+test("security: change your password; the policy refuses weak ones and can require two-factor", async () => {
+  // The owner is signed in (the assets test signed them in).
+  await page.goto("/settings/security");
+  const change = page.locator("#password");
+  await change.getByLabel("Current password").fill(OWNER.password);
+  await change.getByLabel("New password", { exact: true }).fill("a-brand-new-owner-password");
+  await change.getByLabel("New password again").fill("a-brand-new-owner-password");
+  await change.getByRole("button", { name: "Change password" }).click();
+  await expect(page.getByText("Password changed.")).toBeVisible();
+  await page.reload(); // so the next toast is the second change's, not this one's
+  await change.getByLabel("Current password").fill("a-brand-new-owner-password");
+  await change.getByLabel("New password", { exact: true }).fill(OWNER.password);
+  await change.getByLabel("New password again").fill(OWNER.password);
+  await change.getByRole("button", { name: "Change password" }).click();
+  await expect(page.getByText("Password changed.")).toBeVisible();
+
+  // A stricter policy: a weak password for a new person is refused.
+  const policy = page.locator("#policy");
+  await policy.getByLabel("Minimum length").fill("16");
+  await policy.getByLabel("A digit").check();
+  await policy.getByRole("button", { name: "Save policy" }).click();
+  await expect(page.getByText(/^Password policy saved/)).toBeVisible();
+  await page.goto("/users");
+  await page.getByRole("button", { name: "Add a person" }).click();
+  const add = page.getByRole("dialog", { name: "Add a person" });
+  await add.getByLabel("Name").fill("Pat Weak");
+  await add.getByLabel("Email").fill("pat@home.test");
+  await add.getByLabel("Initial password").fill("onlytwelvechar");
+  await add.getByRole("button", { name: "Add person" }).click();
+  await expect(add.getByRole("alert")).toContainText("use at least 16 characters; include a digit");
+  await page.keyboard.press("Escape");
+
+  // Two-factor for everyone: someone without it can only reach the page where they set it up.
+  await page.goto("/settings/security");
+  await policy.getByLabel("Two-factor sign-in").selectOption("everyone");
+  await policy.getByRole("button", { name: "Save policy" }).click();
+  await expect(page.getByText(/^Password policy saved/)).toBeVisible();
+  await signOut();
+  await page.goto("/login");
+  await page.getByLabel("Email").fill(VIEWER.email);
+  await page.getByLabel("Password").fill(VIEWER.password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Set up two-factor sign-in to carry on" })).toBeVisible();
+  await page.goto("/incidents");
+  await expect(page).toHaveURL(/\/settings\?required=enrol_totp$/);
+  await signOut();
+
+  // Back to the defaults for the rest of the tests.
+  await signIn(OWNER.email, OWNER.password, await freshTotp());
+  await page.goto("/settings/security");
+  await policy.getByLabel("Minimum length").fill("12");
+  await policy.getByLabel("A digit").uncheck();
+  await policy.getByLabel("Two-factor sign-in").selectOption("none");
+  await policy.getByRole("button", { name: "Save policy" }).click();
+  await expect(page.getByText(/^Password policy saved/)).toBeVisible();
+});
+
+test("about: the running version, what's new, and checking for updates", async () => {
+  await page.goto("/settings");
+  await page.getByRole("link", { name: "About", exact: true }).click();
+  const card = page.locator("#version");
+  await expect(card).toContainText("Version v0.9.0-12-gabc1234");
+  await expect(card).toContainText("A development build: 12 changes after v0.9.0 (commit abc1234).");
+  await expect(card).toContainText(/\d+ migrations applied/);
+  await expect(card).toContainText("Last checkednever");
+  await expect(page.locator("#whats-new")).toContainText("What's new in");
+  await card.getByRole("button", { name: "Check for updates" }).click();
+  await expect(page.getByText("MOSS v0.10.0 is out (you have v0.9.0-12-gabc1234).")).toBeVisible();
+  await expect(card.getByText("Update available")).toBeVisible();
+  await expect(card.getByRole("link", { name: "v0.10.0" })).toHaveAttribute("href", "https://github.com/Dan5672/MOSS/releases/tag/v0.10.0");
+  await expect(card.getByText("sh deploy/upgrade.sh v0.10.0")).toBeVisible();
+});
+
+test("licence: add a business licence (checked first), see what it covers, and remove it", async () => {
+  const licence = (over: Record<string, unknown> = {}) =>
+    signLicence(
+      { v: 1, kid: "test", id: "e2e-1", licensee: "Acme Ltd", plan: "business", features: ["*"], issued: new Date().toISOString(), expires: "2099-12-31T23:59:59.000Z", ...over },
+      readFileSync(join(E2E_LICENCE_DIR, "test.key"), "utf8"),
+    );
+  await page.goto("/settings/about");
+  const card = page.locator("#licence");
+  await expect(card).toContainText("Business licenceNone");
+  await card.getByRole("button", { name: "Add a licence" }).click();
+  const add = page.getByRole("dialog", { name: "Add a business licence" });
+  await add.getByLabel("Licence key").fill(licence().replace(/.{6}$/, "AAAAAA"));
+  await add.getByRole("button", { name: "Check and add" }).click();
+  await expect(add.getByRole("alert")).toContainText("That licence key isn't genuine");
+  await add.getByLabel("Licence key").fill(licence({ expires: "2020-01-01T00:00:00.000Z" }));
+  await add.getByRole("button", { name: "Check and add" }).click();
+  await expect(add.getByRole("alert")).toContainText("That licence expired on");
+  await add.getByLabel("Licence key").fill(licence({ features: ["m365", "slack"], maxUsers: 25 }));
+  await add.getByRole("button", { name: "Check and add" }).click();
+  await expect(page.getByText(/^Licence added for Acme Ltd, until/)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(card).toContainText("Active");
+  await expect(card).toContainText("Licensed toAcme Ltd");
+  await expect(card).toContainText("Peopleup to 25");
+
+  page.once("dialog", (d) => d.accept());
+  await card.getByRole("button", { name: "Remove licence" }).click();
+  await expect(page.getByText("Licence removed. Business integrations have stopped; their settings are kept.")).toBeVisible();
+  await expect(card).toContainText("Business licenceNone");
+});
+
+test("business: Microsoft 365 locked without a licence; with one, people in MOSS sign in with Microsoft", async () => {
+  const TENANT = "11111111-2222-3333-4444-555555555555";
+  const CLIENT = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+  const ssoAs = (email: string) => page.request.post(`http://127.0.0.1:${E2E_GATE_PORT}/sso-next`, { data: { email } });
+
+  // No licence: greyed out, and its page only says what it does.
+  await page.goto("/settings/integrations");
+  const business = page.getByRole("region", { name: /Business/ });
+  await expect(business).toContainText("Needs a licence");
+  const m365 = business.locator(".opacity-60").filter({ hasText: "Microsoft 365" });
+  await expect(m365).toContainText("Business licence");
+  await expect(business.locator(".opacity-60").filter({ hasText: "Slack" })).toContainText("Business licence");
+  await m365.getByRole("link", { name: "What it does" }).click();
+  await expect(page.getByText("Needs a business licence")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save connection" })).toHaveCount(0);
+
+  // With a licence: set it up, switch it on, and let people sign in with Microsoft.
+  process.env.MOSS_LICENCE_EXTRA_PUBLIC_KEY = readFileSync(join(E2E_LICENCE_DIR, "test.pub"), "utf8").trim();
+  const db = createDb(E2E_DATABASE_URL);
+  const [owner] = await db.select().from(users).where(eq(users.email, OWNER.email));
+  const key = signLicence(
+    { v: 1, kid: "test", id: "e2e-sso", licensee: "Home", plan: "business", features: ["*"], issued: new Date().toISOString(), expires: "2099-12-31T23:59:59.000Z" },
+    readFileSync(join(E2E_LICENCE_DIR, "test.key"), "utf8"),
+  );
+  await saveLicence(db, owner!.orgId, key, { type: "user", id: owner!.id });
+  await page.goto("/settings/integrations/m365");
+  await page.getByLabel("Directory (tenant) ID").fill("not-a-guid");
+  await page.getByLabel("Application (client) ID").fill(CLIENT);
+  await page.getByLabel("Client secret").fill("the-client-secret");
+  await page.getByRole("button", { name: "Save connection" }).click();
+  await expect(page.getByText(/^Directory \(tenant\) ID: The directory \(tenant\) ID/)).toBeVisible();
+  await page.getByLabel("Directory (tenant) ID").fill(TENANT);
+  await page.getByRole("button", { name: "Save connection" }).click();
+  await expect(page.getByText("Saved the connection and the credential.")).toBeVisible();
+  await page.getByRole("button", { name: "Switch integration on" }).click();
+  const sso = page.locator("#sso");
+  await expect(sso.getByLabel("Redirect URI")).toHaveText("http://127.0.0.1:3107/api/auth/sso/microsoft/callback");
+  await sso.getByLabel("Let people sign in with Microsoft").check();
+  await sso.getByRole("button", { name: "Save sign-in" }).click();
+  await expect(page.getByText("People in MOSS can now sign in with Microsoft.")).toBeVisible();
+
+  // Someone with no MOSS password, who signs in with Microsoft.
+  await page.goto("/users");
+  await page.getByRole("button", { name: "Add a person" }).click();
+  const add = page.getByRole("dialog", { name: "Add a person" });
+  await add.getByLabel("Name").fill("Sam Sso");
+  await add.getByLabel("Email").fill("sam@home.test");
+  await add.getByRole("button", { name: "Add person" }).click();
+  await expect(page.getByText("Added Sam Sso. They sign in with Microsoft or Google, as sam@home.test.")).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  await signOut();
+  await ssoAs("stranger@home.test");
+  await page.getByRole("link", { name: "Sign in with Microsoft" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "isn't in MOSS" })).toContainText("stranger@home.test isn't in MOSS. Ask an admin to add you in Users");
+  await ssoAs("SAM@home.test");
+  await page.getByRole("link", { name: "Sign in with Microsoft" }).click();
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  const [sam] = await db.select().from(users).where(eq(users.email, "sam@home.test"));
+  expect(sam!.oidcSubject).toBe(`microsoft:${TENANT}:id-SAM@home.test`);
+  await signOut();
+
+  // Someone with a password is never claimed by email: they link their account themselves, in Settings.
+  await ssoAs(OWNER.email);
+  await page.getByRole("link", { name: "Sign in with Microsoft" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "password first" })).toContainText("Sign in with your MOSS password first, then link your Microsoft account in Settings → General.");
+  await signIn(OWNER.email, OWNER.password, await freshTotp());
+  await page.goto("/settings");
+  const accounts = page.locator("#sign-in-accounts");
+  await expect(accounts).toContainText("No account linked yet.");
+  await accounts.getByRole("button", { name: "Link your Microsoft account" }).click();
+  const link = page.getByRole("dialog", { name: "Link your Microsoft account" });
+  await link.getByLabel("Your MOSS password").fill("not-my-password");
+  await link.getByRole("button", { name: "Continue to Microsoft" }).click();
+  await expect(accounts.getByRole("alert")).toContainText("Incorrect password.");
+  await accounts.getByRole("button", { name: "Link your Microsoft account" }).click();
+  await link.getByLabel("Your MOSS password").fill(OWNER.password);
+  await link.getByRole("button", { name: "Continue to Microsoft" }).click();
+  await expect(accounts).toContainText("Linked your Microsoft account. You can sign in with it now.");
+  await expect(accounts).toContainText("Linked to your Microsoft account.");
+  await signOut();
+  await page.getByRole("link", { name: "Sign in with Microsoft" }).click();
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+
+  // Single sign-on only: a viewer's password is refused; the owner's still works.
+  await page.goto("/settings/integrations/m365");
+  page.once("dialog", (d) => d.accept());
+  await page.locator("#sso").getByRole("button", { name: "Switch on single sign-on only" }).click();
+  await expect(page.getByText(/^Only owners can sign in with a password now/)).toBeVisible();
+  await signOut();
+  await page.getByLabel("Email").fill(VIEWER.email);
+  await page.getByLabel("Password").fill(VIEWER.password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByText("Sign in with Microsoft or Google: your organisation doesn't use MOSS passwords.")).toBeVisible();
+  await signIn(OWNER.email, OWNER.password, await freshTotp());
+
+  // Slack, with the licence: two tokens (checked), switched on, and people connect with "link CODE".
+  await page.goto("/settings/integrations/slack");
+  await expect(page.getByLabel("Slack app manifest")).toContainText("socket_mode_enabled: true");
+  await page.getByLabel("Bot token").fill("xoxb-1234567890-abcdefghijklmnop");
+  await page.getByLabel("App-level token").fill("not-an-app-token");
+  await page.getByRole("button", { name: "Save tokens" }).click();
+  await expect(page.getByText("The app-level token starts xapp-.")).toBeVisible();
+  await page.getByLabel("Bot token").fill("xoxb-1234567890-abcdefghijklmnop");
+  await page.getByLabel("App-level token").fill("xapp-1-A0123456789-abcdefghijklmnop");
+  await page.getByRole("button", { name: "Save tokens" }).click();
+  await expect(page.getByText("Saved the tokens.")).toBeVisible();
+  await page.getByRole("button", { name: "Switch integration on" }).click();
+  await expect(page.getByText(/^Slack is on/)).toBeVisible();
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "Connect Slack" }).click();
+  await expect(page.getByText(/^Send the MOSS app a direct message in Slack: link [A-Z0-9]{8}/)).toBeVisible();
+  await page.goto("/settings/integrations/slack");
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Switch integration off" }).click();
+  await expect(page.getByText(/^Slack is off/)).toBeVisible();
+
+  // PagerDuty: the integration key, and the optional read-only REST API key for acknowledgements.
+  await page.goto("/settings/integrations/pagerduty");
+  await page.getByLabel("Integration key").fill("R".repeat(32));
+  await page.getByRole("button", { name: "Save connection" }).click();
+  await expect(page.getByText("Saved the connection and the credential.")).toBeVisible();
+  const acks = page.locator("#acknowledgements");
+  await acks.getByLabel("Read-only REST API key").fill("nope");
+  await acks.getByRole("button", { name: "Save API key" }).click();
+  await expect(acks.getByRole("alert")).toContainText("That doesn't look like a PagerDuty API key.");
+  await acks.getByLabel("Read-only REST API key").fill("u+AbCdEfGhIjKlMnOpQrSt");
+  await acks.getByRole("button", { name: "Save API key" }).click();
+  await expect(page.getByText("Saved the API key.")).toBeVisible();
+  await expect(acks).toContainText("Key saved");
+
+  // AWS: the access key ID and regions checked, the policy to attach, and findings marked as expected.
+  await page.goto("/settings/integrations/aws");
+  await expect(page.getByLabel("IAM policy")).toContainText("ec2:DescribeInstances");
+  await page.getByLabel("Access key ID").fill("not-a-key");
+  await page.getByLabel("Regions").fill("ap-southeast-2");
+  await page.getByLabel("Secret access key").fill("wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY");
+  await page.getByRole("button", { name: "Save connection" }).click();
+  await expect(page.getByText(/^Access key ID: An access key ID/)).toBeVisible();
+  await page.getByLabel("Access key ID").fill("AKIAABCDEFGHIJKLMNOP");
+  await page.getByLabel("Regions").fill("ap-southeast-2, us-east-1");
+  await page.getByRole("button", { name: "Save connection" }).click();
+  await expect(page.getByText("Saved the connection and the credential.")).toBeVisible();
+  await db
+    .update(modules)
+    .set({
+      state: {
+        exposure: {
+          at: new Date().toISOString(),
+          findings: [
+            { key: "sg:i-web", resource: "web (i-web)", issue: "Open to the internet on SSH (22)", region: "ap-southeast-2" },
+            { key: "s3:site-assets", resource: "site-assets", issue: "Public S3 bucket (bucket policy)", region: "ap-southeast-2" },
+          ],
+        },
+      },
+    })
+    .where(and(eq(modules.orgId, owner!.orgId), eq(modules.key, "aws")));
+  await page.reload();
+  const exposure = page.locator("#exposure");
+  await expect(exposure.getByText("2 new")).toBeVisible();
+  await exposure.getByRole("listitem").filter({ hasText: "site-assets" }).getByRole("button", { name: "Mark as expected" }).click();
+  await expect(page.getByText(/^Marked it as expected/)).toBeVisible();
+  await expect(exposure.getByText("1 new")).toBeVisible();
+
+  // Leave things as they were for the tests after this one.
+  await page.goto("/settings/integrations/m365");
+  await page.locator("#sso").getByRole("button", { name: "Allow passwords again" }).click();
+  await expect(page.getByText("Everyone can sign in with their MOSS password again.")).toBeVisible();
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Switch integration off" }).click();
+  await expect(page.getByRole("button", { name: "Switch integration on" })).toBeVisible();
+  await removeLicence(db, owner!.orgId, { type: "user", id: owner!.id });
+});
+
+test("https: upload your own certificate (checked first), then go back to MOSS's own", async () => {
+  const fixture = (name: string) => `../../packages/core/src/fixtures/tls/${name}`;
+  await page.goto("/settings");
+  const card = page.locator("#https");
+  await card.getByRole("button", { name: "Upload a certificate" }).click();
+  const upload = page.getByRole("dialog", { name: "Use your own certificate" });
+  await upload.getByLabel("Certificate").setInputFiles(fixture("server.crt"));
+  await upload.getByLabel("Private key").setInputFiles(fixture("other.key"));
+  await upload.getByRole("button", { name: "Check and use" }).click();
+  await expect(upload.getByRole("alert")).toContainText("The private key doesn't belong to this certificate");
+  expect(readFileSync(join(E2E_TLS_DIR, "tls.caddy"), "utf8")).toBe("tls internal\n");
+
+  await upload.getByLabel("Private key").setInputFiles(fixture("server.key"));
+  await upload.getByRole("button", { name: "Check and use" }).click();
+  await expect(page.getByText(/^MOSS now uses your certificate\. Only the server's certificate was uploaded/)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(card).toContainText("MOSS uses a certificate you uploaded for CN=moss.test");
+  expect(readFileSync(join(E2E_TLS_DIR, "tls.caddy"), "utf8")).toMatch(/^tls \S+uploaded-cert\.pem \S+uploaded-key\.pem/);
+
+  page.once("dialog", (d) => d.accept());
+  await card.getByRole("button", { name: "Use MOSS's own certificate" }).click();
+  await expect(page.getByText(/^MOSS is back on its own certificate authority/)).toBeVisible();
+  await expect(card.getByRole("button", { name: "Upload a certificate" })).toBeVisible();
+  expect(readFileSync(join(E2E_TLS_DIR, "tls.caddy"), "utf8")).toBe("tls internal\n");
+  expect(existsSync(join(E2E_TLS_DIR, "uploaded-key.pem"))).toBe(false);
+
+  // Let's Encrypt through Cloudflare: its own site for the public name; the LAN keeps MOSS's own CA.
+  await card.getByRole("button", { name: "Use Let's Encrypt" }).click();
+  const le = page.getByRole("dialog", { name: "Let's Encrypt through Cloudflare" });
+  await le.getByLabel("Hostname").fill("moss");
+  await le.getByLabel("Cloudflare API token").fill("abcdefghij0123456789ABCDEFGHIJ0123456789");
+  await le.getByRole("button", { name: "Save and get the certificate" }).click();
+  await expect(le.getByRole("alert")).toContainText("The hostname must be a full public name");
+  await le.getByLabel("Hostname").fill("moss.example.com");
+  await le.getByRole("button", { name: "Save and get the certificate" }).click();
+  await expect(page.getByText(/^MOSS is getting a certificate for moss\.example\.com from Let's Encrypt/)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(card).toContainText("MOSS has a trusted certificate from Let's Encrypt for https://moss.example.com");
+  expect(readFileSync(join(E2E_TLS_DIR, "sites", "letsencrypt.caddy"), "utf8")).toMatch(/^moss\.example\.com \{\n\ttls \{\n\t\tdns cloudflare \{file\.\S+cloudflare-token\}/m);
+  expect(readFileSync(join(E2E_TLS_DIR, "cloudflare-token"), "utf8")).toBe("abcdefghij0123456789ABCDEFGHIJ0123456789");
+  expect(readFileSync(join(E2E_TLS_DIR, "tls.caddy"), "utf8")).toBe("tls internal\n");
+
+  page.once("dialog", (d) => d.accept());
+  await card.getByRole("button", { name: "Stop using Let's Encrypt" }).click();
+  await expect(page.getByText(/^Let's Encrypt is off, and the Cloudflare token has been deleted/)).toBeVisible();
+  expect(existsSync(join(E2E_TLS_DIR, "sites", "letsencrypt.caddy"))).toBe(false);
+  expect(existsSync(join(E2E_TLS_DIR, "cloudflare-token"))).toBe(false);
+
+  // The addresses MOSS answers to, changed here rather than in deploy/.env.
+  await expect(card.locator("#addresses")).toContainText("Other devices on your network open MOSS at https://moss.test, https://10.0.0.5.");
+  await card.getByRole("button", { name: "Change addresses" }).click();
+  const addresses = page.getByRole("dialog", { name: "Addresses MOSS answers to" });
+  await expect(addresses.getByLabel("Names and addresses")).toHaveValue("localhost\nmoss.test\n10.0.0.5");
+  await addresses.getByLabel("Names and addresses").fill("localhost\n10.0.0.300\nmoss lan");
+  await addresses.getByRole("button", { name: "Save addresses" }).click();
+  await expect(addresses.getByRole("alert")).toContainText("Not a name or IPv4 address: 10.0.0.300.");
+  await addresses.getByLabel("Names and addresses").fill("localhost\nMOSS.lan, 192.168.1.20\nmoss.lan");
+  await addresses.getByRole("button", { name: "Save addresses" }).click();
+  await expect(page.getByText("MOSS now answers to localhost, moss.lan, 192.168.1.20.")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(card.locator("#addresses")).toContainText("open MOSS at https://moss.lan, https://192.168.1.20.");
+  expect(readFileSync(join(E2E_TLS_DIR, "lan.caddy"), "utf8")).toBe("localhost, moss.lan, 192.168.1.20 {\n\timport lan_site\n}\n");
+  expect(readFileSync(join(E2E_TLS_DIR, "sni.caddy"), "utf8")).toBe("default_sni 192.168.1.20\n");
+});
+
+test("integrations: Cloudflare's public hostnames, new ones flagged until marked as expected", async () => {
+  const db = createDb(E2E_DATABASE_URL);
+  const [owner] = await db.select().from(users).where(eq(users.email, OWNER.email));
+  const hostnames = [
+    { name: "blog.example.com", type: "A", content: "198.51.100.4", via: "proxied" },
+    { name: "ha.example.com", type: "CNAME", content: "abc.cfargotunnel.com", via: "tunnel" },
+    { name: "home.example.com", type: "A", content: "203.0.113.7", via: "public address" },
+  ];
+  await db
+    .insert(modules)
+    .values({ orgId: owner!.orgId, key: "cloudflare", config: { options: { acknowledged: ["blog.example.com"] } }, state: { exposure: { at: new Date().toISOString(), hostnames } } });
+  await page.goto("/settings/integrations/cloudflare");
+  await expect(page.getByLabel("Address")).toHaveCount(0);
+  const card = page.locator("#exposure");
+  await expect(card.getByText("2 new")).toBeVisible();
+  const row = (name: string) => card.getByRole("listitem").filter({ hasText: name });
+  await expect(row("blog.example.com")).toContainText("Expected");
+  await expect(row("ha.example.com")).toContainText("Cloudflare Tunnel (CNAME abc.cfargotunnel.com)");
+  await row("ha.example.com").getByRole("button", { name: "Mark as expected" }).click();
+  await expect(page.getByText(/^Marked ha\.example\.com as expected/)).toBeVisible();
+  await expect(card.getByText("1 new")).toBeVisible();
+  await row("home.example.com").getByRole("button", { name: "Mark as expected" }).click();
+  await expect(card.getByText(/\d new/)).toHaveCount(0);
+  await row("blog.example.com").getByRole("button", { name: "Unmark" }).click();
+  await expect(card.getByText("1 new")).toBeVisible();
+  const [m] = await db.select().from(modules).where(eq(modules.key, "cloudflare"));
+  expect((m!.config as { options: { acknowledged: string[] } }).options.acknowledged).toEqual(["ha.example.com", "home.example.com"]);
+});
+
+test("backups: back MOSS up, schedule it, and download one encrypted with a fresh code", async () => {
+  await page.goto("/settings/backups");
+  const section = page.locator("section").filter({ has: page.getByRole("heading", { name: "MOSS backups" }) });
+  await expect(section.getByText("No MOSS backups yet")).toBeVisible();
+  await section.getByRole("button", { name: "Back up now" }).click();
+  await expect(page.getByText(/^Backing up\./)).toBeVisible();
+  await page.reload();
+  const table = page.getByRole("table", { name: "MOSS backups" });
+  await expect(table.getByRole("row")).toHaveCount(2);
+  const name = "moss-backup-20300101T030000Z.tar.gz";
+  await expect(table).toContainText(name);
+  await expect(table).toContainText("2.3 MB");
+
+  await section.getByRole("button", { name: "Schedule" }).click();
+  const schedule = page.getByRole("dialog", { name: "Scheduled backups" });
+  await schedule.getByLabel("Back up").selectOption("daily");
+  await schedule.locator('select[name="hour"]').selectOption("2");
+  await schedule.getByLabel("Keep").fill("5");
+  await schedule.getByRole("button", { name: "Save schedule" }).click();
+  await expect(page.getByText("Schedule saved: every day at 02:00, keeping 5 backups.")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(section).toContainText("Schedule: Every day at 02:00, keeping 5 backups.");
+
+  await table.getByRole("button", { name: "Download" }).click();
+  const dl = page.getByRole("dialog", { name: `Download ${name}` });
+  await dl.getByLabel("Passphrase", { exact: true }).fill("a long backup passphrase");
+  await dl.getByLabel("Passphrase again").fill("a different passphrase");
+  await dl.getByLabel("Authenticator code").fill("000000");
+  await dl.getByRole("button", { name: "Download encrypted" }).click();
+  await expect(dl.getByRole("alert")).toHaveText("The passphrases don't match.");
+  await dl.getByLabel("Passphrase again").fill("a long backup passphrase");
+  await dl.getByRole("button", { name: "Download encrypted" }).click();
+  await expect(dl.getByRole("alert")).toHaveText("That code didn't match.");
+  await dl.getByLabel("Authenticator code").fill(await freshTotp());
+  const download = page.waitForEvent("download");
+  await dl.getByRole("button", { name: "Download encrypted" }).click();
+  const file = await download;
+  expect(file.suggestedFilename()).toBe(`${name}.enc`);
+  expect(readFileSync(await file.path(), "utf8")).toBe(`Salted__${name}`);
+
+  page.once("dialog", (d) => d.accept());
+  await table.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByText("Backup deleted.")).toBeVisible();
+  await expect(section.getByText("No MOSS backups yet")).toBeVisible();
+});
+
 test("audit: the log is intact after all of that", async () => {
   await signOut();
-  await signIn(OWNER.email, OWNER.password, totpCode(ownerTotpSecret));
+  await signIn(OWNER.email, OWNER.password, await freshTotp());
   await page.goto("/audit");
   await expect(page.getByText("tool.denied")).toHaveCount(0);
-  await expect(page.getByRole("cell", { name: "change.approve" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "change.approve" }).first()).toBeVisible();
   await page.getByRole("button", { name: "Verify integrity" }).click();
   await expect(page.getByText("The audit log is intact")).toBeVisible();
 });

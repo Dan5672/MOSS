@@ -1,0 +1,17 @@
+key: portainer_endpoints
+description: Portainer's environments (Docker hosts) and whether each is up, with its container counts.
+class: read
+params:
+  host: { type: ip, target: true, description: The Portainer server }
+secret: portainer-token
+request:
+  method: GET
+  scheme: https
+  port: 9443
+  path: /api/endpoints
+  headers:
+    X-API-Key: "{{secret}}"
+    Accept: application/json
+  verifyTls: false
+result:
+  maxItems: 50

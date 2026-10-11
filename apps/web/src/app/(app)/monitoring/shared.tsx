@@ -1,12 +1,12 @@
 import "server-only";
-import { assets } from "@moss/db";
+import { assets, secrets } from "@moss/db";
 import { and, asc, eq, ne } from "drizzle-orm";
 import { cn } from "@/lib/utils";
 import { db } from "@/server/db";
 import { assigneeOptions } from "@/server/people";
 
 export async function monitorFormOptions(orgId: string) {
-  const [assetRows, people] = await Promise.all([
+  const [assetRows, people, secretRows] = await Promise.all([
     db()
       .select({ id: assets.id, name: assets.name, ip: assets.primaryIp })
       .from(assets)
@@ -14,10 +14,13 @@ export async function monitorFormOptions(orgId: string) {
       .orderBy(asc(assets.name))
       .limit(500),
     assigneeOptions(orgId),
+    // Names only: SNMP and host monitors name the secret with their credential.
+    db().select({ name: secrets.name }).from(secrets).where(eq(secrets.orgId, orgId)).orderBy(asc(secrets.name)),
   ]);
   return {
     assets: assetRows.map((a) => ({ value: a.id, label: a.ip ? `${a.name} (${a.ip})` : a.name })),
     responders: people.map((p) => (p.value === "" ? { ...p, label: "Nobody (incident is unassigned)" } : p)),
+    secrets: secretRows.map((s) => ({ value: s.name, label: s.name })),
   };
 }
 
@@ -26,7 +29,11 @@ export function formatUptime(u: number | null | undefined): string {
   return `${(Math.floor(u * 1000) / 10).toFixed(u === 1 ? 0 : 1)}%`;
 }
 
-export function describeTarget(m: { kind: string; target: string; config: { port?: number; scheme?: string; path?: string; recordType?: string } }): string {
+export function describeTarget(m: {
+  kind: string;
+  target: string;
+  config: { port?: number; scheme?: string; path?: string; recordType?: string; ifIndex?: number; oid?: string; user?: string };
+}): string {
   const c = m.config;
   switch (m.kind) {
     case "http":
@@ -36,6 +43,10 @@ export function describeTarget(m: { kind: string; target: string; config: { port
       return `${m.target}:${c.port ?? 443}`;
     case "dns":
       return `${m.target} ${c.recordType ?? "A"}`;
+    case "snmp":
+      return c.ifIndex ? `${m.target} interface ${c.ifIndex}` : `${m.target} ${c.oid ?? ""}`;
+    case "host":
+      return `${c.user ?? "?"}@${m.target}`;
     default:
       return m.target || "—";
   }

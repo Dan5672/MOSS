@@ -1,0 +1,6 @@
+# Shared by both modes: everything goes to the MOSS web app.
+(moss) {
+	encode gzip
+	header Strict-Transport-Security "max-age=31536000"
+	reverse_proxy web:3000
+}

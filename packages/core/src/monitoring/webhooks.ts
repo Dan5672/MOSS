@@ -13,6 +13,10 @@ export interface ParsedAlert {
   message: string;
   target?: string;
   latencyMs?: number;
+  /** Readings (from integrations), so they can be graphed: the main value, named values, and a unit. */
+  value?: number;
+  values?: Record<string, number>;
+  unit?: string;
 }
 
 export type ParseOutcome = { ok: true; alerts: ParsedAlert[]; test?: boolean } | { ok: false; error: string };

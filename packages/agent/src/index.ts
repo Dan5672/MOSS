@@ -1,4 +1,6 @@
 export * from "./chat.js";
+export * from "./chat-tools.js";
+export * from "./moss-tools.js";
 export * from "./library.js";
 export * from "./lifecycle.js";
 export * from "./platform-tools.js";
@@ -9,3 +11,7 @@ export * from "./ticket-tools.js";
 export * from "./queue.js";
 export * from "./claude-code.js";
 export * from "./mcp-server.js";
+export * from "./welcome.js";
+export * from "./whats-new.js";
+export * from "./certificate-reminders.js";
+export * from "./reference.js";

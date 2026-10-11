@@ -94,18 +94,65 @@ describe("home lab integrations", () => {
     expect(res).toEqual({ total: 1, entities: [{ entity: "sensor.ups_battery", name: "UPS battery", state: "100", unit: "%", changed: "2026-10-06T00:00:00Z" }] });
   });
 
+  it("homeassistant_states: reads one entity from its own endpoint", async () => {
+    const { send } = device({
+      "GET /api/states/sensor.ups_load": { entity_id: "sensor.ups_load", state: "23.5", attributes: { friendly_name: "UPS load", unit_of_measurement: "%" } },
+    });
+    const res = await run("homeassistant_states", { target: "10.0.0.13", token: "llat", entity: "sensor.ups_load" }, send);
+    expect(res).toMatchObject({ total: 1, entities: [{ entity: "sensor.ups_load", state: "23.5", unit: "%" }] });
+  });
+
   it("pihole_summary: authenticates, reads stats, and ends the session", async () => {
     const { send, seen } = device({
       "POST /api/auth": (r: RenderedRequest) => (JSON.parse(r.body!).password === "app-pw" ? { session: { valid: true, sid: "S1" } } : { session: { valid: false } }),
       "GET /api/stats/summary": { queries: { total: 50000, blocked: 6000, percent_blocked: 12.04 }, clients: { active: 19 }, gravity: { domains_being_blocked: 150000 } },
       "GET /api/stats/top_clients?count=10": { clients: [{ ip: "10.0.0.15", name: "tv.lan", count: 9000 }] },
+      "GET /api/dns/blocking": { blocking: "disabled", timer: 240 },
       "DELETE /api/auth": {},
     });
     const res = await run("pihole_summary", { target: "10.0.0.14", password: "app-pw" }, send);
-    expect(res).toEqual({ queries: 50000, blocked: 6000, blockedPercent: 12, activeClients: 19, domainsOnBlocklists: 150000, topClients: [{ ip: "10.0.0.15", name: "tv.lan", queries: 9000 }] });
+    expect(res).toEqual({ blocking: "disabled", queries: 50000, blocked: 6000, blockedPercent: 12, activeClients: 19, domainsOnBlocklists: 150000, topClients: [{ ip: "10.0.0.15", name: "tv.lan", queries: 9000 }] });
     expect(seen.filter((r) => r.path.startsWith("/api/stats")).every((r) => r.headers["X-FTL-SID"] === "S1")).toBe(true);
     expect(seen.at(-1)).toMatchObject({ method: "DELETE", path: "/api/auth" });
     await expect(run("pihole_summary", { target: "10.0.0.14", password: "nope" }, send)).rejects.toThrow(/refused the password/);
+  });
+
+  it("pihole_clients: devices with their MAC, maker, addresses and names", async () => {
+    const { send } = device({
+      "POST /api/auth": { session: { valid: true, sid: "S1" } },
+      "GET /api/network/devices?max_devices=300&max_addresses=4": {
+        devices: [
+          { hwaddr: "AA:BB:CC:11:22:33", macVendor: "Synology", numQueries: 120, lastQuery: 1790000000, ips: [{ ip: "10.0.0.5", name: "" }, { ip: "10.0.0.6", name: "nas.lan" }] },
+          { hwaddr: "ip-10.0.0.99", macVendor: "", numQueries: 2, ips: [{ ip: "10.0.0.99", name: null }] },
+        ],
+      },
+      "DELETE /api/auth": {},
+    });
+    const res = await run("pihole_clients", { target: "10.0.0.14", password: "pw" }, send);
+    expect(res).toMatchObject({
+      total: 2,
+      devices: [
+        { mac: "aa:bb:cc:11:22:33", vendor: "Synology", name: "nas.lan", ips: ["10.0.0.5", "10.0.0.6"], queries: 120, lastQuery: "2026-09-21T14:13:20.000Z" },
+        { ips: ["10.0.0.99"], queries: 2 },
+      ],
+    });
+  });
+
+  it("adguard_clients: configured clients with their ids, and the ones it found", async () => {
+    const { send } = device({
+      "GET /control/clients": {
+        clients: [{ name: "Printer", ids: ["10.0.0.30", "AA-BB-CC-00-11-22", "printer-id"] }],
+        auto_clients: [{ ip: "10.0.0.31", name: "laptop.lan", source: "rDNS" }],
+      },
+    });
+    const res = await run("adguard_clients", { target: "10.0.0.14", user: "admin", password: "pw" }, send);
+    expect(res).toEqual({
+      total: 2,
+      clients: [
+        { name: "Printer", macs: ["aa:bb:cc:00:11:22"], ips: ["10.0.0.30"], configured: true },
+        { name: "laptop.lan", macs: [], ips: ["10.0.0.31"], source: "rDNS", configured: false },
+      ],
+    });
   });
 
   it("adguard_stats: basic auth, block rate and top clients; rejected credentials are explained", async () => {

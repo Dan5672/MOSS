@@ -10,6 +10,7 @@ import { act, formObject, type ActionState } from "@/server/action";
 import { requirePermission } from "@/server/auth";
 import { db } from "@/server/db";
 import { storeSecret } from "@/server/services";
+import { secretValueProblem } from "@/lib/secret-value";
 
 /** Hosts a secret may be used against. Required: a credential must never go to a device nobody named. */
 function hostsFromForm(raw: string | undefined): string[] {
@@ -49,6 +50,7 @@ const createSchema = z.object({
   name: z.string().regex(/^[A-Za-z0-9_.-]{1,64}$/, "Name: letters, digits, dot, dash or underscore"),
   type: z.enum(["password", "ssh_key", "api_token", "snmp_community", "other"]),
   value: z.string().min(1, "Enter the secret value").max(64 * 1024),
+  username: z.string().trim().max(128).optional(),
   description: z.string().max(500).optional(),
 });
 
@@ -57,13 +59,20 @@ export async function saveSecretAction(_: ActionState, form: FormData): Promise<
   return act(async () => {
     const user = await requirePermission("secrets.manage");
     const f = createSchema.parse(formObject(form));
+    // The raw value: formObject keeps it as typed, but check the original so nothing is trimmed on the way.
+    const raw = String(form.get("value") ?? "");
+    const problem = secretValueProblem(raw, f.type);
+    if (problem && !form.get("allowOdd")) {
+      throw new Error(`Not saved: ${problem} Paste only the secret itself, or tick "Save it even if it looks unusual" if it really is like that.`);
+    }
+    if (f.username && f.type !== "password") throw new Error("A username only goes with a password");
     const allowedHosts = hostsFromForm(form.get("hosts")?.toString());
     const allowedTools = toolsFromForm(form);
     // Encrypted by the gate; the web app never keeps the value.
-    const id = await storeSecret({ userId: user.id, ...f, allowedHosts, allowedTools });
+    const id = await storeSecret({ userId: user.id, ...f, value: raw, allowedHosts, allowedTools });
     const granted = await setGrants(user.orgId, user.id, id, form.getAll("agents").map(String));
     await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "secret.grants", targetType: "secret", targetId: id, details: { agents: granted } });
-    return `Saved secret:${f.name}. Agents use it as secret:${f.name}.`;
+    return `Saved secret:${f.name} (${raw.length} characters${f.username ? `, for ${f.username}` : ""}). Agents use it as secret:${f.name}.`;
   });
 }
 
@@ -73,7 +82,11 @@ export async function updateSecretScopeAction(secretId: string, _: ActionState, 
     const s = await ownSecret(user.orgId, secretId);
     const allowedHosts = hostsFromForm(form.get("hosts")?.toString());
     const allowedTools = toolsFromForm(form);
-    await db().update(secrets).set({ allowedHosts, allowedTools, updatedAt: new Date() }).where(eq(secrets.id, secretId));
+    const username = form.has("username") ? z.string().trim().max(128).parse(form.get("username") ?? "") || null : undefined;
+    await db()
+      .update(secrets)
+      .set({ allowedHosts, allowedTools, ...(username !== undefined ? { username } : {}), updatedAt: new Date() })
+      .where(eq(secrets.id, secretId));
     const granted = await setGrants(user.orgId, user.id, secretId, form.getAll("agents").map(String));
     await writeAudit(db(), {
       orgId: user.orgId,
@@ -82,7 +95,7 @@ export async function updateSecretScopeAction(secretId: string, _: ActionState, 
       action: "secret.scope",
       targetType: "secret",
       targetId: secretId,
-      details: { name: s.name, allowedHosts, allowedTools, agents: granted },
+      details: { name: s.name, allowedHosts, allowedTools, agents: granted, ...(username !== undefined ? { username } : {}) },
     });
     return `Updated secret:${s.name}.`;
   });

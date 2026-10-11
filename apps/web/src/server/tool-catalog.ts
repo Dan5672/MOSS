@@ -1,7 +1,8 @@
 import "server-only";
 import { PLATFORM_TOOLS } from "@moss/agent";
 import { agents, agentRuns, agentSkills, agentToolOverrides, customToolGrants, customTools, rolePermissions, runSteps, skills } from "@moss/db";
-import { BUILT_IN_TOOLS, customToolSpecSchema } from "@moss/tools";
+import { orgToolDefinitions } from "@moss/core";
+import { BUILT_IN_TOOLS, customToolSpecSchema, toolInputSchema } from "@moss/tools";
 import { and, eq, gte, inArray, max, ne, sql } from "drizzle-orm";
 import { db } from "./db";
 
@@ -162,3 +163,22 @@ export async function recentDenials(orgId: string, limit = 15) {
     .limit(limit);
 }
 
+
+/** Tools a change can plan, each with starting arguments (its required ones) for the "Raise a change" form. */
+export async function plannableTools(orgId: string) {
+  const defs = await orgToolDefinitions(db(), orgId);
+  return [...defs.values()]
+    .map((d) => {
+      const schema = toolInputSchema(d) as { properties?: Record<string, { type?: string; enum?: unknown[]; default?: unknown }>; required?: string[] };
+      const secretArgs = new Set(d.manifest.secretArgs ?? []);
+      const skeleton = Object.fromEntries(
+        (schema.required ?? []).map((name) => {
+          const prop = schema.properties?.[name] ?? {};
+          const value = secretArgs.has(name) ? "secret:" : prop.enum?.[0] ?? prop.default ?? (prop.type === "number" || prop.type === "integer" ? 0 : prop.type === "boolean" ? false : prop.type === "array" ? [] : "");
+          return [name, value];
+        }),
+      );
+      return { name: d.manifest.name, kind: d.manifest.class, description: d.description, skeleton };
+    })
+    .sort((a, b) => Number(a.kind === "read") - Number(b.kind === "read") || a.name.localeCompare(b.name));
+}

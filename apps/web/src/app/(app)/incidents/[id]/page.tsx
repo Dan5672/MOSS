@@ -8,9 +8,10 @@ import { Pill, PriorityBadge, StatusBadge } from "@/components/badges";
 import { SelectField, TextAreaField } from "@/components/field";
 import { Empty, PageHeader, Section, timeAgo, NoPermission } from "@/components/page";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CommentText, MentionTextarea } from "@/components/mention-textarea";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
-import { assigneeOptions, nameLookup } from "@/server/people";
+import { assigneeOptions, mentionOptions, nameLookup } from "@/server/people";
 import { commentAction, updateIncidentAction } from "../actions";
 
 export default async function IncidentPage({ params }: PageProps<"/incidents/[id]">) {
@@ -19,10 +20,11 @@ export default async function IncidentPage({ params }: PageProps<"/incidents/[id
   if (!user.permissions.has("incidents.read")) return <NoPermission />;
   const inc = await getIncident(db(), user.orgId, id);
   if (!inc) notFound();
-  const [changes, options, name] = await Promise.all([
+  const [changes, options, name, mentions] = await Promise.all([
     db().select().from(changeRequests).where(eq(changeRequests.incidentId, id)).orderBy(desc(changeRequests.createdAt)),
     assigneeOptions(user.orgId),
     nameLookup(user.orgId),
+    mentionOptions(user.orgId),
   ]);
   const canManage = user.permissions.has("incidents.manage");
   const assignee = inc.assignedAgentId ? `agent:${inc.assignedAgentId}` : inc.assignedUserId ? `user:${inc.assignedUserId}` : "";
@@ -80,14 +82,14 @@ export default async function IncidentPage({ params }: PageProps<"/incidents/[id
                       {c.authorAgentId && <Pill tone="blue">agent</Pill>}
                       <span className="font-mono">{timeAgo(c.createdAt)}</span>
                     </div>
-                    <p className="whitespace-pre-wrap">{c.body}</p>
+                    <CommentText text={c.body} names={mentions.map((m) => m.name)} />
                   </li>
                 ))}
               </ol>
             )}
             {canManage && (
               <ActionForm action={commentAction.bind(null, id)} submitLabel="Add comment" resetOnSuccess>
-                <TextAreaField label="Comment" name="body" rows={3} required />
+                <MentionTextarea label="Comment" name="body" rows={3} options={mentions} required />
               </ActionForm>
             )}
           </Section>

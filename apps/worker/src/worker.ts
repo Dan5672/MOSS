@@ -1,6 +1,10 @@
 // The worker: runs agent jobs from the queue, turns agent schedules into jobs, and runs monitor checks.
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   chatSnapshot,
+  ensureMoss,
+  MOSS_TEMPLATE,
   enqueueRun,
   ensureQueues,
   HttpGateClient,
@@ -10,18 +14,36 @@ import {
   runAgent,
   SCHEDULE_QUEUE,
   syncBuiltInSkills,
+  ensureCoreSkills,
+  welcomeFromMoss,
+  announceWhatsNew,
+  remindCertificateExpiry,
   type ClaudeCodeConfig,
   type GateClient,
   type ProviderFactory,
   type RunInput,
-  unansweredThreads,
+  unansweredConversations,
 } from "@moss/agent";
-import { changeRef, dispatchEvents, ensureBuiltInRoles, incidentRef, type StoredEvent } from "@moss/core";
-import { agents, agentSchedules, changeRequests, incidents, orgs, type Database } from "@moss/db";
+import {
+  actorName,
+  backupDue,
+  changeRef,
+  dispatchEvents,
+  ensureBuiltInRoles,
+  getSetting,
+  incidentRef,
+  parseBackupSchedule,
+  remindLicenceExpiry,
+  rollUpMonitorResults,
+  setSetting,
+  type StoredEvent,
+} from "@moss/core";
+import { agentRuns, agents, agentSchedules, changeNotes, changeRequests, incidentComments, incidents, orgs, type Database } from "@moss/db";
 import { createProvider } from "@moss/llm";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, notInArray } from "drizzle-orm";
 import { PgBoss } from "pg-boss";
 import { notifyIncident, runHomeAssistantTick, type HaCaller } from "./home-assistant.js";
+import { pagerdutyIncident, runIntegrationsTick, type IntegrationCaller } from "./integrations.js";
 import { handleMonitorEvent, pruneAllMonitorResults, runDueChecks, type MonitorChecker } from "./monitor-runner.js";
 
 export { enqueueRun, RUN_QUEUE, SCHEDULE_QUEUE };
@@ -39,6 +61,11 @@ export interface WorkerConfig {
   /** Makes the Home Assistant module's calls through the gate. The module does nothing without it. */
   homeAssistant?: HaCaller;
   homeAssistantIntervalMs?: number;
+  /** Makes the other integrations' calls through the gate. They do nothing without it. */
+  integrations?: IntegrationCaller;
+  integrationsIntervalMs?: number;
+  /** Asks the backup service for a MOSS backup (scheduled in Settings → Backups). Scheduled backups are off without it. */
+  startBackup?: (keep: number) => Promise<void>;
   eventIntervalMs?: number;
   monitorIntervalMs?: number;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
@@ -76,8 +103,72 @@ export async function syncSchedules(db: Database, boss: PgBoss): Promise<{ added
   return { added, removed };
 }
 
+/** The agents a comment @mentions. */
+const agentMentions = (mentions: { type: string; id: string }[]) => mentions.filter((m) => m.type === "agent").map((m) => m.id);
+
+/** The active agents among these ids, each once, in order. */
+async function activeAgents(db: Database, ids: (string | null)[]): Promise<string[]> {
+  const unique = [...new Set(ids.filter((id): id is string => !!id))];
+  if (!unique.length) return [];
+  const rows = await db.select({ id: agents.id, status: agents.status }).from(agents).where(inArray(agents.id, unique));
+  return unique.filter((id) => rows.some((r) => r.id === id && r.status === "active"));
+}
+
+/** A run that answers a person's comment on an incident: for the assignee, or for an agent they @mentioned. */
+async function commentRun(
+  db: Database,
+  inc: typeof incidents.$inferSelect,
+  comment: typeof incidentComments.$inferSelect,
+  agentId: string,
+): Promise<RunInput> {
+  const who = await actorName(db, { type: "user", id: comment.authorUserId });
+  const said = `\n\n"${comment.body.slice(0, 2000)}"\n\n`;
+  const ref = `incident ${incidentRef(inc.number)} (id ${inc.id})`;
+  const reply = "Read the incident with incident_get, then reply with incident_comment";
+  return {
+    agentId,
+    trigger: "ticket",
+    triggerRef: inc.id,
+    requestedByUserId: comment.authorUserId ?? undefined,
+    task:
+      agentId === inc.assignedAgentId
+        ? `${who} commented on ${ref}, which is assigned to you:${said}${reply}: answer their question, or say what you'll do next. ` +
+          "If they asked for something, do it (anything that changes a system needs a change request)."
+        : `${who} mentioned you in a comment on ${ref}:${said}${reply} to answer them. It isn't assigned to you: help with ` +
+          "what they asked, and leave the rest to the assignee.",
+  };
+}
+
+/**
+ * Open incidents assigned to this agent whose newest comment is a person's, written after the agent last
+ * worked on the incident: a comment that arrived while a run was already waiting (one queued run per agent).
+ */
+export async function unansweredIncidentComments(db: Database, agentId: string) {
+  const open = await db
+    .select()
+    .from(incidents)
+    .where(and(eq(incidents.assignedAgentId, agentId), notInArray(incidents.status, ["resolved", "closed"])));
+  const out: { inc: typeof incidents.$inferSelect; comment: typeof incidentComments.$inferSelect }[] = [];
+  for (const inc of open) {
+    const [latest] = await db.select().from(incidentComments).where(eq(incidentComments.incidentId, inc.id)).orderBy(desc(incidentComments.createdAt)).limit(1);
+    if (!latest?.authorUserId) continue;
+    const [since] = await db
+      .select({ id: agentRuns.id })
+      .from(agentRuns)
+      .where(and(eq(agentRuns.agentId, agentId), eq(agentRuns.triggerRef, inc.id), gt(agentRuns.startedAt, latest.createdAt)))
+      .limit(1);
+    if (!since) out.push({ inc, comment: latest });
+  }
+  return out;
+}
+
 /** Turns domain events into agent runs. Tasks reference tickets by id; the agent reads them with its tools. */
-export async function handleEvent(db: Database, boss: PgBoss, event: StoredEvent, opts: { homeAssistant?: HaCaller; log?: (msg: string, extra?: Record<string, unknown>) => void } = {}): Promise<void> {
+export async function handleEvent(
+  db: Database,
+  boss: PgBoss,
+  event: StoredEvent,
+  opts: { homeAssistant?: HaCaller; integrations?: IntegrationCaller; log?: (msg: string, extra?: Record<string, unknown>) => void } = {},
+): Promise<void> {
   const p = event.payload as Record<string, string | undefined>;
   switch (event.type) {
     case "incident.created": {
@@ -86,6 +177,16 @@ export async function handleEvent(db: Database, boss: PgBoss, event: StoredEvent
       if (opts.homeAssistant && p.incidentId) {
         const call = opts.homeAssistant;
         void notifyIncident(db, call, p.incidentId).catch((err) => opts.log?.("home assistant notification failed", { error: (err as Error).message }));
+      }
+      // PagerDuty, for priorities that page. Not awaited, for the same reason.
+      if (opts.integrations && p.incidentId) {
+        void pagerdutyIncident(db, opts.integrations, p.incidentId, "trigger", opts.log).catch((err) => opts.log?.("PagerDuty page failed", { error: (err as Error).message }));
+      }
+      return;
+    }
+    case "incident.resolved": {
+      if (opts.integrations && p.incidentId) {
+        void pagerdutyIncident(db, opts.integrations, p.incidentId, "resolve", opts.log).catch((err) => opts.log?.("PagerDuty resolve failed", { error: (err as Error).message }));
       }
       return;
     }
@@ -97,6 +198,7 @@ export async function handleEvent(db: Database, boss: PgBoss, event: StoredEvent
         agentId: p.agentId,
         trigger: "ticket",
         triggerRef: inc.id,
+        requestedByUserId: inc.raisedByUserId ?? undefined,
         task:
           `You have been assigned incident ${incidentRef(inc.number)} (${inc.priority}), id ${inc.id}. Read it with incident_get, ` +
           "investigate, keep it updated with comments, and resolve it once the fix is verified. If fixing it needs a change " +
@@ -104,19 +206,58 @@ export async function handleEvent(db: Database, boss: PgBoss, event: StoredEvent
       });
       return;
     }
+    case "incident.commented": {
+      if (!p.incidentId || !p.commentId) return;
+      const [inc] = await db.select().from(incidents).where(eq(incidents.id, p.incidentId));
+      const [comment] = await db.select().from(incidentComments).where(eq(incidentComments.id, p.commentId));
+      if (!inc || !comment || inc.status === "closed") return;
+      for (const agentId of await activeAgents(db, [inc.assignedAgentId, ...agentMentions(comment.mentions)])) {
+        await enqueueRun(boss, await commentRun(db, inc, comment, agentId));
+      }
+      return;
+    }
+    case "change.commented": {
+      if (!p.changeId || !p.noteId) return;
+      const [cr] = await db.select().from(changeRequests).where(eq(changeRequests.id, p.changeId));
+      const [note] = await db.select().from(changeNotes).where(eq(changeNotes.id, p.noteId));
+      if (!cr || !note) return;
+      const finished = ["succeeded", "rolled_back", "cancelled", "rejected"].includes(cr.status);
+      const who = await actorName(db, { type: "user", id: note.authorUserId });
+      const said = `\n\n"${note.body.slice(0, 2000)}"\n\n`;
+      const ref = `change ${changeRef(cr.number)} (id ${cr.id})`;
+      for (const agentId of await activeAgents(db, [finished ? null : cr.requestedByAgentId, ...agentMentions(note.mentions)])) {
+        await enqueueRun(boss, {
+          agentId,
+          trigger: "event",
+          triggerRef: cr.id,
+          requestedByUserId: note.authorUserId ?? undefined,
+          task:
+            agentId === cr.requestedByAgentId && !finished
+              ? `${who} commented on ${ref}, which you're carrying out:${said}Read the change with change_get, then reply with ` +
+                "change_comment: answer their question, or say what you'll do."
+              : `${who} mentioned you in a comment on ${ref}:${said}Read the change with change_get, then reply with change_comment.`,
+        });
+      }
+      return;
+    }
     case "change.approved":
-    case "change.rejected": {
+    case "change.rejected":
+    case "change.access_granted": {
       if (!p.changeId) return;
       const [cr] = await db.select().from(changeRequests).where(eq(changeRequests.id, p.changeId));
       if (!cr?.requestedByAgentId) return;
       const ref = changeRef(cr.number);
-      const task =
-        event.type === "change.approved"
+      const task = cr.accessGrant
+        ? event.type === "change.rejected"
+          ? `Your access request ${ref} was turned down. Read why with change_get, and carry on without that access (or tell whoever asked).`
+          : `Your access request ${ref} was approved: you now have the access you asked for. Read it with change_get, then carry on ` +
+            "with the work you needed it for (check the linked incident, if any)."
+        : event.type === "change.approved"
           ? `Change ${ref} (id ${cr.id}) has been approved. Read it with change_get, run it with change_execute, carry out ` +
             "its verification plan, then call change_complete (or change_rollback if verification fails). Update the linked incident."
           : `Change ${ref} (id ${cr.id}) was rejected. Read the reason with change_get and update the linked incident; ` +
             "do not attempt the change another way.";
-      await enqueueRun(boss, { agentId: cr.requestedByAgentId, trigger: "event", triggerRef: cr.id, task });
+      await enqueueRun(boss, { agentId: cr.requestedByAgentId, trigger: "event", triggerRef: cr.id, task, requestedByUserId: cr.requestedByUserId ?? undefined });
       return;
     }
     case "monitor.down":
@@ -135,11 +276,25 @@ export async function startWorker(cfg: WorkerConfig) {
   // Built-in roles are re-synced on every boot so upgrades can add permissions.
   for (const org of await db.select({ id: orgs.id }).from(orgs)) await ensureBuiltInRoles(db, org.id);
 
-  if (cfg.libraryDir) {
-    const lib = await loadLibrary(cfg.libraryDir);
-    for (const org of await db.select({ id: orgs.id }).from(orgs)) await syncBuiltInSkills(db, org.id, lib.skills.values());
+  const lib = cfg.libraryDir ? await loadLibrary(cfg.libraryDir) : null;
+  const welcome = cfg.libraryDir ? await readFile(join(cfg.libraryDir, "docs", "welcome.md"), "utf8").catch(() => null) : null;
+  const changelog = cfg.libraryDir ? await readFile(join(cfg.libraryDir, "docs", "changelog.md"), "utf8").catch(() => null) : null;
+  if (lib) {
+    for (const org of await db.select({ id: orgs.id }).from(orgs)) {
+      await syncBuiltInSkills(db, org.id, lib.skills.values());
+      const added = await ensureCoreSkills(db, org.id);
+      if (added) log("core skills given", { orgId: org.id, added });
+    }
     log("library synced", { skills: lib.skills.size, templates: lib.templates.size });
   }
+  // Every install has a Moss, the expert on MOSS itself, once there is a model to run it on.
+  const mossTemplate = lib?.templates.get(MOSS_TEMPLATE);
+  const hireMoss = async () => {
+    for (const org of await db.select({ id: orgs.id }).from(orgs)) {
+      const id = await ensureMoss(db, org.id, mossTemplate);
+      if (id) log("hired Moss", { orgId: org.id, agentId: id });
+    }
+  };
 
   await ensureQueues(boss);
 
@@ -147,16 +302,20 @@ export async function startWorker(cfg: WorkerConfig) {
     if (!job) return;
     let input = job.data;
     // A chat run answers the conversation as it stands when the run starts.
-    const chat = input.trigger === "chat" && input.triggerRef ? await chatSnapshot(db, input.triggerRef) : undefined;
+    const chat = input.trigger === "chat" && input.triggerRef ? await chatSnapshot(db, input.triggerRef, input.agentId) : undefined;
     if (chat === null) return; // already answered
-    if (chat) input = { ...input, task: chat.task };
+    if (chat) input = { ...input, task: chat.task, requestedByUserId: chat.askerId ?? input.requestedByUserId };
     log("run started", { agentId: input.agentId, trigger: input.trigger });
     const outcome = await runAgent({ db, gate: cfg.gate, providerFor: cfg.providerFor, claudeCode: cfg.claudeCode }, input);
     log("run finished", { agentId: input.agentId, runId: outcome.runId, status: outcome.status });
-    if (chat) await recordChatReply(db, input.triggerRef!, outcome, chat.cutoff);
-    // Messages sent while the agent was busy couldn't be queued (one run per agent); answer them now.
-    for (const threadId of await unansweredThreads(db, input.agentId)) {
-      await enqueueRun(boss, { agentId: input.agentId, trigger: "chat", triggerRef: threadId, task: "Reply in chat" });
+    if (chat) await recordChatReply(db, input.triggerRef!, input.agentId, outcome, chat.cutoff);
+    // Messages sent while the agent was busy (one run per agent at a time): answer them now.
+    for (const conversationId of await unansweredConversations(db, input.agentId)) {
+      await enqueueRun(boss, { agentId: input.agentId, trigger: "chat", triggerRef: conversationId, task: "Reply in chat" });
+    }
+    // Likewise incident comments that came in while a run was already queued.
+    for (const { inc, comment } of await unansweredIncidentComments(db, input.agentId)) {
+      await enqueueRun(boss, await commentRun(db, inc, comment, input.agentId));
     }
     return outcome;
   });
@@ -165,11 +324,44 @@ export async function startWorker(cfg: WorkerConfig) {
     if (!job) return;
     const [s] = await db.select().from(agentSchedules).where(eq(agentSchedules.id, job.data.scheduleId));
     if (!s?.enabled) return;
-    await enqueueRun(boss, { agentId: s.agentId, task: s.task, trigger: "schedule", triggerRef: s.id });
+    await enqueueRun(boss, { agentId: s.agentId, task: s.task, trigger: "schedule", triggerRef: s.id, requestedByUserId: s.requestedByUserId ?? undefined });
   });
 
   const sync = async () => {
     try {
+      await hireMoss();
+      // Agents hired since the last sync get the core skills too (hiring adds them; this is the backstop).
+      for (const org of await db.select({ id: orgs.id }).from(orgs)) {
+        await ensureCoreSkills(db, org.id);
+        // Everyone gets Moss's welcome once (new installs, new people, and existing people after an upgrade).
+        if (welcome) {
+          const n = await welcomeFromMoss(db, org.id, welcome);
+          if (n) log("Moss welcomed", { orgId: org.id, people: n });
+        }
+        // After an upgrade, Moss says what's new in #general (once per version).
+        if (changelog) {
+          const v = await announceWhatsNew(db, org.id, changelog);
+          if (v) log("Moss announced what's new", { orgId: org.id, version: v });
+        }
+        // An uploaded HTTPS certificate: reminders 30 and 7 days before it runs out.
+        const due = await remindCertificateExpiry(db, org.id);
+        if (due) log("Moss reminded about the HTTPS certificate", { orgId: org.id, daysAhead: due });
+        // The business licence: reminders 30 and 7 days before it expires, on expiry, and when it stops.
+        const licence = await remindLicenceExpiry(db, org.id);
+        if (licence) log("reminded about the business licence", { orgId: org.id, reminder: licence });
+        // Scheduled MOSS backups. The slot is marked first, so a failing service isn't asked every minute.
+        if (cfg.startBackup) {
+          const schedule = parseBackupSchedule(await getSetting(db, org.id, "backups.schedule"));
+          const last = await getSetting(db, org.id, "backups.last_scheduled");
+          if (backupDue(schedule, last ? new Date(last) : null)) {
+            await setSetting(db, org.id, "backups.last_scheduled", new Date().toISOString());
+            await cfg.startBackup(schedule.keep).then(
+              () => log("scheduled backup started", { orgId: org.id }),
+              (err) => log("scheduled backup failed to start", { orgId: org.id, error: (err as Error).message }),
+            );
+          }
+        }
+      }
       const res = await syncSchedules(db, boss);
       if (res.added || res.removed) log("schedules synced", res);
     } catch (err) {
@@ -184,7 +376,7 @@ export async function startWorker(cfg: WorkerConfig) {
     if (dispatching) return;
     dispatching = true;
     try {
-      await dispatchEvents(db, (e) => handleEvent(db, boss, e, { homeAssistant: cfg.homeAssistant, log }), 50);
+      await dispatchEvents(db, (e) => handleEvent(db, boss, e, { homeAssistant: cfg.homeAssistant, integrations: cfg.integrations, log }), 50);
     } catch (err) {
       log("event dispatch failed", { error: (err as Error).message });
     } finally {
@@ -212,6 +404,14 @@ export async function startWorker(cfg: WorkerConfig) {
       (err) => log("monitor prune failed", { error: (err as Error).message }),
     );
   const pruneTimer = setInterval(prune, 60 * 60_000);
+  // History for graphs: 5-minute and hourly rollups of the checks.
+  const rollUp = () =>
+    rollUpMonitorResults(db).then(
+      (n) => (n.fiveMinute || n.hourly) && log("monitor history rolled up", n),
+      (err) => log("monitor rollup failed", { error: (err as Error).message }),
+    );
+  const rollupTimer = setInterval(rollUp, 5 * 60_000);
+  void rollUp();
 
   let haRunning = false;
   const homeAssistantTick = async () => {
@@ -226,13 +426,30 @@ export async function startWorker(cfg: WorkerConfig) {
     }
   };
   const haTimer = setInterval(homeAssistantTick, cfg.homeAssistantIntervalMs ?? 60_000);
+
+  // The other integrations' health checks and inventory syncs, each on its own schedule.
+  let integrationsRunning = false;
+  const integrationsTick = async () => {
+    if (integrationsRunning || !cfg.integrations) return;
+    integrationsRunning = true;
+    try {
+      await runIntegrationsTick(db, cfg.integrations, { log });
+    } catch (err) {
+      log("integrations failed", { error: (err as Error).message });
+    } finally {
+      integrationsRunning = false;
+    }
+  };
+  const integrationsTimer = setInterval(integrationsTick, cfg.integrationsIntervalMs ?? 60_000);
   return {
     stop: async () => {
       clearInterval(timer);
       clearInterval(eventTimer);
       clearInterval(monitorTimer);
       clearInterval(pruneTimer);
+      clearInterval(rollupTimer);
       clearInterval(haTimer);
+      clearInterval(integrationsTimer);
       await boss.stop({ graceful: true });
     },
   };

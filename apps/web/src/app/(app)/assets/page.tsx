@@ -5,11 +5,14 @@ import { Pill } from "@/components/badges";
 import { TextAreaField, TextField } from "@/components/field";
 import { Empty, PageHeader, timeAgo, NoPermission } from "@/components/page";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { FormDialog } from "@/components/form-dialog";
 import { Input } from "@/components/ui/input";
+import { SortableHead } from "@/components/sortable-head";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ipKey, readSort, sortRows } from "@/lib/sort";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
+import { ACCESS_LABEL, assetAccessMap } from "@/server/asset-access";
 import { addAssetAction } from "./actions";
 
 export const metadata = { title: "Assets" };
@@ -20,11 +23,39 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
   const sp = await searchParams;
   const q = typeof sp.q === "string" ? sp.q.slice(0, 100) : "";
   const isIp = /^[0-9a-f:.]+(\/\d+)?$/i.test(q) && /[.:]/.test(q);
-  const rows = await searchAssets(db(), user.orgId, isIp ? { ip: q, limit: 200 } : { query: q || undefined, limit: 200 });
+  const sort = readSort(sp, ["name", "kind", "ip", "mac", "ports", "seen"] as const);
+  const rows = sortRows(await searchAssets(db(), user.orgId, isIp ? { ip: q, limit: 200 } : { query: q || undefined, limit: 200 }), sort, {
+    name: (a) => a.name,
+    kind: (a) => a.kind,
+    ip: (a) => ipKey(a.primaryIp),
+    mac: (a) => a.primaryMac ?? a.vendor,
+    ports: (a) => a.services.length,
+    seen: (a) => a.lastSeenAt,
+  });
+  const head = (label: string, key: string) => <SortableHead label={label} sortKey={key} state={sort} path="/assets" sp={sp} />;
+  const access = await assetAccessMap(user.orgId, rows);
 
   return (
     <>
-      <PageHeader title="Assets" description="Everything MOSS knows is on your network. Agents add what they discover; lock an asset to stop agents changing it." />
+      <PageHeader
+        title="Assets"
+        description="Everything MOSS knows is on your network. Agents add what they discover; lock an asset to stop agents changing it."
+        actions={
+          user.permissions.has("assets.manage") && (
+            <FormDialog label="Add an asset" title="Add an asset" description="For a device discovery can't see, or one you want named before it's found.">
+              <ActionForm action={addAssetAction} submitLabel="Add asset" resetOnSuccess>
+                <TextField label="Name" name="name" required />
+                <div className="grid grid-cols-2 gap-2">
+                  <TextField label="Kind" name="kind" placeholder="printer" />
+                  <TextField label="IP address" name="ip" />
+                </div>
+                <TextField label="MAC address" name="mac" />
+                <TextAreaField label="Notes" name="notes" rows={2} />
+              </ActionForm>
+            </FormDialog>
+          )
+        }
+      />
       <form className="mb-4 flex gap-2" role="search">
         <Input name="q" defaultValue={q} placeholder="Search by name, IP, CIDR, MAC, vendor or notes" aria-label="Search assets" className="max-w-md" />
         <Button type="submit" variant="outline">
@@ -37,12 +68,13 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Kind</TableHead>
-              <TableHead>IP</TableHead>
-              <TableHead>MAC / vendor</TableHead>
-              <TableHead>Open ports</TableHead>
-              <TableHead>Last seen</TableHead>
+              {head("Name", "name")}
+              {head("Kind", "kind")}
+              {head("IP", "ip")}
+              {head("MAC / vendor", "mac")}
+              {head("Open ports", "ports")}
+              <TableHead>Agent access</TableHead>
+              {head("Last seen", "seen")}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -61,6 +93,19 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
                   <div className="text-muted-foreground">{a.vendor}</div>
                 </TableCell>
                 <TableCell className="font-mono text-xs">{a.services.map((s) => s.port).join(", ") || "—"}</TableCell>
+                <TableCell>
+                  {(() => {
+                    const x = access.get(a.id)!;
+                    const l = ACCESS_LABEL[x.level];
+                    const who = [...new Set(x.credentials.flatMap((c) => c.agents.map((g) => g.name)))];
+                    return (
+                      <Link href={`/assets/${a.id}?access=1`} title={`${l.help} Click to set up access.`} aria-label={`Agent access to ${a.name}: ${l.label}. Set up access`} className="inline-flex flex-col gap-0.5">
+                        <Pill tone={l.tone}>{l.label}</Pill>
+                        {who.length > 0 && <span className="text-xs text-muted-foreground">{who.join(", ")}</span>}
+                      </Link>
+                    );
+                  })()}
+                </TableCell>
                 <TableCell className="font-mono text-sm whitespace-nowrap">{timeAgo(a.lastSeenAt)}</TableCell>
               </TableRow>
             ))}
@@ -68,24 +113,6 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
         </Table>
       )}
 
-      {user.permissions.has("assets.manage") && (
-        <Card className="mt-8 max-w-xl">
-          <CardHeader>
-            <CardTitle>Add an asset manually</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ActionForm action={addAssetAction} submitLabel="Add asset" resetOnSuccess>
-              <TextField label="Name" name="name" required />
-              <div className="grid grid-cols-2 gap-2">
-                <TextField label="Kind" name="kind" placeholder="printer" />
-                <TextField label="IP address" name="ip" />
-              </div>
-              <TextField label="MAC address" name="mac" />
-              <TextAreaField label="Notes" name="notes" rows={2} />
-            </ActionForm>
-          </CardContent>
-        </Card>
-      )}
     </>
   );
 }

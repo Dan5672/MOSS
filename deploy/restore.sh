@@ -8,6 +8,8 @@
 #                      master key differs from this install's). deploy/.env is never overwritten:
 #                      its database password must match the one this install's database was created with.
 #   --yes              don't ask for confirmation
+# An encrypted backup (downloaded from Settings → Backups, ending .enc) asks for its passphrase, or reads
+# MOSS_BACKUP_PASSPHRASE.
 #
 # Restoring onto a new machine: clone MOSS, then run this before init.sh. With no secrets or
 # .env present, the backup's copies are used.
@@ -36,6 +38,22 @@ $checkout && require_clean_tree
 umask 077
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT INT TERM
+# Backups downloaded from Settings → Backups are encrypted with a passphrase (openssl enc).
+if [ "$(head -c 8 "$archive")" = "Salted__" ]; then
+  command -v openssl >/dev/null 2>&1 || die "this backup is encrypted, and decrypting it needs openssl"
+  if [ -z "${MOSS_BACKUP_PASSPHRASE:-}" ]; then
+    printf 'This backup is encrypted. Passphrase: ' >&2
+    stty -echo 2>/dev/null || true
+    read -r MOSS_BACKUP_PASSPHRASE
+    stty echo 2>/dev/null || true
+    printf '\n' >&2
+  fi
+  export MOSS_BACKUP_PASSPHRASE
+  openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -pass env:MOSS_BACKUP_PASSPHRASE -in "$archive" -out "$work/archive.tar.gz" 2>/dev/null ||
+    die "could not decrypt $archive: wrong passphrase?"
+  unset MOSS_BACKUP_PASSPHRASE
+  archive="$work/archive.tar.gz"
+fi
 tar -xzf "$archive" -C "$work" || die "cannot read $archive"
 [ -f "$work/db.dump" ] && [ -f "$work/manifest" ] && [ -f "$work/secrets/master.key" ] || die "$archive is not a MOSS backup"
 manifest() { sed -n "s/^$1=//p" "$work/manifest"; }
@@ -70,13 +88,21 @@ fi
 
 if $checkout; then
   commit=$(manifest commit)
+  # Older backups from the web may only have the version: v0.1.1-75-gbceb394 (the commit is after -g), or
+  # a release tag like v0.2.0, which git can check out as it is.
+  if [ "$commit" = unknown ] || [ -z "$commit" ]; then
+    version=$(manifest version)
+    commit=$(echo "$version" | sed -n 's/.*-g\([0-9a-f]\{7,\}\)\(-dirty\)\{0,1\}$/\1/p')
+    case "$version" in v[0-9]*) [ -n "$commit" ] || commit=$version ;; esac
+    [ -n "$commit" ] || commit=unknown
+  fi
   [ "$commit" != unknown ] || die "the backup does not record a commit; check out the right version yourself and re-run without --checkout"
   info "Checking out $commit"
   git_repo checkout -q --detach "$commit"
 fi
 
 info "Stopping MOSS services (the database stays up)"
-dc stop web worker gate toolbox >/dev/null 2>&1 || true
+dc stop web worker gate toolbox bridge backup >/dev/null 2>&1 || true
 dc up -d postgres >/dev/null
 for _ in $(seq 1 60); do
   dc exec -T postgres sh -c 'pg_isready -q -U "$POSTGRES_USER"' && break
@@ -94,4 +120,14 @@ dc exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no
 info "Starting MOSS"
 if $checkout; then dc up -d --build >&2; else dc up -d >&2; fi
 wait_healthy || die "MOSS did not come back healthy. Check: docker compose logs"
+if [ -f "$work/https-pki.tar" ] && dc ps --services 2>/dev/null | grep -qx https; then
+  info "Restoring the HTTPS certificate authority"
+  dc exec -T https sh -c 'rm -rf /data/caddy/pki && tar -C /data -xf -' <"$work/https-pki.tar" && dc restart https >/dev/null 2>&1 ||
+    warn "could not restore the HTTPS certificate authority; devices will need to trust the new one"
+fi
+if [ -f "$work/https-tls.tar" ] && dc ps --services 2>/dev/null | grep -qx https; then
+  info "Restoring the uploaded HTTPS certificate"
+  dc exec -T https sh -c 'tar -C /tls -xf - && chmod 0777 /tls/web' <"$work/https-tls.tar" && dc restart https >/dev/null 2>&1 ||
+    warn "could not restore the uploaded HTTPS certificate; MOSS uses its own until you upload it again"
+fi
 info "Restore complete"

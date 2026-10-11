@@ -11,7 +11,8 @@ function parseV4(addr: string): bigint | null {
   if (parts.length !== 4) return null;
   let value = 0n;
   for (const part of parts) {
-    if (!/^\d{1,3}$/.test(part)) return null;
+    // No leading zeros: URL parsers and resolvers read 010 as octal (8), which would reach another host than the one checked.
+    if (!/^(0|[1-9]\d{0,2})$/.test(part)) return null;
     const n = Number(part);
     if (n > 255) return null;
     value = (value << 8n) | BigInt(n);
@@ -67,6 +68,8 @@ export function parseRange(input: string): IpRange | null {
   const mask = ((1n << BigInt(bits)) - 1n) ^ ((1n << hostBits) - 1n);
   const start = value & mask;
   const end = start | ((1n << hostBits) - 1n);
+  // An IPv4-mapped address (::ffff:192.168.1.5) reaches the IPv4 host, so it is that IPv4 range for every rule.
+  if (version === 6 && prefix >= 96 && start >> 32n === 0xffffn) return { version: 4, start: start & 0xffffffffn, end: end & 0xffffffffn };
   return { version, start, end };
 }
 
@@ -110,4 +113,30 @@ export function canonicalCidr(input: string): string | null {
   const size = range.end - range.start + 1n;
   const prefix = bits - (size.toString(2).length - 1);
   return `${formatAddress(range.version, range.start)}/${prefix}`;
+}
+
+/**
+ * Private, internal and special-use addresses: RFC 1918, CGNAT (100.64/10), loopback, link-local, and the
+ * IPv6 equivalents (::1, fc00::/7, fe80::/10). Anything else is a public address on the internet.
+ */
+const PRIVATE_RANGES = [
+  "10.0.0.0/8",
+  "172.16.0.0/12",
+  "192.168.0.0/16",
+  "100.64.0.0/10",
+  "127.0.0.0/8",
+  "169.254.0.0/16",
+  "0.0.0.0/8",
+  "::1/128",
+  "fc00::/7",
+  "fe80::/10",
+  "::/128",
+  // NAT64 (64:ff9b::/96) and IPv4-compatible (::/96) addresses carry an IPv4 address that may be on the LAN.
+  "64:ff9b::/96",
+  "::/96",
+].map((c) => parseRange(c)!);
+
+/** True if any part of the range is private or special-use (so a range straddling both counts as private). */
+export function isPrivateRange(range: IpRange): boolean {
+  return PRIVATE_RANGES.some((p) => p.version === range.version && overlaps(p, range));
 }

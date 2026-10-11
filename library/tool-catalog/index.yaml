@@ -1,0 +1,42 @@
+# The bundled tools catalog: ready-made custom tool definitions for common home lab apps.
+# Each entry names a definition file in this folder. Definitions are data, not code; MOSS validates each
+# one before showing it, and installs it switched off so you can review it, store its secret and grant it.
+tools:
+  - file: plex_sessions.yaml
+    app: Plex
+    title: Active Plex streams
+    secret: A Plex token (X-Plex-Token) stored as a secret called plex-token.
+  - file: jellyfin_sessions.yaml
+    app: Jellyfin
+    title: Active Jellyfin sessions
+    secret: A Jellyfin API key (Dashboard > API Keys) stored as jellyfin-api-key.
+  - file: tautulli_activity.yaml
+    app: Tautulli
+    title: What Plex is streaming, via Tautulli
+    secret: Tautulli's API key (Settings > Web Interface) stored as tautulli-api-key.
+  - file: sonarr_queue.yaml
+    app: Sonarr
+    title: Sonarr download queue
+    secret: Sonarr's API key (Settings > General) stored as sonarr-api-key.
+  - file: radarr_queue.yaml
+    app: Radarr
+    title: Radarr download queue
+    secret: Radarr's API key (Settings > General) stored as radarr-api-key.
+  - file: frigate_stats.yaml
+    app: Frigate
+    title: Frigate NVR health (cameras, detectors, storage)
+  - file: glances_quicklook.yaml
+    app: Glances
+    title: A server's CPU, memory and load, via Glances
+  - file: portainer_endpoints.yaml
+    app: Portainer
+    title: Portainer environments and their status
+    secret: A Portainer access token (My account > Access tokens) stored as portainer-token.
+  - file: nextcloud_serverinfo.yaml
+    app: Nextcloud
+    title: Nextcloud server health
+    secret: The serverinfo token (occ config:app:set serverinfo token --value ...) stored as nextcloud-serverinfo-token.
+  - file: opnsense_gateways.yaml
+    app: OPNsense
+    title: OPNsense gateway status
+    secret: Base64 of "key:secret" for an OPNsense API key (System > Access > Users), stored as opnsense-api-basic.

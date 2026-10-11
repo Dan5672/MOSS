@@ -1,0 +1,81 @@
+# What's new
+Newest first. After an upgrade, Moss posts the newest section in #general.
+
+## 0.5.0
+- **Integrations for your home lab**, each with its own page in Settings → Integrations: connect it, test
+  it, switch on what it should do, and see what it last found.
+- **Telegram and Discord**: your MOSS notifications on your phone, Approve and Reject buttons for
+  changes, and your agents to talk to, through your own bot. Connect in Settings → General.
+- **Docker**: containers that should be running are watched on every host, kept in the inventory, and
+  you can see which images have updates. MOSS only reads Docker, through a read-only proxy.
+- **OPNsense and pfSense**: gateways watched, devices named from DHCP, and agents can block a device
+  (through an approved change, using an alias your own rule uses).
+- **UPS (Network UPS Tools)**: know the moment the power goes, and shut your home lab down in order
+  before the battery runs out, with your approval each time or approved in advance.
+- **AWS** (business, read-only): EC2 instances and databases in the inventory, CloudWatch alarms watched, and
+  an exposure report of what the internet can reach in your account, with root MFA and old keys flagged.
+- **FortiGate and Cisco Meraki** (business, read-only): SD-WAN links, uplinks and VPN tunnels watched, devices
+  offline and firmware updates flagged, and device names in the inventory.
+- **PagerDuty** (business): MOSS pages the on-call person for its serious incidents, stands the page down
+  when they're resolved, and notes who acknowledged it.
+- **Slack** (business): alerts, Approve and Reject buttons, and your agents to talk to, in Slack, with nothing
+  opened to the internet.
+- **Sign in with Microsoft or Google** (business): people already in MOSS sign in with their work account, and
+  you can make it the only way in (owners keep their password).
+- **Microsoft 365 and Google Workspace** (business, read-only): managed laptops and phones in the inventory,
+  Microsoft 365 service health, device compliance and Google security alerts watched.
+- **Business licences**: business integrations (coming next) are unlocked with a licence key in
+  Settings → About. Everything else in MOSS stays free.
+- **Change MOSS's addresses in Settings → HTTPS**: no more editing deploy/.env and restarting when your
+  computer's address changes.
+- **Settings → About**: the version running here, what's new, and a Check for updates button.
+- **Agent instructions on monitors**: tell the responding agent what a device is and what to check first.
+- **Cloudflare**: know the moment anything new is exposed to the internet through Cloudflare, tunnels
+  watched, and a trusted Let's Encrypt certificate for MOSS with nothing opened to the internet.
+- **Tailscale**: your servers on the tailnet and their node keys watched, devices in the inventory, and
+  MOSS reachable from anywhere at https://moss.<tailnet>.ts.net.
+- **Proxmox VE and Proxmox Backup Server**: nodes, storage and the VMs that should be running are watched,
+  every VM and container joins the inventory under its node, and you hear when a guest hasn't been
+  backed up. Agents can snapshot a VM before changing it.
+- **Pi-hole and AdGuard Home**: MOSS watches that blocking stays on, graphs your queries and block rate,
+  and names devices in the inventory from what they know.
+
+## 0.4.0
+- **Metric monitors**: interface traffic and any numeric value over SNMP, a server's load, memory and
+  disk over SSH, and any Home Assistant sensor, with thresholds for degraded and down.
+- **Monitoring dashboards** (Monitoring → Dashboards): graphs, gauges, values, up/down history, a status
+  grid, top lists, incidents and notes, arranged by dragging. Shared or just yours, and a TV mode for a
+  wall screen. History now goes back two years.
+
+## 0.3.0
+- **Public addresses**: monitors and read-only checks (ping, TCP, HTTP, TLS, DNS) can reach a single
+  public address without adding a network. Scanners and anything that signs in still need one.
+- **Passwords**: change your own in Settings → Security. Admins set the password policy there: length,
+  kinds of character, no reusing old ones, maximum age, required two-factor, and a breached-password
+  check.
+- **Your own HTTPS certificate**: upload it in Settings → HTTPS. It's checked before use, switches over
+  without a restart, and Moss reminds everyone before it runs out.
+- **MOSS backups from Settings → Backups**: back up now or on a schedule, and download them encrypted
+  with a passphrase (after a two-factor code).
+
+## 0.2.0
+- **Moss**, the MOSS expert, is on every install and welcomes each person with a quick tour. Ask it
+  anything about how MOSS works.
+- **Chat** like Slack: channels (#general is everyone) and direct messages with agents and people.
+  Agents answer your incident and change comments, and @mentions.
+- **The wiki**: agents and people write down how your network fits together; asset pages show what's
+  written about each device.
+- **HTTPS for every device**, with MOSS's own certificate authority (or your own certificate). Trust
+  it once per device from Settings → HTTPS.
+- **Home Assistant**: the MOSS integration for Home Assistant (sensors, events like "new device on the
+  network", safe controls, Assist voice and the Basement card), and Settings → Integrations →
+  Home Assistant the other way round.
+- **Assets** show what agents can do with each device, with a wizard to set up access safely. Device
+  names come from your router's DNS.
+- **Changes**: a board view (drag to approve), linked references, title-only requests, and agents can
+  ask for access through a change.
+- **Agents**: how MOSS works is built into every agent; skills add products and abilities. Models
+  moved under Agents; recurring tasks are one filterable list.
+- **Tools**: a catalog of ready-made tools, and vulnerability scanning (nmap, Nuclei, testssl.sh).
+- **Settings**: Modules are now Integrations; tabs stay in place; breadcrumbs on every page.
+- **The Basement**: a playable arcade cabinet, and a cat with a defender.

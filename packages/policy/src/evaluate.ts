@@ -1,7 +1,7 @@
 // The Policy Gate's decision function. Pure and deterministic: the gate service
 // gathers context from the database and calls evaluate() before every tool call.
 // Nothing here trusts the LLM — all enforcement is based on recorded state.
-import { contains, overlaps, parseRange, type IpRange } from "./ip.js";
+import { contains, isPrivateRange, overlaps, parseRange, type IpRange } from "./ip.js";
 
 export type ToolClass = "read" | "write" | "dangerous";
 
@@ -12,6 +12,11 @@ export interface ToolManifest {
   targetArgs: string[];
   /** Argument names that carry a credential. They must be secret:<name> handles, never literal values. */
   secretArgs?: string[];
+  /**
+   * Light, read-only checks (ping, TCP, HTTP, TLS) may target a single public address without an allowed
+   * network, so you can watch services on the internet. Scanners and anything that signs in never may.
+   */
+  publicTargets?: boolean;
 }
 
 export interface ToolCall {
@@ -41,6 +46,8 @@ export interface ChangeContext {
   windowEnd?: Date | null;
   plannedCalls: { tool: string; args: Record<string, unknown> }[];
   rollbackCalls?: { tool: string; args: Record<string, unknown> }[];
+  /** The agent that raised the change (or a person raised it for); only that agent may carry it out. */
+  agentId?: string | null;
 }
 
 export interface PolicyContext {
@@ -76,7 +83,9 @@ export type DenyCode =
   | "secret_not_granted"
   | "secret_scope"
   | "secret_required"
-  | "module_disabled";
+  | "module_disabled"
+  | "licence_required"
+  | "setting_disabled";
 
 export type PolicyDecision =
   | { allow: true; targets: string[]; secretHandles: string[] }
@@ -136,12 +145,14 @@ export function canonicalJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function checkTarget(range: IpRange, raw: string, networks: { rule: NetworkRule; range: IpRange }[]): PolicyDecision | null {
+function checkTarget(range: IpRange, raw: string, networks: { rule: NetworkRule; range: IpRange }[], publicOk: boolean): PolicyDecision | null {
   const offLimits = networks.find((n) => n.rule.status === "off_limits" && overlaps(n.range, range));
   if (offLimits) return deny("target_off_limits", `Target ${raw} overlaps off-limits network ${offLimits.rule.cidr}`);
   const allowed = networks.some((n) => n.rule.status === "allowed" && contains(n.range, range));
-  if (!allowed) return deny("target_not_allowed", `Target ${raw} is not inside an allowed network`);
-  return null;
+  if (allowed) return null;
+  // A single public address is fine for a light check; never a range (that would be a sweep).
+  if (publicOk && range.start === range.end && !isPrivateRange(range)) return null;
+  return deny("target_not_allowed", `Target ${raw} is not inside an allowed network`);
 }
 
 export type ScopeDecision =
@@ -160,7 +171,7 @@ export function checkScope(manifest: ToolManifest, args: Record<string, unknown>
     if (typeof t !== "string") return { allow: false, code: "invalid_target", reason: "Targets must be IP or CIDR strings" };
     const range = parseRange(t);
     if (!range) return { allow: false, code: "invalid_target", reason: `Target ${JSON.stringify(t)} is not a resolved IP or CIDR` };
-    const denied = checkTarget(range, t, networks);
+    const denied = checkTarget(range, t, networks, !!manifest.publicTargets);
     if (denied && !denied.allow) return denied;
     targets.push(t);
     ranges.push(range);
@@ -205,6 +216,7 @@ export function evaluate(call: ToolCall, manifest: ToolManifest, ctx: PolicyCont
     if (!call.changeId) return deny("change_required", `${call.tool} changes state and requires an approved change request`);
     const change = ctx.change;
     if (!change || change.id !== call.changeId) return deny("change_required", `Change ${call.changeId} was not found`);
+    if (change.agentId !== ctx.agent.id) return deny("change_required", `Change ${change.id} is not this agent's to carry out`);
     if (!EXECUTABLE_CHANGE_STATUSES.has(change.status)) {
       return deny("change_not_executable", `Change ${change.id} is ${change.status}, not approved`);
     }

@@ -1,0 +1,43 @@
+raise_incident:
+  fields:
+    title:
+      required: true
+      example: "Water leak in the garage"
+      selector:
+        text:
+    description:
+      selector:
+        text:
+          multiline: true
+    priority:
+      default: P3
+      selector:
+        select:
+          options: ["P1", "P2", "P3", "P4"]
+    type:
+      default: break_fix
+      selector:
+        select:
+          options: ["break_fix", "security", "request"]
+    agent:
+      example: Harry
+      selector:
+        text:
+ask_agent:
+  fields:
+    agent:
+      default: Moss
+      selector:
+        text:
+    question:
+      required: true
+      example: "Why was the internet slow last night?"
+      selector:
+        text:
+          multiline: true
+acknowledge_incident:
+  fields:
+    incident_id:
+      required: true
+      selector:
+        text:

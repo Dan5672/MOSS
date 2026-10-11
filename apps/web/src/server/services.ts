@@ -32,6 +32,7 @@ export async function storeSecret(input: {
   name: string;
   type: "password" | "ssh_key" | "api_token" | "snmp_community" | "other";
   value: string;
+  username?: string;
   description?: string;
   allowedHosts?: string[];
   allowedTools?: string[];

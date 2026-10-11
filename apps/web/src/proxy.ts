@@ -2,7 +2,8 @@
 // permissions) happen in every page and server action, never only here.
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/setup"];
+// Signing in with Microsoft or Google happens before there is a session.
+const PUBLIC_PATHS = ["/login", "/setup", "/api/auth/sso"];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -17,6 +18,7 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Skip static assets, the health check and monitoring webhooks (they authenticate with a source token).
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|api/health|api/hooks/).*)"],
+  // Skip static assets, the health check, monitoring webhooks (they authenticate with a source token) and the
+  // Home Assistant API (bearer tokens).
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|api/health|api/hooks/|api/ha/).*)"],
 };

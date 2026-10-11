@@ -1,6 +1,8 @@
 // Agent tools for incidents and change management. Agents never call write tools directly:
 // change_execute runs exactly the approved plan, call by call, through the gate.
 import {
+  addChangeComment,
+  BUILT_IN_TOOLS,
   addIncidentComment,
   assertCanExecute,
   changeRef,
@@ -13,11 +15,21 @@ import {
   listIncidents,
   markVerifying,
   recordExecution,
+  requestAccess,
   startChange,
   updateIncident,
 } from "@moss/core";
+import { agentRuns } from "@moss/db";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { PlatformTool } from "./platform-tools.js";
+
+/** The person whose request started this run, so they can't also be the separate approver of what it raises. */
+async function promptedBy(db: Parameters<PlatformTool["run"]>[0]["db"], runId: string): Promise<string | undefined> {
+  if (!/^[0-9a-f-]{36}$/.test(runId)) return undefined;
+  const [run] = await db.select({ by: agentRuns.requestedByUserId }).from(agentRuns).where(eq(agentRuns.id, runId));
+  return run?.by ?? undefined;
+}
 
 const plannedCall = z.object({
   tool: z.string().min(1).max(64),
@@ -142,8 +154,8 @@ export const TICKET_TOOLS: PlatformTool[] = [
       incidentId: z.uuid().optional(),
       assetIds: z.array(z.uuid()).max(20).optional(),
     }),
-    run: async ({ db, orgId, agentId }, args) => {
-      const cr = await createChangeRequest(db, orgId, args, { type: "agent", id: agentId });
+    run: async ({ db, orgId, agentId, runId }, args) => {
+      const cr = await createChangeRequest(db, orgId, { ...args, promptedByUserId: await promptedBy(db, runId) }, { type: "agent", id: agentId });
       return {
         id: cr.id,
         ref: changeRef(cr.number),
@@ -153,6 +165,36 @@ export const TICKET_TOOLS: PlatformTool[] = [
             ? "Approved. Run change_execute when ready."
             : "Waiting for a human approver. You will be given a new task when it is approved or rejected.",
       };
+    },
+  },
+  {
+    name: "access_request",
+    description:
+      "Ask for access you don't have: tools (by name) and secrets (by name). It raises a change request; nothing runs, and " +
+      "when a person approves it you get exactly that access and a new task to carry on. Say why you need it.",
+    permission: "changes.create",
+    args: z.object({
+      tools: z.array(z.string().min(1).max(64)).max(10).default([]),
+      secrets: z.array(z.string().min(1).max(100)).max(5).default([]).describe("Secret names, e.g. unifi-password"),
+      reason: z.string().min(1).max(2000).describe("What you need it for"),
+      incidentId: z.uuid().optional(),
+    }),
+    run: async ({ db, orgId, agentId, runId }, args) => {
+      // Imported here: platform-tools.ts imports this file.
+      const { PLATFORM_TOOLS } = await import("./platform-tools.js");
+      const known = new Set([...BUILT_IN_TOOLS.keys(), ...PLATFORM_TOOLS.map((t) => t.name)]);
+      const cr = await requestAccess(db, orgId, agentId, args, known, await promptedBy(db, runId));
+      return { id: cr.id, ref: changeRef(cr.number), next: "Waiting for a person to approve it. You'll be given a new task when it's decided." };
+    },
+  },
+  {
+    name: "change_comment",
+    description: "Add a comment to a change request: answer a question about it, or report progress.",
+    permission: "changes.create",
+    args: z.object({ changeId: z.uuid(), body: z.string().min(1).max(5000) }),
+    run: async ({ db, orgId, agentId }, { changeId, body }) => {
+      await addChangeComment(db, orgId, changeId, body, { type: "agent", id: agentId });
+      return { ok: true };
     },
   },
   {

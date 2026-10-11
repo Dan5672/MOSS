@@ -1,12 +1,12 @@
 "use server";
 
-import { generateTotpSecret, setSetting, verifyPassword, verifyTotp, writeAudit, type SettingKey } from "@moss/core";
-import { users } from "@moss/db";
+import { generateTotpSecret, getPasswordPolicy, mustEnrolTotp, setSetting, verifyTotp, writeAudit, type SettingKey } from "@moss/core";
+import { roles, userRoles, users } from "@moss/db";
 import { eq } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { act, type ActionState } from "@/server/action";
-import { requirePermission, requireUser, sealTotpSecret } from "@/server/auth";
+import { confirmPassword, requirePermission, requireUser, sealTotpSecret } from "@/server/auth";
 import { db } from "@/server/db";
 
 const TOGGLES: SettingKey[] = ["agents.kill_switch", "tools.allow_dangerous", "changes.allow_emergency", "changes.require_separate_approver"];
@@ -32,19 +32,40 @@ export async function setMotionAction(_: ActionState, form: FormData): Promise<A
   });
 }
 
+/** Hides or brings back the dashboard's Getting started checklist, for this person only. */
+export async function setSetupChecklistHiddenAction(hidden: boolean, _: ActionState): Promise<ActionState> {
+  return act(async () => {
+    const user = await requireUser();
+    await db()
+      .update(users)
+      .set({ preferences: { ...user.preferences, hideSetupChecklist: hidden }, updatedAt: new Date() })
+      .where(eq(users.id, user.id));
+    return hidden ? "Getting started dismissed. Bring it back from Settings, Display." : "Getting started is back on the dashboard.";
+  });
+}
+
 // --- Two-factor enrolment: the pending secret lives in a short-lived httpOnly cookie until confirmed. ---
 const PENDING_TOTP = "moss_totp_pending";
 
 export async function startTotpAction(_: ActionState): Promise<ActionState> {
   return act(async () => {
-    await requireUser();
+    await requireUser({ unblocks: "enrol_totp" });
     (await cookies()).set(PENDING_TOTP, generateTotpSecret(), { httpOnly: true, sameSite: "strict", path: "/settings", maxAge: 600 });
   });
 }
 
 export async function confirmTotpAction(_: ActionState, form: FormData): Promise<ActionState> {
   return act(async () => {
-    const user = await requireUser();
+    const user = await requireUser({ unblocks: "enrol_totp" });
+    // Two-factor guards sensitive steps (backup downloads), so a stolen session mustn't be able to set its own:
+    // an existing one is never replaced here (turning it off needs the password), and setting one up needs the
+    // password, or for someone without one (they sign in with Microsoft or Google) a sign-in in the last 10 minutes.
+    if (user.totpEnabled) throw new Error("Two-factor is already on. Turn it off first (with your password) to set up a new one.");
+    if (user.hasPassword) {
+      if (!(await confirmPassword(user, String(form.get("password") ?? ""), "enrol_totp"))) throw new Error("Incorrect password.");
+    } else if (Date.now() - user.session.createdAt.getTime() > 10 * 60_000) {
+      throw new Error("Sign out and sign in again with Microsoft or Google, then set up two-factor within 10 minutes.");
+    }
     const store = await cookies();
     const secret = store.get(PENDING_TOTP)?.value;
     if (!secret) throw new Error("Enrolment expired; start again.");
@@ -60,8 +81,11 @@ export async function confirmTotpAction(_: ActionState, form: FormData): Promise
 export async function disableTotpAction(_: ActionState, form: FormData): Promise<ActionState> {
   return act(async () => {
     const user = await requireUser();
-    const [row] = await db().select().from(users).where(eq(users.id, user.id));
-    if (!row?.passwordHash || !(await verifyPassword(String(form.get("password") ?? ""), row.passwordHash))) throw new Error("Incorrect password.");
+    if (!(await confirmPassword(user, String(form.get("password") ?? ""), "disable_totp"))) throw new Error("Incorrect password.");
+    const roleKeys = (await db().select({ key: roles.key }).from(userRoles).innerJoin(roles, eq(roles.id, userRoles.roleId)).where(eq(userRoles.userId, user.id))).map((r) => r.key);
+    if (mustEnrolTotp(await getPasswordPolicy(db(), user.orgId), { totpEnabled: false, hasPassword: true, roles: roleKeys })) {
+      throw new Error("The password policy requires two-factor for you, so it can't be turned off.");
+    }
     await db().update(users).set({ totpSecretRef: null, updatedAt: new Date() }).where(eq(users.id, user.id));
     await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "auth.totp_disabled", targetType: "user", targetId: user.id });
     return "Two-factor authentication is off.";

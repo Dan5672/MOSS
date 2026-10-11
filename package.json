@@ -4,14 +4,17 @@
   "description": "MOSS - Managed Operations & Systems Service: a self-hosted AI IT department",
   "license": "AGPL-3.0-only",
   "packageManager": "pnpm@10.34.6",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "db:generate": "pnpm --filter @moss/db generate",
-    "db:migrate": "pnpm --filter @moss/db migrate"
+    "db:migrate": "pnpm --filter @moss/db migrate",
+    "gen:reference": "corepack pnpm --filter @moss/agent run build && node packages/agent/dist/scripts/gen-reference.js"
   },
   "devDependencies": {
     "turbo": "^2.5.0",

@@ -5,6 +5,7 @@ import { agents, agentSchedules, monitors, monitorSources, rolePermissions, secr
 import { and, asc, eq, ne } from "drizzle-orm";
 import { config } from "./config";
 import { db } from "./db";
+import { workingAgents } from "@/server/people";
 
 /** Everything the module page shows. */
 export async function homeAssistantPage(orgId: string) {
@@ -16,7 +17,7 @@ export async function homeAssistantPage(orgId: string) {
     db()
       .select({ id: agents.id, name: agents.name, title: agents.title, roleId: agents.roleId, status: agents.status })
       .from(agents)
-      .where(and(eq(agents.orgId, orgId), ne(agents.status, "fired")))
+      .where(and(eq(agents.orgId, orgId), ne(agents.status, "fired"), workingAgents))
       .orderBy(asc(agents.hiredAt)),
     db().select({ id: monitors.id, name: monitors.name, state: monitors.state }).from(monitors).where(eq(monitors.orgId, orgId)).orderBy(asc(monitors.name)),
     c.logReview.scheduleId ? db().select().from(agentSchedules).where(eq(agentSchedules.id, c.logReview.scheduleId)) : Promise.resolve([]),

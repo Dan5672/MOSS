@@ -1,0 +1,16 @@
+key: plex_sessions
+description: Active Plex streams on a Plex Media Server - what is playing and on which device.
+class: read
+params:
+  host: { type: ip, target: true, description: The Plex server }
+secret: plex-token
+request:
+  method: GET
+  scheme: http
+  port: 32400
+  path: /status/sessions
+  headers:
+    X-Plex-Token: "{{secret}}"
+    Accept: application/json
+result:
+  pick: $.MediaContainer.Metadata[*].title

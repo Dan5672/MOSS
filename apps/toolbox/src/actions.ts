@@ -1,7 +1,7 @@
 // Write tools: they change things, so the gate only sends them when they match a step of an approved change
 // request. Each does exactly one thing, then reads back the result so the agent can verify it.
 import { sendRequest, type RawRequest } from "./custom-http.js";
-import { arr, call, HomelabError, obj, type Base } from "./homelab.js";
+import { arr, call, HomelabError, obj, piholeSession, pveAuth, type Base } from "./homelab.js";
 import { clean } from "./parsers.js";
 import { dataOf, withUnifi, type UnifiAuth } from "./unifi.js";
 import { parseSystemctlShow, pinNote, run, ServerError, sshRun, type SshRun, type SshTarget } from "./servers.js";
@@ -62,6 +62,19 @@ export async function hostReboot(t: SshTarget & { delayMinutes: number }, ssh: S
   };
 }
 
+/** Schedules a clean power-off (for an orderly shutdown in a power cut), a minute or more ahead. */
+export async function hostShutdown(t: SshTarget & { delayMinutes: number }, ssh: SshRun = sshRun) {
+  const res = await run(t, `sudo -n shutdown -h +${Math.trunc(t.delayMinutes)} 'Shutdown by an approved MOSS change'`, ssh);
+  if (res.code !== 0) throw sudoHint(res.stderr, "shutdown") ?? new ServerError(`shutdown failed: ${clean(res.stderr) ?? `exit ${res.code}`}`);
+  return {
+    target: t.target,
+    scheduled: true,
+    inMinutes: t.delayMinutes,
+    note: "The server will power off shortly and stay off until it's switched on again.",
+    ...pinNote(t, res.hostKeySha256),
+  };
+}
+
 // --- Home Assistant ------------------------------------------------------------------------------
 
 async function haState(send: RawRequest, a: Base & { token: string }, entity: string) {
@@ -93,19 +106,6 @@ export async function homeassistantPowerCycle(a: Base & { token: string; entity:
 }
 
 // --- Pi-hole v6 ----------------------------------------------------------------------------------
-
-async function piholeSession<T>(send: RawRequest, a: Base & { password: string }, fn: (h: Record<string, string>) => Promise<T>) {
-  const auth = await call(send, "Pi-hole", a, "POST", "/api/auth", { "Content-Type": "application/json" }, JSON.stringify({ password: a.password }));
-  const session = obj(obj(auth.json).session);
-  const sid = clean(session.sid);
-  if (session.valid !== true || !sid) throw new HomelabError("Pi-hole refused the password (Pi-hole v6 is required)");
-  const h = { "X-FTL-SID": sid };
-  try {
-    return await fn(h);
-  } finally {
-    await call(send, "Pi-hole", a, "DELETE", "/api/auth", h).catch(() => {});
-  }
-}
 
 export async function piholeDomainRule(a: Base & { password: string; domain: string; list: "deny" | "allow"; action: "add" | "remove" }, send: RawRequest = sendRequest) {
   return piholeSession(send, a, async (h) => {
@@ -189,4 +189,46 @@ export async function unifiWlanEnable(a: UnifiArgs & { ssid: string; enabled: bo
   if (!id || !/^[0-9a-f]{24}$/.test(id)) throw new HomelabError(`No Wi-Fi network called "${a.ssid}" (networks: ${wlans.map((w) => clean(w.name)).filter(Boolean).join(", ") || "none"})`);
   const [updated] = await unifi(send, a, "PUT", `/rest/wlanconf/${id}`, { enabled: a.enabled });
   return { ssid: a.ssid, enabled: updated?.enabled === true };
+}
+
+// --- Proxmox VE ----------------------------------------------------------------------------------
+
+type ProxmoxGuest = Base & { token: string; node: string; kind: "vm" | "container"; vmid: number };
+
+const guestPath = (g: ProxmoxGuest) => `/api2/json/nodes/${encodeURIComponent(g.node)}/${g.kind === "vm" ? "qemu" : "lxc"}/${g.vmid}`;
+const form = (fields: Record<string, string>) => ({ body: new URLSearchParams(fields).toString(), headers: { "Content-Type": "application/x-www-form-urlencoded" } });
+
+/** Waits for a Proxmox task (UPID) to finish, so the next step of a change starts after it. */
+async function waitForTask(send: RawRequest, g: ProxmoxGuest, upid: string, timeoutMs = 120_000, pause = (ms: number) => new Promise((r) => setTimeout(r, ms))) {
+  const until = Date.now() + timeoutMs;
+  for (;;) {
+    const { json } = await call(send, "Proxmox", g, "GET", `/api2/json/nodes/${encodeURIComponent(g.node)}/tasks/${encodeURIComponent(upid)}/status`, pveAuth(g.token));
+    const t = obj(obj(json).data);
+    if (t.status === "stopped") {
+      if (t.exitstatus !== "OK") throw new HomelabError(`Proxmox task failed: ${clean(t.exitstatus) ?? "unknown error"}`);
+      return;
+    }
+    if (Date.now() > until) throw new HomelabError("Proxmox is still working on it; check the task log in Proxmox");
+    await pause(1500);
+  }
+}
+
+/** Takes a snapshot of a VM or container (before a change), and waits for it. */
+export async function proxmoxSnapshot(a: ProxmoxGuest & { name: string; description?: string }, send: RawRequest = sendRequest, pause?: (ms: number) => Promise<void>) {
+  const f = form({ snapname: a.name, description: a.description ?? "Taken by an approved MOSS change" });
+  const { json } = await call(send, "Proxmox", a, "POST", `${guestPath(a)}/snapshot`, { ...pveAuth(a.token), ...f.headers }, f.body);
+  const upid = clean(obj(json).data);
+  if (!upid) throw new HomelabError("Proxmox didn't start the snapshot");
+  await waitForTask(send, a, upid, 300_000, pause);
+  return { node: a.node, vmid: a.vmid, snapshot: a.name, done: true };
+}
+
+/** Shuts down, starts or reboots a VM or container, waits for it, and reports its state. */
+export async function proxmoxGuestPower(a: ProxmoxGuest & { action: "shutdown" | "start" | "reboot" }, send: RawRequest = sendRequest, pause?: (ms: number) => Promise<void>) {
+  const { json } = await call(send, "Proxmox", a, "POST", `${guestPath(a)}/status/${a.action}`, pveAuth(a.token));
+  const upid = clean(obj(json).data);
+  if (!upid) throw new HomelabError(`Proxmox didn't start the ${a.action}`);
+  await waitForTask(send, a, upid, 180_000, pause);
+  const { json: s } = await call(send, "Proxmox", a, "GET", `${guestPath(a)}/status/current`, pveAuth(a.token));
+  return { node: a.node, vmid: a.vmid, action: a.action, status: clean(obj(obj(s).data).status) };
 }

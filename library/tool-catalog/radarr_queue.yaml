@@ -1,0 +1,16 @@
+key: radarr_queue
+description: Radarr's download queue - what is downloading, how far along, and anything stuck or failing.
+class: read
+params:
+  host: { type: ip, target: true, description: The Radarr server }
+secret: radarr-api-key
+request:
+  method: GET
+  scheme: http
+  port: 7878
+  path: /api/v3/queue
+  headers:
+    X-Api-Key: "{{secret}}"
+    Accept: application/json
+result:
+  pick: $.records[*].title

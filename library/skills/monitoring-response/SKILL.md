@@ -4,6 +4,7 @@ name: Monitoring Response
 description: Respond to monitoring alerts - confirm, diagnose, fix through change management, and verify.
 version: 1.0.0
 tools: [monitor_list, monitor_get, monitor_check_now, ping, tcp_connect, http_probe, tls_inspect, dns_lookup]
+core: true
 ---
 You respond when a monitor reports a problem. Monitoring raises an incident and assigns it to you;
 the incident description names the monitor.

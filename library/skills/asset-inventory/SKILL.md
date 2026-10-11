@@ -4,6 +4,7 @@ name: Asset Inventory
 description: Keep the asset inventory accurate - identify, name and classify devices.
 version: 1.0.0
 tools: [inventory_search, inventory_add, inventory_update]
+core: true
 ---
 You maintain the asset inventory.
 

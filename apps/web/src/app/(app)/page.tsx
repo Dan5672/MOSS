@@ -6,7 +6,11 @@ import { Empty, formatUsd, PageHeader, Section } from "@/components/page";
 import { agentGlow, agentMascot } from "@/lib/agent-look";
 import { cn } from "@/lib/utils";
 import { requireUser } from "@/server/auth";
-import { dashboard, setupProgress } from "@/server/queries";
+import { dashboard, setupProgress, tokenSpend } from "@/server/queries";
+import { DASHBOARD_WIDGETS, DEFAULT_DASHBOARD, readLayout } from "@/components/widgets/registry";
+import { WidgetGrid } from "@/components/widgets/widget-grid";
+import { saveDashboardLayoutAction } from "./dashboard-actions";
+import { TokenSpendCard } from "./token-spend-card";
 import { SetupChecklist } from "./setup-checklist";
 
 export const metadata = { title: "Dashboard" };
@@ -27,9 +31,23 @@ function SegmentBar({ ratio, fill = "bg-signal", label }: { ratio: number; fill?
   );
 }
 
-function Stat({ label, value, tone, sub, href, children }: { label: string; value: React.ReactNode; tone?: string; sub?: React.ReactNode; href: string; children?: React.ReactNode }) {
+function Stat({
+  label,
+  value,
+  tone,
+  sub,
+  href,
+  children,
+}: {
+  label: string;
+  value: React.ReactNode;
+  tone?: string;
+  sub?: React.ReactNode;
+  href: string;
+  children?: React.ReactNode;
+}) {
   return (
-    <Link href={href} className="px-frame grid content-start gap-2 bg-card p-4 transition-colors hover:bg-accent">
+    <Link href={href} className="px-frame grid h-full content-start gap-2 bg-card p-4 transition-colors hover:bg-accent">
       <span className="font-mono text-[11px] tracking-wider text-dim uppercase">{label}</span>
       <span className={cn("font-mono text-[34px] leading-none tabular-nums", tone ?? "text-foreground")}>{value}</span>
       {sub && <span className="text-[13px] text-muted-foreground">{sub}</span>}
@@ -48,7 +66,7 @@ function Briefing({ d }: { d: Dashboard }) {
     d.monitors.down && plural(d.monitors.down, "monitor") + " down",
   ].filter(Boolean);
   return (
-    <div className="mb-8 flex flex-wrap items-center gap-6">
+    <div className="flex flex-wrap items-center gap-6">
       <Mascot size={96} blink />
       <div className="relative min-w-0 flex-1">
         {/* Speech bubble tail, pointing at the mascot. */}
@@ -105,7 +123,9 @@ function TeamCard({ agent, killSwitch }: { agent: Dashboard["team"][number]; kil
               label={`Budget: ${Math.round(ratio * 100)}% of this ${b.period}'s limit used`}
             />
             <span className="font-mono text-[11px] text-dim">
-              {b.unit === "usd" ? `${formatUsd(b.spent)} / ${formatUsd(b.limit)}` : `${Math.round(b.spent).toLocaleString()} / ${b.limit.toLocaleString()} tokens`}{" "}
+              {b.unit === "usd"
+                ? `${formatUsd(b.spent)} / ${formatUsd(b.limit)}`
+                : `${Math.round(b.spent).toLocaleString()} / ${b.limit.toLocaleString()} tokens`}{" "}
               this {b.period}
             </span>
           </div>
@@ -133,8 +153,157 @@ const clock = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-dig
 
 export default async function DashboardPage() {
   const user = await requireUser();
-  const [d, setup] = await Promise.all([dashboard(user.orgId), setupProgress(user.orgId)]);
+  const [d, setup, spend] = await Promise.all([dashboard(user.orgId), setupProgress(user.orgId), tokenSpend(user.orgId)]);
   const priorities = (["P1", "P2", "P3", "P4"] as const).filter((p) => d.incidents.byPriority[p]);
+  const cards: Record<string, React.ReactNode> = {
+    briefing: <Briefing d={d} />,
+    "stat-incidents": (
+      <Stat
+        label="Open incidents"
+        value={d.incidents.open}
+        tone={d.incidents.open ? "text-alarm" : undefined}
+        href="/incidents"
+        sub={
+          priorities.length ? (
+            <span className="flex flex-wrap gap-1">
+              {priorities.map((p) => (
+                <span key={p} className="flex items-center gap-1">
+                  <PriorityBadge priority={p} /> {d.incidents.byPriority[p]}
+                </span>
+              ))}
+            </span>
+          ) : (
+            "Nothing open"
+          )
+        }
+      />
+    ),
+    "stat-monitors": (
+      <Stat
+        label="Monitors down"
+        value={d.monitors.down}
+        tone={d.monitors.down ? "text-amber" : undefined}
+        href="/monitoring"
+        sub={d.monitors.total ? `${d.monitors.up} up${d.monitors.degraded ? ` · ${d.monitors.degraded} degraded` : ""}` : "No monitors yet"}
+      />
+    ),
+    "stat-approvals": (
+      <Stat
+        label="Awaiting approval"
+        value={d.pendingApprovals}
+        tone={d.pendingApprovals ? "text-phosphor" : undefined}
+        href="/changes"
+        sub="Change requests"
+      />
+    ),
+    "stat-assets": <Stat label="Assets" value={d.assets.total} href="/assets" sub={`${d.assets.newThisWeek} new this week`} />,
+    "stat-agents": <Stat label="Agents" value={d.agents.active} href="/agents" sub={d.agents.paused ? `${d.agents.paused} paused` : "All active"} />,
+    "stat-spend": (
+      <Stat label="Spend this month" value={formatUsd(d.spend.month)} href="/agents" sub={`${formatUsd(d.spend.today)} today`}>
+        {d.monthlyCapUsd !== null && (
+          <SegmentBar ratio={d.spend.month / d.monthlyCapUsd} label={`${formatUsd(d.spend.month)} of the ${formatUsd(d.monthlyCapUsd)} monthly cap`} />
+        )}
+      </Stat>
+    ),
+    "token-spend": <TokenSpendCard t={spend} cap={d.monthlyCapUsd} />,
+    team: (
+      <Section
+        title="The team"
+        actions={
+          <Link href="/agents" className="text-sm underline">
+            Hire an agent
+          </Link>
+        }
+      >
+        {d.team.length === 0 ? (
+          <Empty>No agents yet. Hire one to get started.</Empty>
+        ) : (
+          <div className="grid gap-2">
+            {d.team.map((a) => (
+              <TeamCard key={a.id} agent={a} killSwitch={d.killSwitch} />
+            ))}
+          </div>
+        )}
+      </Section>
+    ),
+    "incident-queue": (
+      <Section
+        title="Incident queue"
+        actions={
+          <Link href="/incidents" className="text-sm underline">
+            All incidents
+          </Link>
+        }
+      >
+        {d.openIncidentQueue.length === 0 ? (
+          <Empty>Nothing open.</Empty>
+        ) : (
+          <div className="px-frame overflow-x-auto bg-card">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="font-mono text-[11px] tracking-wider text-dim uppercase">
+                  <th className="px-3 py-2 text-left font-normal">ID</th>
+                  <th className="px-3 py-2 text-left font-normal">Incident</th>
+                  <th className="px-3 py-2 text-left font-normal">Pri</th>
+                  <th className="px-3 py-2 text-left font-normal">On it</th>
+                  <th className="px-3 py-2 text-right font-normal">Age</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y-2">
+                {d.openIncidentQueue.map((i) => (
+                  <tr key={i.id}>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <Link href={`/incidents/${i.id}`} className="font-mono text-ink underline-offset-2 hover:underline dark:text-beige">
+                        {incidentRef(i.number)}
+                      </Link>
+                    </td>
+                    <td className="max-w-[16rem] truncate px-3 py-2">{i.title}</td>
+                    <td className="px-3 py-2">
+                      <PriorityBadge priority={i.priority} />
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{i.agentName ?? "—"}</td>
+                    <td className="px-3 py-2 text-right font-mono whitespace-nowrap text-dim">{age(i.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+    ),
+    "audit-tail": (
+      <Section
+        title="Audit tail"
+        actions={
+          <Link href="/audit" className="text-sm underline">
+            Audit log
+          </Link>
+        }
+      >
+        {/* Always the dark CRT look, whatever the theme. */}
+        <div className="dark px-frame scanlines overflow-x-auto bg-terminal p-3 font-mono text-[13px] text-foreground">
+          <ol className="grid gap-1">
+            {d.recentAudit.map((e) => (
+              <li key={e.id} className="whitespace-nowrap">
+                <span className="text-dim">{clock.format(e.createdAt)}</span> <span className={actionColour(e.action)}>{e.action}</span>
+                {e.targetType && (
+                  <span className="text-muted-foreground">
+                    {" "}
+                    {e.targetType}
+                    {e.targetId && ` ${e.targetId.slice(0, 8)}`}
+                  </span>
+                )}{" "}
+                <span className="text-dim">· {e.actorName ?? e.actorType}</span>
+              </li>
+            ))}
+            <li aria-hidden className="flex items-center gap-2 text-phosphor">
+              &gt; <span className="cursor-block inline-block h-4 w-[9px] bg-phosphor" />
+            </li>
+          </ol>
+        </div>
+      </Section>
+    ),
+  };
 
   return (
     <>
@@ -150,143 +319,14 @@ export default async function DashboardPage() {
       />
 
       <SetupChecklist s={setup} user={user} />
-      <Briefing d={d} />
-
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(170px,100%),1fr))] gap-3">
-        <Stat
-          label="Open incidents"
-          value={d.incidents.open}
-          tone={d.incidents.open ? "text-alarm" : undefined}
-          href="/incidents"
-          sub={
-            priorities.length ? (
-              <span className="flex flex-wrap gap-1">
-                {priorities.map((p) => (
-                  <span key={p} className="flex items-center gap-1">
-                    <PriorityBadge priority={p} /> {d.incidents.byPriority[p]}
-                  </span>
-                ))}
-              </span>
-            ) : (
-              "Nothing open"
-            )
-          }
-        />
-        <Stat
-          label="Monitors down"
-          value={d.monitors.down}
-          tone={d.monitors.down ? "text-amber" : undefined}
-          href="/monitoring"
-          sub={d.monitors.total ? `${d.monitors.up} up${d.monitors.degraded ? ` · ${d.monitors.degraded} degraded` : ""}` : "No monitors yet"}
-        />
-        <Stat label="Awaiting approval" value={d.pendingApprovals} tone={d.pendingApprovals ? "text-phosphor" : undefined} href="/changes" sub="Change requests" />
-        <Stat label="Assets" value={d.assets.total} href="/assets" sub={`${d.assets.newThisWeek} new this week`} />
-        <Stat label="Agents" value={d.agents.active} href="/agents" sub={d.agents.paused ? `${d.agents.paused} paused` : "All active"} />
-        <Stat label="Spend this month" value={formatUsd(d.spend.month)} href="/agents" sub={`${formatUsd(d.spend.today)} today`}>
-          {d.monthlyCapUsd !== null && (
-            <SegmentBar ratio={d.spend.month / d.monthlyCapUsd} label={`${formatUsd(d.spend.month)} of the ${formatUsd(d.monthlyCapUsd)} monthly cap`} />
-          )}
-        </Stat>
-      </div>
-
-      <div className="mt-8 grid grid-cols-[repeat(auto-fit,minmax(min(480px,100%),1fr))] gap-8">
-        <Section
-          title="The team"
-          actions={
-            <Link href="/agents" className="text-sm underline">
-              Hire an agent
-            </Link>
-          }
-        >
-          {d.team.length === 0 ? (
-            <Empty>No agents yet. Hire one to get started.</Empty>
-          ) : (
-            <div className="grid gap-2">
-              {d.team.map((a) => (
-                <TeamCard key={a.id} agent={a} killSwitch={d.killSwitch} />
-              ))}
-            </div>
-          )}
-        </Section>
-
-        <div className="grid content-start gap-8">
-          <Section
-            title="Incident queue"
-            actions={
-              <Link href="/incidents" className="text-sm underline">
-                All incidents
-              </Link>
-            }
-          >
-            {d.openIncidentQueue.length === 0 ? (
-              <Empty>Nothing open.</Empty>
-            ) : (
-              <div className="px-frame overflow-x-auto bg-card">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="font-mono text-[11px] tracking-wider text-dim uppercase">
-                      <th className="px-3 py-2 text-left font-normal">ID</th>
-                      <th className="px-3 py-2 text-left font-normal">Incident</th>
-                      <th className="px-3 py-2 text-left font-normal">Pri</th>
-                      <th className="px-3 py-2 text-left font-normal">On it</th>
-                      <th className="px-3 py-2 text-right font-normal">Age</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y-2">
-                    {d.openIncidentQueue.map((i) => (
-                      <tr key={i.id}>
-                        <td className="px-3 py-2 whitespace-nowrap">
-                          <Link href={`/incidents/${i.id}`} className="font-mono text-ink underline-offset-2 hover:underline dark:text-beige">
-                            {incidentRef(i.number)}
-                          </Link>
-                        </td>
-                        <td className="max-w-[16rem] truncate px-3 py-2">{i.title}</td>
-                        <td className="px-3 py-2">
-                          <PriorityBadge priority={i.priority} />
-                        </td>
-                        <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{i.agentName ?? "—"}</td>
-                        <td className="px-3 py-2 text-right font-mono whitespace-nowrap text-dim">{age(i.createdAt)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Section>
-
-          <Section
-            title="Audit tail"
-            actions={
-              <Link href="/audit" className="text-sm underline">
-                Audit log
-              </Link>
-            }
-          >
-            {/* Always the dark CRT look, whatever the theme. */}
-            <div className="dark px-frame scanlines overflow-x-auto bg-terminal p-3 font-mono text-[13px] text-foreground">
-              <ol className="grid gap-1">
-                {d.recentAudit.map((e) => (
-                  <li key={e.id} className="whitespace-nowrap">
-                    <span className="text-dim">{clock.format(e.createdAt)}</span> <span className={actionColour(e.action)}>{e.action}</span>
-                    {e.targetType && (
-                      <span className="text-muted-foreground">
-                        {" "}
-                        {e.targetType}
-                        {e.targetId && ` ${e.targetId.slice(0, 8)}`}
-                      </span>
-                    )}{" "}
-                    <span className="text-dim">· {e.actorName ?? e.actorType}</span>
-                  </li>
-                ))}
-                <li aria-hidden className="flex items-center gap-2 text-phosphor">
-                  &gt; <span className="cursor-block inline-block h-4 w-[9px] bg-phosphor" />
-                </li>
-              </ol>
-            </div>
-          </Section>
-        </div>
-      </div>
+      <WidgetGrid
+        label="Dashboard cards"
+        cards={cards}
+        layout={readLayout(user.preferences.dashboard)}
+        widgets={DASHBOARD_WIDGETS}
+        defaultLayout={DEFAULT_DASHBOARD}
+        save={saveDashboardLayoutAction}
+      />
     </>
   );
 }
-

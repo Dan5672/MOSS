@@ -9,3 +9,6 @@ deploy/secrets/
 deploy/backups/
 deploy/secrets.before-restore-*/
 deploy/.last-upgrade
+__pycache__/
+deploy/certs/*.pem
+docs/security/

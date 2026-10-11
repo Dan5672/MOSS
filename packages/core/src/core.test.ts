@@ -53,6 +53,12 @@ describe("redactSecrets", () => {
     expect(out).not.toContain(secret);
     expect(out).toBe("login ok as admin:[REDACTED] auth=[REDACTED] url=[REDACTED]");
   });
+
+  it("removes a value with quotes or backslashes from JSON text", () => {
+    const secret = 'pa"ss\\1';
+    const out = redactSecrets(JSON.stringify({ banner: `hello ${secret}` }), [secret]);
+    expect(JSON.parse(out)).toEqual({ banner: "hello [REDACTED]" });
+  });
 });
 
 describe("audit chain", () => {

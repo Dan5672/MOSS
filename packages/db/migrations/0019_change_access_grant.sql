@@ -1,0 +1,1 @@
+ALTER TABLE "change_requests" ADD COLUMN "access_grant" jsonb;
