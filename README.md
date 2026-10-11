@@ -14,16 +14,20 @@ audited.
 > edges and breaking changes between releases. Only point it at networks you own or are authorised
 > to manage.
 
-![The Basement: MOSS's agents at their desks. Nina is working an internet outage while the others are on a break.](docs/screenshots/basement.png)
+![The Basement: MOSS's agents at their desks. Nina is working an incident and Iris a security check, while the others are on a break.](docs/screenshots/basement.png)
 
 <table>
   <tr>
-    <td><img src="docs/screenshots/dashboard.png" alt="Dashboard: a getting-started checklist, a briefing, and counts of open incidents, monitors down, changes awaiting approval, assets and agents"></td>
+    <td><img src="docs/screenshots/dashboard.png" alt="Dashboard: Moss's briefing, counts of open incidents, monitors down, changes awaiting approval, assets, agents and spend, token spend and the team"></td>
     <td><img src="docs/screenshots/monitoring.png" alt="Monitoring: built-in and external monitors with their state, last result and responder agent"></td>
   </tr>
   <tr>
     <td><img src="docs/screenshots/agent.png" alt="An agent's page: its recent runs, skills and their tools, mascot, model, budget and schedules"></td>
-    <td><img src="docs/screenshots/assets.png" alt="Assets: the inventory of devices with kind, IP, MAC and vendor"></td>
+    <td><img src="docs/screenshots/assets.png" alt="Assets: the inventory of devices with kind, IP, MAC and vendor, and what agents may do with each"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/monitoring-dashboard.png" alt="A monitoring dashboard: a status grid of monitors, open incidents and each monitor's last 24 hours, with a TV mode"></td>
+    <td><img src="docs/screenshots/integrations.png" alt="Settings, Integrations: Home Assistant, Telegram, Discord, Proxmox, Docker and the other integrations, each on or off"></td>
   </tr>
 </table>
 
