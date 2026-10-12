@@ -91,7 +91,7 @@ Using MOSS at work? Read its first section, [At work: start read-only](docs/hard
 
 You need a computer that stays on (Linux is recommended), Docker with the Compose plugin, and
 `openssl`. MOSS is tested on x86-64; ARM boards such as the Raspberry Pi 5 are planned but not yet
-tested.
+tested. On Windows, run these commands in WSL or Git Bash, not PowerShell.
 
 ```sh
 git clone https://github.com/Dan5672/MOSS.git
@@ -101,7 +101,13 @@ sh deploy/init.sh   # creates the settings, keys and passwords MOSS needs
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 ```
 
-Open the address `init.sh` printed (for example https://192.168.1.20) and create your account. Then:
+The first start builds MOSS on your computer, which takes a while: 10 to 20 minutes on a typical
+mini PC.
+
+Open the address `init.sh` printed (for example https://192.168.1.20) and create your account with
+the **setup code** it printed (it's also in `deploy/secrets/setup.code`), so nobody else on your
+network can claim MOSS first. If `init.sh` didn't find your computer's network address, open
+https://localhost on that computer and add the address in Settings → HTTPS. Then:
 
 1. **Networks:** add your home network (for example `192.168.1.0/24`) and mark it **allowed**.
 2. **Agents → Models:** add an AI provider (an API key, or a local Ollama address).

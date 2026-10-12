@@ -50,7 +50,9 @@ confirm() {
 }
 
 migration_count() { psql_moss 'select count(*) from drizzle.__drizzle_migrations' 2>/dev/null || echo unknown; }
-images() { dc config --images 2>/dev/null | sort -u; }
+# The images MOSS builds. Ones pinned to a digest (postgres, tailscale) never change under the same name, so they need
+# no :rollback copy (and name@sha256:… can't take a tag).
+images() { dc config --images 2>/dev/null | grep -v '@' | sort -u; }
 
 # Keep the running version's images under :rollback so going back needs no rebuild.
 save_images() {
