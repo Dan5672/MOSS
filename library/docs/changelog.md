@@ -1,6 +1,11 @@
 # What's new
 Newest first. After an upgrade, Moss posts the newest section in #general.
 
+## 0.5.1
+- **Install with one command**: `sh deploy/install.sh` sets MOSS up, builds and starts it, and ends with a link
+  to create your account, with the setup code already filled in.
+- **Upgrades work again** after 0.5.0: `deploy/upgrade.sh` no longer stops at the images pinned to an exact version.
+
 ## 0.5.0
 - **Integrations for your home lab**, each with its own page in Settings → Integrations: connect it, test
   it, switch on what it should do, and see what it last found.

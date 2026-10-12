@@ -4,18 +4,25 @@ import { TextField } from "@/components/field";
 import { isSetUp } from "@/server/auth";
 import { config } from "@/server/config";
 import { setupAction } from "../actions";
+import { ForgetCode } from "./forget-code";
 
 export const metadata = { title: "Set up" };
 
-export default async function SetupPage() {
+export default async function SetupPage({ searchParams }: PageProps<"/setup">) {
   if (await isSetUp()) redirect("/login");
+  // install.sh prints a link with the code in it, so nobody has to go and find it.
+  const linked = (await searchParams).code;
+  const code = typeof linked === "string" && /^[0-9a-f]{1,64}$/i.test(linked) ? linked : undefined;
   return (
     <>
       <h1 className="text-lg font-semibold text-ink dark:text-beige">Welcome to MOSS</h1>
       <p className="mt-1 mb-6 text-sm text-muted-foreground">Create your organisation and the owner account. You can add more people later.</p>
       <ActionForm action={setupAction} submitLabel="Create and sign in">
         {config.setupCode() && (
-          <TextField label="Setup code" name="setupCode" autoComplete="off" required hint="Printed by deploy/init.sh, and kept in deploy/secrets/setup.code." />
+          <>
+            <TextField label="Setup code" name="setupCode" autoComplete="off" required defaultValue={code} hint={code ? "Filled in from the link deploy/install.sh printed." : "Printed by deploy/install.sh, and kept in deploy/secrets/setup.code."} />
+            <ForgetCode />
+          </>
         )}
         <TextField label="Name for this network" name="orgName" placeholder="Home" required />
         <TextField label="Your name" name="ownerName" autoComplete="name" required />
