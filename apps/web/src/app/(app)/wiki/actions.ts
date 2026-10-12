@@ -1,6 +1,6 @@
 "use server";
 
-import { createNote, deleteNote, getNote, updateNote } from "@moss/core";
+import { createNote, deleteNote, getNote, publishNote, updateNote } from "@moss/core";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { act, formObject, type ActionState } from "@/server/action";
@@ -23,6 +23,15 @@ export async function savePageAction(pageId: string | null, _: ActionState, form
     const input = { title: f.title, body: f.body, parentId: f.parentId ?? null, assetId: f.assetId ?? null };
     const row = pageId ? await updateNote(db(), user.orgId, pageId, input, actor) : await createNote(db(), user.orgId, input, actor);
     redirect(`/wiki/${row.slug}`);
+  });
+}
+
+/** A person has read an agent's draft: other agents may read it now. */
+export async function publishPageAction(pageId: string, seen: string, _: ActionState): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("knowledge.manage");
+    await publishNote(db(), user.orgId, pageId, { type: "user", id: user.id }, new Date(seen));
+    return "Published. Agents can read it now.";
   });
 }
 

@@ -93,7 +93,7 @@ describe("AWS", () => {
       { key: "sg:i-web:MySQL (3306)+RDP (3389)+SSH (22)", resource: "web (i-web)", issue: "Open to the internet on SSH (22), MySQL (3306), RDP (3389)", region: "ap-southeast-2" },
       { key: "ip:i-app", resource: "i-app", issue: "Has a public address (203.0.113.11)", region: "ap-southeast-2" },
       { key: "rds:orders", resource: "orders (postgres)", issue: "Publicly accessible database", region: "ap-southeast-2" },
-      { key: "s3:site-assets", resource: "site-assets", issue: "Public S3 bucket (bucket policy)", region: "ap-southeast-2" },
+      { key: "s3:site-assets:policy", resource: "site-assets", issue: "Public S3 bucket (bucket policy)", region: "ap-southeast-2" },
     ]);
     expect(res.account).toEqual({ rootMfa: false, rootKeys: true, oldKeys: ["ci"] });
     expect(calls.filter((c) => c.includes("attacker"))).toEqual([]);

@@ -98,7 +98,7 @@ describe.skipIf(!TEST_DATABASE_URL)("Home Assistant module (gate)", () => {
     await configure(true, { host: "192.168.66.5", health: { enabled: true } });
     expect(await gate.homeAssistant({ orgId, op: "health" })).toMatchObject({ ok: false, error: expect.stringMatching(/^Blocked by policy: .*off-limits/) });
     await configure(true, { host: "192.168.1.21", health: { enabled: true } });
-    expect(await gate.homeAssistant({ orgId, op: "health" })).toEqual({ ok: false, error: `The ${HA_TOKEN_SECRET} secret may not be used against 192.168.1.21` });
+    expect(await gate.homeAssistant({ orgId, op: "health" })).toEqual({ ok: false, error: `Secret ${HA_TOKEN_SECRET} may not be used against 192.168.1.21` });
     expect(calls).toHaveLength(0);
   });
 

@@ -1,8 +1,9 @@
 // The Policy Gate: the only path from an agent's tool call to the toolbox, and the
 // only component that can decrypt secrets. Every decision is written to the audit log.
-import { businessIntegrationForTool, decryptSecret, getSetting, integrationLicensed, isModuleEnabled, moduleForTool, redactSecrets, writeAudit } from "@moss/core";
-import type { Database } from "@moss/db";
-import { checkSecrets, contains, evaluate, extractSecretHandles, parseRange, type DenyCode, type IpRange } from "@moss/policy";
+import { businessIntegrationForTool, containsPrivateKey, decryptSecret, getSetting, integrationLicensed, isModuleEnabled, moduleForTool, redactSecrets, userPermissions, writeAudit } from "@moss/core";
+import { agentRuns, changeRequests, type Database } from "@moss/db";
+import { and, eq, sql } from "drizzle-orm";
+import { checkSecrets, contains, evaluate, EXECUTABLE_CHANGE_STATUSES, extractSecretHandles, parseRange, type DenyCode, type IpRange } from "@moss/policy";
 import {
   BUILT_IN_TOOLS,
   customToolDefinition,
@@ -20,6 +21,7 @@ import { runHomeAssistantOp, type HaOp } from "./home-assistant.js";
 import { runIntegrationOp } from "./integrations.js";
 import { ssoExchange } from "./sso.js";
 import { runMonitorCheck } from "./monitor-check.js";
+import { credentialCall } from "./pins.js";
 import type { ToolboxClient } from "./toolbox-client.js";
 
 export interface ToolCallRequest {
@@ -40,9 +42,29 @@ export interface GateDeps {
   toolbox: ToolboxClient;
   tools?: ReadonlyMap<string, ToolDefinition>;
   now?: () => Date;
+  /** For the gate's own requests to the internet (SSO signing keys); tests pass a stand-in. */
+  fetch?: typeof fetch;
 }
 
 const SECRET_HANDLE = /^secret:([A-Za-z0-9_.-]+)$/;
+const KILL_SWITCH_POLL_MS = 1000;
+
+/** Marks a change's planned step as run, unless it already is. False when someone else got there first. */
+async function claimStep(db: Database, changeId: string, step: number) {
+  const rows = await db
+    .update(changeRequests)
+    .set({ executedCalls: sql`${changeRequests.executedCalls} || ${JSON.stringify([step])}::jsonb` })
+    .where(and(eq(changeRequests.id, changeId), sql`not ${changeRequests.executedCalls} @> ${JSON.stringify([step])}::jsonb`))
+    .returning({ id: changeRequests.id });
+  return rows.length > 0;
+}
+
+async function releaseStep(db: Database, changeId: string, step: number) {
+  await db
+    .update(changeRequests)
+    .set({ executedCalls: sql`(select coalesce(jsonb_agg(e), '[]'::jsonb) from jsonb_array_elements(${changeRequests.executedCalls}) e where e <> ${String(step)}::jsonb)` })
+    .where(eq(changeRequests.id, changeId));
+}
 
 /** Replaces secret handles with their values in a deep copy of the arguments. */
 function substituteSecrets(value: unknown, values: Map<string, string>): unknown {
@@ -130,6 +152,20 @@ export function createGate(deps: GateDeps) {
       decision.secretHandles.push(custom.secret);
     }
 
+    // Work a person started may use credentials only if that person could manage them (Settings, Safety). Carrying
+    // out an approved change is the approver's decision, not the asker's, so that run may.
+    if (decision.secretHandles.length && req.runId && (await getSetting(deps.db, agent.orgId, "agents.credentials_need_manager"))) {
+      const [run] = await deps.db
+        .select({ by: agentRuns.requestedByUserId, ref: agentRuns.triggerRef })
+        .from(agentRuns)
+        .where(and(eq(agentRuns.id, req.runId), eq(agentRuns.agentId, agent.id)));
+      const change = ctx.policy.change;
+      const approvedWork = !!change && run?.ref === change.id && change.agentId === agent.id && EXECUTABLE_CHANGE_STATUSES.has(change.status);
+      if (run?.by && !approvedWork && !(await userPermissions(deps.db, run.by)).has("secrets.manage")) {
+        return deny("setting_disabled", "This work was started by someone who can't manage credentials, so it can't use stored credentials. Ask an owner or admin to start it.");
+      }
+    }
+
     // Decrypt only after the policy allowed the call, and only the secrets it references.
     const secretValues = new Map<string, string>();
     for (const name of decision.secretHandles) {
@@ -137,12 +173,28 @@ export function createGate(deps: GateDeps) {
       secretValues.set(name, decryptSecret(deps.masterKey, row.id, row));
     }
 
+    // A planned step is claimed right before it runs, so two calls at once can't both run it. One that failed is
+    // released to try again; one stopped by the kill switch isn't, since the device may have done it anyway.
+    const step = decision.plannedIndex;
+    if (step !== undefined && req.changeId && !(await claimStep(deps.db, req.changeId, step))) {
+      return deny("call_already_run", `This step of change ${req.changeId} has already run`);
+    }
+
+    // A call that carries a credential only goes to the device MOSS saw the first time (Settings, Security).
+    const send = (tool: string, args: Record<string, unknown>, signal: AbortSignal) =>
+      secretValues.size ? credentialCall(deps.db, deps.toolbox, agent.orgId, { tool, args, targets: decision.targets, signal }, { type: "agent", id: agent.id }) : deps.toolbox.call(tool, args, signal);
+
     let response: { ok: boolean; result?: unknown; error?: string; durationMs?: number };
+    // The kill switch stops a call that is already running, too: the gate stops waiting and returns nothing.
+    const stop = new AbortController();
+    const watch = setInterval(() => {
+      void getSetting(deps.db, agent.orgId, "agents.kill_switch").then((on) => on && stop.abort(new Error("The kill switch was turned on")), () => {});
+    }, KILL_SWITCH_POLL_MS);
     try {
       if (custom) {
         // Rendered only now, after the policy allowed the call; the toolbox checks the result again.
         const rendered = renderCustomRequest(custom, args, custom.secret ? secretValues.get(custom.secret) : undefined);
-        response = await deps.toolbox.call("custom_http", rendered as unknown as Record<string, unknown>);
+        response = await send("custom_http", rendered as unknown as Record<string, unknown>, stop.signal);
       } else {
         const callArgs = substituteSecrets(args, secretValues) as Record<string, unknown>;
         // A tool that signs in with a username and a password secret gets the username stored with the secret,
@@ -157,10 +209,12 @@ export function createGate(deps: GateDeps) {
           if (servers.length) callArgs.dnsServers = servers;
           else delete callArgs.dnsServers;
         }
-        response = await deps.toolbox.call(req.tool, callArgs);
+        response = await send(req.tool, callArgs, stop.signal);
       }
     } catch (err) {
-      response = { ok: false, error: `Toolbox unavailable: ${(err as Error).message}` };
+      response = { ok: false, error: stop.signal.aborted ? "Stopped: the kill switch was turned on" : `Toolbox unavailable: ${(err as Error).message}` };
+    } finally {
+      clearInterval(watch);
     }
 
     // A config backup's content is encrypted and stored here; the agent only gets its id, size and hash.
@@ -172,10 +226,23 @@ export function createGate(deps: GateDeps) {
       }
     }
 
-    // Scrub any secret value the tool echoed back before it is logged or shown to the agent.
+    if (step !== undefined && req.changeId && !response.ok && !stop.signal.aborted) await releaseStep(deps.db, req.changeId, step);
+
+    // Scrub any secret value the tool echoed back before it is logged or shown to the agent, including a password
+    // sent as HTTP Basic auth (base64 of user:password).
     const values = [...secretValues.values()];
-    const result = response.result === undefined ? undefined : JSON.parse(redactSecrets(JSON.stringify(response.result), values));
-    const error = response.error === undefined ? undefined : redactSecrets(response.error, values);
+    for (const name of decision.secretHandles) {
+      const row = ctx.secretRows.get(name)!;
+      if (row.username && secretValues.has(name)) values.push(`${row.username}:${secretValues.get(name)}`);
+    }
+    let result = response.result === undefined ? undefined : JSON.parse(redactSecrets(JSON.stringify(response.result), values));
+    let error = response.error === undefined ? undefined : redactSecrets(response.error, values);
+    // A private key never reaches an agent, even one that isn't a stored secret.
+    if (containsPrivateKey(JSON.stringify(result ?? "")) || containsPrivateKey(error ?? "")) {
+      result = undefined;
+      error = "The result contained a private key, so MOSS withheld it.";
+      response = { ...response, ok: false };
+    }
 
     await audit("tool.call", {
       args, // contains secret handles only, never values
@@ -221,7 +288,7 @@ export function createGate(deps: GateDeps) {
   };
 
   /** A person signing in with Microsoft or Google: the code exchanged and the token checked. */
-  const sso = (req: Parameters<typeof ssoExchange>[1]) => ssoExchange({ db: deps.db, masterKey: deps.masterKey, toolbox: deps.toolbox }, req, deps.now?.());
+  const sso = (req: Parameters<typeof ssoExchange>[1]) => ssoExchange({ db: deps.db, masterKey: deps.masterKey, toolbox: deps.toolbox, fetch: deps.fetch }, req, deps.now?.());
 
   return { handleToolCall, listAgentTools, checkMonitor, homeAssistant, integration, releases, sso };
 }

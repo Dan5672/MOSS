@@ -113,7 +113,7 @@ export default async function ModelsPage() {
                 <ActionForm action={addProviderAction} submitLabel="Add provider" resetOnSuccess>
                   <SelectField label="Type" name="kind" options={KINDS} />
                   <TextField label="Name" name="name" placeholder="Claude" required />
-                  <TextField label="Base URL (optional for hosted providers)" name="baseUrl" type="url" />
+                  <TextField label="Base URL (Ollama and OpenAI-compatible only)" name="baseUrl" type="url" />
                   <TextField
                     label="API key or token"
                     name="apiKey"

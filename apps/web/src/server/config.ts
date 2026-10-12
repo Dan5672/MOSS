@@ -33,7 +33,17 @@ export const config = {
   /** The backup service (MOSS backups), and its token. Absent on installs without it. */
   backupUrl: () => process.env.BACKUP_URL ?? null,
   backupToken: () => secretFromEnv("BACKUP_TOKEN") ?? "",
+  /** The one-time code deploy/init.sh printed, needed to set MOSS up (unset: no code, e.g. development). */
+  setupCode: () => secretFromEnv("MOSS_SETUP_CODE") ?? null,
   libraryDir: () => process.env.MOSS_LIBRARY_DIR ?? resolve(process.cwd(), "../../library"),
   /** Always mark the session cookie Secure (it already is for any sign-in over HTTPS). */
   secureCookies: () => process.env.MOSS_SECURE_COOKIES === "true",
+  /** MOSS_BACKUP_DOWNLOADS=false: backups stay on the host (docs/hardening.md). */
+  backupDownloads: () => process.env.MOSS_BACKUP_DOWNLOADS !== "false",
+  /** MOSS_PUBLIC_URL: the addresses people open MOSS at, comma-separated; empty means taken from each request. */
+  publicUrls: () =>
+    (process.env.MOSS_PUBLIC_URL ?? "")
+      .split(",")
+      .map((u) => u.trim().replace(/\/+$/, ""))
+      .filter(Boolean),
 };

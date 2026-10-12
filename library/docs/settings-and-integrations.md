@@ -272,8 +272,8 @@ tenant only; Google: a verified email in an allowed domain), then by their accou
 password is never claimed by email: they link their account in Settings > General > Sign-in accounts,
 confirming their password (and can unlink it there). Password re-checks (linking, two-factor, changing
 the password) are throttled like signing in, and failures are audited. Nobody new is created; anyone else is refused
-(audited). MOSS doesn't ask for its own two-factor code on these sign-ins: require MFA in Microsoft's or
-Google's sign-in policies (MOSS doesn't check that the provider did). Their sessions end when signing in that
+(audited). Someone who has MOSS two-factor on is asked for its code after signing in this way too; for everyone
+else, require MFA in Microsoft's or Google's sign-in policies (MOSS doesn't check that the provider did). Their sessions end when signing in that
 way stops (switched off, licence lapsed). Setting up MOSS two-factor needs the password, or for someone
 without one, a sign-in in the last 10 minutes; an existing two-factor can only be replaced by turning it off
 with the password first. Changing Microsoft 365's directory or application ID switches sign-in off until

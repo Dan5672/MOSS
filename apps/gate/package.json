@@ -11,6 +11,7 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
+    "@moss/agent": "workspace:*",
     "@moss/core": "workspace:*",
     "@moss/db": "workspace:*",
     "@moss/policy": "workspace:*",

@@ -8,3 +8,6 @@ deploy/secrets
 *.log
 **/__pycache__
 deploy/certs
+deploy/backups
+deploy/secrets.before-restore-*
+deploy/.last-upgrade

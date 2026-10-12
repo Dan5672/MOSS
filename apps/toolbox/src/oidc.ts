@@ -1,5 +1,5 @@
-// Single sign-on: exchanging the code a provider gave the browser for an ID token, and fetching the provider's
-// published signing keys. Only the gate calls these (system tools); it checks the token itself.
+// Single sign-on: exchanging the code a provider gave the browser for an ID token. Only the gate calls this (a
+// system tool); it fetches the provider's signing keys itself and checks the token.
 import { obj } from "./homelab.js";
 import { clean } from "./parsers.js";
 
@@ -9,8 +9,8 @@ type Fetch = (url: string, init?: { method?: string; headers?: Record<string, st
 
 const endpoints = (provider: "microsoft" | "google", tenantId?: string) =>
   provider === "microsoft"
-    ? { token: `https://login.microsoftonline.com/${encodeURIComponent(tenantId ?? "")}/oauth2/v2.0/token`, keys: `https://login.microsoftonline.com/${encodeURIComponent(tenantId ?? "")}/discovery/v2.0/keys` }
-    : { token: "https://oauth2.googleapis.com/token", keys: "https://www.googleapis.com/oauth2/v3/certs" };
+    ? { token: `https://login.microsoftonline.com/${encodeURIComponent(tenantId ?? "")}/oauth2/v2.0/token` }
+    : { token: "https://oauth2.googleapis.com/token" };
 
 export async function oidcExchange(
   a: { provider: "microsoft" | "google"; tenantId?: string; clientId: string; clientSecret: string; code: string; redirectUri: string; codeVerifier: string; timeoutMs: number },
@@ -36,11 +36,4 @@ export async function oidcExchange(
   }
   // Only the ID token: the access token isn't needed and isn't kept.
   return { idToken: body.id_token };
-}
-
-export async function oidcKeys(a: { provider: "microsoft" | "google"; tenantId?: string; timeoutMs: number }, f: Fetch = fetch as unknown as Fetch) {
-  const res = await f(endpoints(a.provider, a.tenantId).keys, { signal: AbortSignal.timeout(a.timeoutMs) });
-  if (res.status !== 200) throw new OidcError(`Couldn't fetch the provider's signing keys (HTTP ${res.status})`);
-  const keys = obj(await res.json()).keys;
-  return { keys: Array.isArray(keys) ? keys.slice(0, 50) : [] };
 }

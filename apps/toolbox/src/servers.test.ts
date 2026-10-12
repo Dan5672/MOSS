@@ -72,7 +72,8 @@ describe("server checks over a real SSH connection", () => {
   });
 
   it("keeps service names out of the shell", async () => {
-    expect(serviceCommand("nginx.service")).toBe("systemctl show 'nginx.service' --property=LoadState,ActiveState,SubState,UnitFileState,ActiveEnterTimestamp,Result,NRestarts,Description --no-pager");
+    expect(serviceCommand("nginx.service")).toBe("systemctl show --property=LoadState,ActiveState,SubState,UnitFileState,ActiveEnterTimestamp,Result,NRestarts,Description --no-pager -- 'nginx.service'");
+    expect(() => serviceCommand("--help")).toThrow(/Invalid/);
     expect(() => serviceCommand("x'; reboot; '")).toThrow(/Invalid service name/);
     await expect(runTool("service_status", args({ service: "a;reboot" }))).rejects.toThrow(/Invalid arguments/);
   });

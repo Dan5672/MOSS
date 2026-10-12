@@ -1,6 +1,6 @@
 // Starts signing in with Microsoft or Google: remembers the state, nonce and PKCE verifier in a short-lived signed
 // cookie and sends the browser to the provider.
-import { SSO_NAMES, ssoAuthorizeUrl, ssoAvailable, ssoStart } from "@moss/core";
+import { SSO_NAMES, ssoAuthorizeUrl, ssoAvailable, ssoStart, testOverride } from "@moss/core";
 import { cookies } from "next/headers";
 import { db } from "@/server/db";
 import { getCurrentUser } from "@/server/auth";
@@ -36,5 +36,5 @@ export async function GET(req: Request, ctx: RouteContext<"/api/auth/sso/[provid
     maxAge: SSO_COOKIE_SECONDS,
   });
   // MOSS_SSO_STANDIN_URL: the e2e tests' stand-in provider, never set in a real install.
-  return Response.redirect(ssoAuthorizeUrl(setup.client, { redirectUri, ...s }, process.env.MOSS_SSO_STANDIN_URL || undefined), 303);
+  return Response.redirect(ssoAuthorizeUrl(setup.client, { redirectUri, ...s }, testOverride("MOSS_SSO_STANDIN_URL")), 303);
 }

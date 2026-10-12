@@ -55,6 +55,9 @@ migrations=$migrations
 compose_files=$(compose_files)
 EOF
 
+# So restore.sh can tell a damaged archive.
+backup_checksums "$work" >"$work/checksums"
+
 tar -czf "$archive.partial" -C "$work" .
 mv "$archive.partial" "$archive"
 chmod 600 "$archive"

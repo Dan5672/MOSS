@@ -42,6 +42,7 @@ describe("ID tokens", () => {
     const other = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey;
     expect(() => verifyIdToken(jwt(msClaims, other), jwks, ms, now)).toThrow(/signature doesn't match/);
     expect(() => verifyIdToken(jwt(msClaims, privateKey, "k9"), jwks, ms, now)).toThrow(/key the provider doesn't publish/);
+    expect(() => verifyIdToken(jwt(msClaims), { keys: [{ ...jwks.keys[0]!, use: "enc" }] }, ms, now)).toThrow(/key the provider doesn't publish/);
     expect(() => verifyIdToken(jwt({ ...msClaims, aud: "someone-else" }), jwks, ms, now)).toThrow(/another application/);
     expect(() => verifyIdToken(jwt({ ...msClaims, exp: t - 600 }), jwks, ms, now)).toThrow(/expired/);
     const [h, b] = jwt(msClaims).split(".");

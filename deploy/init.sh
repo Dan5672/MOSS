@@ -31,11 +31,20 @@ if [ ! -f .env ]; then
     echo "MOSS_TLS=internal"
     echo "MOSS_HTTPS_HOSTS=$hosts"
     echo "MOSS_HTTPS_DEFAULT_NAME=${first:-localhost}"
+    echo "MOSS_SECURE_COOKIES=true"
   } >> .env
   echo "HTTPS is on. MOSS will answer at: $hosts"
 fi
 mkdir -p certs backups
 
+# Each service signs in to Postgres as its own role, with its own password.
+for role in GATE WEB WORKER BRIDGE BACKUP QUEUE; do
+  if ! grep -q "^MOSS_DB_PASSWORD_$role=" .env; then
+    echo "MOSS_DB_PASSWORD_$role=$(openssl rand -hex 24)" >> .env
+  fi
+done
+# .env holds the database passwords: for this user only.
+chmod 600 .env
 mkdir -p secrets
 umask 077
 if [ ! -f secrets/master.key ]; then
@@ -43,12 +52,16 @@ if [ ! -f secrets/master.key ]; then
   echo "Generated deploy/secrets/master.key."
   echo "BACK THIS FILE UP. Without it, stored secrets cannot be recovered or restored."
 fi
-for token in gate toolbox web backup bridge; do
+for token in gate llm toolbox web backup backup-run bridge; do
   if [ ! -f "secrets/$token.token" ]; then
     openssl rand -hex 32 > "secrets/$token.token"
     echo "Generated deploy/secrets/$token.token."
   fi
 done
+if [ ! -f secrets/setup.code ]; then
+  openssl rand -hex 4 > secrets/setup.code
+  echo "Setup code, asked for when you create your account: $(cat secrets/setup.code) (also in deploy/secrets/setup.code)."
+fi
 if [ ! -f secrets/app.key ]; then
   openssl rand -hex 32 > secrets/app.key
   echo "Generated deploy/secrets/app.key (encrypts users' two-factor secrets)."

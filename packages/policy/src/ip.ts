@@ -116,8 +116,8 @@ export function canonicalCidr(input: string): string | null {
 }
 
 /**
- * Private, internal and special-use addresses: RFC 1918, CGNAT (100.64/10), loopback, link-local, and the
- * IPv6 equivalents (::1, fc00::/7, fe80::/10). Anything else is a public address on the internet.
+ * Private, internal and special-use addresses: RFC 1918, CGNAT (100.64/10), loopback, link-local, benchmarking,
+ * multicast and reserved, and the IPv6 equivalents. Anything else is a public address on the internet.
  */
 const PRIVATE_RANGES = [
   "10.0.0.0/8",
@@ -127,16 +127,33 @@ const PRIVATE_RANGES = [
   "127.0.0.0/8",
   "169.254.0.0/16",
   "0.0.0.0/8",
+  "192.0.0.0/24",
+  "198.18.0.0/15",
+  "224.0.0.0/4",
+  "240.0.0.0/4",
   "::1/128",
   "fc00::/7",
   "fe80::/10",
   "::/128",
   // NAT64 (64:ff9b::/96) and IPv4-compatible (::/96) addresses carry an IPv4 address that may be on the LAN.
   "64:ff9b::/96",
+  "64:ff9b:1::/48",
   "::/96",
+  // 6to4 carries an IPv4 address too.
+  "2002::/16",
 ].map((c) => parseRange(c)!);
+
+// Public IPv6 addresses are global unicast; everything outside it (multicast, reserved) is not.
+const GLOBAL_UNICAST = parseRange("2000::/3")!;
 
 /** True if any part of the range is private or special-use (so a range straddling both counts as private). */
 export function isPrivateRange(range: IpRange): boolean {
+  if (range.version === 6 && !contains(GLOBAL_UNICAST, range)) return true;
   return PRIVATE_RANGES.some((p) => p.version === range.version && overlaps(p, range));
+}
+
+/** One address in canonical form ("::ffff:192.168.1.5" -> "192.168.1.5"), or null if it isn't a single address. */
+export function canonicalAddress(input: string): string | null {
+  const range = parseRange(input);
+  return range && range.start === range.end ? formatAddress(range.version, range.start) : null;
 }

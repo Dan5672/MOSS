@@ -5,6 +5,7 @@
 import { assets, knowledgeNotes, knowledgeRevisions, type Database } from "@moss/db";
 import { and, asc, desc, eq, ilike, ne, or, sql } from "drizzle-orm";
 import { writeAudit } from "../store/audit-store.js";
+import { getSetting } from "../store/settings-store.js";
 import type { Actor } from "./assets.js";
 
 export interface NoteInput {
@@ -58,8 +59,9 @@ async function uniqueSlug(db: Pick<Database, "select">, orgId: string, title: st
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
 /** Pages matching every given filter, most recently updated first. */
-export async function searchNotes(db: Database, orgId: string, f: { query?: string; subject?: string; tag?: string; limit?: number } = {}) {
+export async function searchNotes(db: Database, orgId: string, f: { query?: string; subject?: string; tag?: string; limit?: number; published?: boolean } = {}) {
   const conds = [eq(knowledgeNotes.orgId, orgId)];
+  if (f.published) conds.push(eq(knowledgeNotes.draft, false));
   if (f.query?.trim()) {
     const q = `%${escapeLike(f.query.trim())}%`;
     conds.push(or(ilike(knowledgeNotes.title, q), ilike(knowledgeNotes.body, q), ilike(knowledgeNotes.subject, q), sql`${knowledgeNotes.tags}::text ilike ${q}`)!);
@@ -80,11 +82,12 @@ export async function getNote(db: Pick<Database, "select">, orgId: string, id: s
 }
 
 /** A page by its slug, or by its title (case-insensitive), e.g. for a [[Page]] link. */
-export async function findPage(db: Pick<Database, "select">, orgId: string, ref: string) {
+export async function findPage(db: Pick<Database, "select">, orgId: string, ref: string, opts: { published?: boolean } = {}) {
   const r = ref.trim();
-  const [bySlug] = await db.select().from(knowledgeNotes).where(and(eq(knowledgeNotes.orgId, orgId), eq(knowledgeNotes.slug, r.toLowerCase())));
+  const scope = opts.published ? and(eq(knowledgeNotes.orgId, orgId), eq(knowledgeNotes.draft, false)) : eq(knowledgeNotes.orgId, orgId);
+  const [bySlug] = await db.select().from(knowledgeNotes).where(and(scope, eq(knowledgeNotes.slug, r.toLowerCase())));
   if (bySlug) return bySlug;
-  const [byTitle] = await db.select().from(knowledgeNotes).where(and(eq(knowledgeNotes.orgId, orgId), ilike(knowledgeNotes.title, escapeLike(r)))).limit(1);
+  const [byTitle] = await db.select().from(knowledgeNotes).where(and(scope, ilike(knowledgeNotes.title, escapeLike(r)))).limit(1);
   return byTitle ?? null;
 }
 
@@ -127,8 +130,12 @@ async function checkPlacement(db: Pick<Database, "select">, orgId: string, input
 const byActor = (actor: Actor, prefix: "createdBy" | "updatedBy") =>
   actor.type === "user" ? { [`${prefix}UserId`]: actor.id } : actor.type === "agent" ? { [`${prefix}AgentId`]: actor.id } : {};
 
+/** Whether an agent's write is a draft (Settings, Safety: agent drafts). */
+const agentDraft = async (db: Database, orgId: string, actor: Actor) => actor.type === "agent" && (await getSetting(db, orgId, "knowledge.agent_drafts"));
+
 export async function createNote(db: Database, orgId: string, input: NoteInput, actor: Actor) {
   const n = clean(input);
+  const draft = await agentDraft(db, orgId, actor);
   await checkPlacement(db, orgId, input);
   const slug = await uniqueSlug(db, orgId, n.title);
   const [row] = await db
@@ -140,11 +147,12 @@ export async function createNote(db: Database, orgId: string, input: NoteInput, 
       slug,
       parentId: input.parentId ?? null,
       assetId: input.assetId ?? null,
+      draft,
       ...byActor(actor, "createdBy"),
       ...byActor(actor, "updatedBy"),
     })
     .returning();
-  await writeAudit(db, { orgId, actorType: actor.type, actorId: actor.id, action: "knowledge.create", targetType: "note", targetId: row!.id, details: { title: n.title, slug, subject: n.subject } });
+  await writeAudit(db, { orgId, actorType: actor.type, actorId: actor.id, action: "knowledge.create", targetType: "note", targetId: row!.id, details: { title: n.title, slug, subject: n.subject, draft } });
   return row!;
 }
 
@@ -152,6 +160,8 @@ export async function createNote(db: Database, orgId: string, input: NoteInput, 
 export async function updateNote(db: Database, orgId: string, id: string, input: NoteInput, actor: Actor) {
   const before = await getNote(db, orgId, id);
   if (!before) throw new Error("Note not found");
+  // With agent drafts on, an agent may rework its own draft but not a page people can rely on.
+  if ((await agentDraft(db, orgId, actor)) && !before.draft) throw new Error("Agents write drafts, so a published page can't be changed by an agent. Write a new page instead; a person will review it.");
   const n = clean(input);
   await checkPlacement(db, orgId, input, id);
   const row = await db.transaction(async (tx) => {
@@ -173,6 +183,8 @@ export async function updateNote(db: Database, orgId: string, id: string, input:
         ...(input.parentId !== undefined ? { parentId: input.parentId } : {}),
         ...(input.assetId !== undefined ? { assetId: input.assetId } : {}),
         slug: before.slug ?? (await uniqueSlug(tx, orgId, n.title)),
+        // A person's edit is a review: the page is published.
+        ...(actor.type === "user" ? { draft: false } : {}),
         updatedByUserId: null,
         updatedByAgentId: null,
         ...byActor(actor, "updatedBy"),
@@ -201,4 +213,21 @@ export async function deleteNote(db: Database, orgId: string, id: string, actor:
   await db.update(knowledgeNotes).set({ parentId: before.parentId }).where(and(eq(knowledgeNotes.parentId, id), ne(knowledgeNotes.id, id)));
   await db.delete(knowledgeNotes).where(eq(knowledgeNotes.id, id));
   await writeAudit(db, { orgId, actorType: actor.type, actorId: actor.id, action: "knowledge.delete", targetType: "note", targetId: id, details: { title: before.title, body: before.body.slice(0, 2000) } });
+}
+
+/**
+ * A person has read an agent's draft and publishes it, so agents see it too. `seen`: when the version they read was
+ * saved; if an agent has changed it since, nothing is published.
+ */
+export async function publishNote(db: Database, orgId: string, id: string, actor: Actor, seen?: Date) {
+  const before = await getNote(db, orgId, id);
+  if (!before) throw new Error("Note not found");
+  if (!before.draft) return before;
+  // Postgres keeps microseconds; the page was given milliseconds.
+  const unchanged = seen ? sql`date_trunc('milliseconds', ${knowledgeNotes.updatedAt}) = ${before.updatedAt.toISOString()}::timestamptz` : undefined;
+  if (seen && before.updatedAt.getTime() !== seen.getTime()) throw new Error("The draft has changed since you opened it. Read it again before publishing.");
+  const [row] = await db.update(knowledgeNotes).set({ draft: false }).where(and(eq(knowledgeNotes.id, id), eq(knowledgeNotes.orgId, orgId), unchanged)).returning();
+  if (!row) throw new Error("The draft has changed since you opened it. Read it again before publishing.");
+  await writeAudit(db, { orgId, actorType: actor.type, actorId: actor.id, action: "knowledge.publish", targetType: "note", targetId: id, details: { title: before.title } });
+  return row!;
 }

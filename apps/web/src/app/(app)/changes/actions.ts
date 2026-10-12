@@ -1,16 +1,24 @@
 "use server";
 
-import { addChangeComment, approveChange, cancelChange, createChangeRequest, getChange, isManualChange, recordManualResult, rejectChange } from "@moss/core";
+import { addChangeComment, approveChange, cancelChange, createChangeRequest, getChange, getSetting, isManualChange, recordManualResult, rejectChange, writeAudit } from "@moss/core";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { act, formObject, type ActionState } from "@/server/action";
-import { requirePermission } from "@/server/auth";
+import { requirePermission, verifyUserTotp } from "@/server/auth";
 import { db } from "@/server/db";
 
 export async function approveAction(changeId: string, _: ActionState, form: FormData): Promise<ActionState> {
   return act(async () => {
     const user = await requirePermission("changes.approve");
     const f = formObject(form);
+    // Settings, Safety: approving asks for the approver's two-factor code, so a stolen session alone can't approve.
+    if (await getSetting(db(), user.orgId, "changes.approval_totp")) {
+      if (!user.totpEnabled) throw new Error("Approving changes needs two-factor sign-in. Set it up in Settings first.");
+      if (!(await verifyUserTotp(user.id, String(f.code ?? "")))) {
+        await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "change.approve_denied", targetType: "change", targetId: changeId, details: { reason: "totp" } });
+        throw new Error("That two-factor code didn't match.");
+      }
+    }
     await approveChange(db(), user.orgId, changeId, user.id, { comment: f.comment, force: f.force === "on" });
     const change = await getChange(db(), user.orgId, changeId);
     return change && isManualChange(change) ? "Approved. Go ahead and make the change, then record the result here." : "Approved. The agent will be told to carry it out.";

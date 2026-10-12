@@ -266,8 +266,8 @@ AI behaving well; they're enforced outside it.
   - Agents only ever see a name like `secret:router-ssh`.
   - Only the gate decrypts them, and only for the devices and tools each one is limited to.
   - Anything a tool echoes back is scrubbed before the AI sees it.
-- **Least privilege.** The part of MOSS that runs the AI holds no secrets and can't reach your
-  network directly. The scanners run read-only, without administrator rights, with only the
+- **Least privilege.** The part of MOSS that runs the AI holds no stored passwords or keys (only
+  its own tokens for talking to the gate and the database) and can't reach your network directly. The scanners run read-only, without administrator rights, with only the
   network permissions they need.
 
 **Data and accountability**
@@ -285,6 +285,9 @@ AI behaving well; they're enforced outside it.
 - **Spending limits:** daily and monthly budgets per agent or overall. Agents stop when they hit a
   hard limit.
 - **The kill switch** stops every agent at once.
+
+Want more? The [hardening guide](hardening.md) explains every optional setting: what it protects
+against, what it costs, and the defaults to change for a business or anything you can't afford to lose.
 
 ---
 
@@ -350,6 +353,9 @@ Before you hand over a credential or approve a change, consider:
   - Keep `deploy/secrets` private and backed up.
   - Don't expose MOSS to the internet; use a VPN to reach it from away.
   - Keep it updated.
+- **At work, start read-only.** Give agents read-only credentials to critical systems. If you do give
+  write access, only let people into MOSS whom you'd trust with those systems directly. See
+  [At work: start read-only](hardening.md#at-work-start-read-only) in the hardening guide.
 
 MOSS is provided as-is, without warranty. You are responsible for what you allow it to do on your
 network.

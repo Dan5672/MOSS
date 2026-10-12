@@ -11,10 +11,12 @@ import {
   setMonitorSourceEnabled,
   updateMonitor,
 } from "@moss/core";
+import { monitors } from "@moss/db";
+import { and, eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { act, formObject, type ActionState } from "@/server/action";
-import { requirePermission } from "@/server/auth";
+import { PermissionError, requirePermission, type CurrentUser } from "@/server/auth";
 import { db } from "@/server/db";
 
 const int = (v: string | undefined) => (v === undefined ? undefined : Number(v));
@@ -87,10 +89,17 @@ function monitorFromForm(form: FormData) {
   };
 }
 
+/** Instructions for agents are standing orders to whoever responds, so writing them takes agents.manage. */
+function checkAgentInstructions(user: CurrentUser, next: string | null | undefined, current: string | null = null) {
+  if ((next ?? "").trim() !== (current ?? "").trim() && !user.permissions.has("agents.manage")) throw new PermissionError("agents.manage");
+}
+
 export async function createMonitorAction(_: ActionState, form: FormData): Promise<ActionState> {
   return act(async () => {
     const user = await requirePermission("monitoring.manage");
-    const m = await createMonitor(db(), user.orgId, monitorFromForm(form), { type: "user", id: user.id });
+    const input = monitorFromForm(form);
+    checkAgentInstructions(user, input.agentInstructions);
+    const m = await createMonitor(db(), user.orgId, input, { type: "user", id: user.id });
     // The detail page warns if the target is outside the allowed networks.
     redirect(`/monitoring/${m.id}`);
   });
@@ -105,6 +114,8 @@ export async function updateMonitorAction(monitorId: string, external: boolean, 
           return { name: f.name, assetId: f.assetId ?? null, priority: f.priority, autoResolve: f.autoResolve === "on", agentInstructions: f.agentInstructions ?? null, ...parseResponder(f.responder) };
         })()
       : monitorFromForm(form);
+    const [current] = await db().select({ text: monitors.agentInstructions }).from(monitors).where(and(eq(monitors.id, monitorId), eq(monitors.orgId, user.orgId)));
+    checkAgentInstructions(user, input.agentInstructions, current?.text);
     const m = await updateMonitor(db(), user.orgId, monitorId, input, { type: "user", id: user.id });
     const warning = await monitorTargetWarning(db(), user.orgId, m.target, m.kind);
     return warning ? `Saved. Warning: ${warning}, so checks will be refused until it is allowed.` : "Monitor saved.";

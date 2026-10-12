@@ -36,7 +36,7 @@ recorded.
 ## What MOSS does
 
 - **Knows what's on your network.** Agents scan the networks you allow and keep an inventory of every
-  device: what it is, its address, who made it. Lock a device and agents leave it alone.
+  device: what it is, its address, who made it. Lock a device and agents can't change its inventory entry.
 - **Watches your services.** Ping, web, port, certificate and DNS checks, or alerts from tools you
   already run (Uptime Kuma, Beszel, Prometheus Alertmanager, or any script). Build dashboards, and put
   one on a TV.
@@ -81,6 +81,11 @@ MOSS assumes the AI can make mistakes, and that your network can contain hostile
 - **Untrusted data stays data.** Device names, scan results and webhook messages are passed to agents
   as information, never as instructions.
 - **Everything is recorded** in an audit log you can verify hasn't been altered.
+
+Want more? The [hardening guide](docs/hardening.md) explains the optional settings: keeping agents and the
+toolbox off the internet, device key pinning, two-factor approvals, stricter chat approvals, agent wiki drafts,
+backups that never leave the host, and more, with what each one protects against and what it costs.
+Using MOSS at work? Read its first section, [At work: start read-only](docs/hardening.md#at-work-start-read-only).
 
 ## Quick start
 
@@ -158,10 +163,11 @@ MOSS is a TypeScript monorepo (pnpm + Turborepo).
 ```
 web       Next.js UI
 worker    agent runtime, schedules, events, monitor scheduling
-gate      the policy gate and secrets broker: the only service with the master key
+gate      the policy gate and secrets broker: the only service that uses the master key
 toolbox   typed network tools (scans, probes, SNMP, SSH checks, device APIs), no shell
 bridge    Telegram, Discord and Slack
 postgres  PostgreSQL 17 + pgvector, and the job queue
+backup    MOSS backups (reads the master key to archive it; hands archives out only encrypted)
 ```
 
 `apps/` holds the services, `packages/` the shared code (database, domain logic, policy, tools, models,
@@ -170,6 +176,7 @@ agent runtime) and `library/` the agent templates, skills and Moss's own docs, a
 ```sh
 corepack enable
 pnpm install && pnpm -r run build
+# Tests need Postgres on localhost:5432: add docker-compose.dev.yml to MOSS_COMPOSE_FILES in deploy/.env
 MOSS_TEST_DATABASE_URL=postgres://moss:<password>@localhost:5432/moss_test pnpm -r run test
 cd apps/web && MOSS_TEST_DATABASE_URL=... pnpm exec playwright test   # browser tests
 ```

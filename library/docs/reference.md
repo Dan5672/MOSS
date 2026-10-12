@@ -6,15 +6,23 @@ Stored per install; most are switched on the Settings page.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
+| agents.allow_internet | true | Whether agents may reach the internet: ping, TCP, HTTP and TLS checks of public addresses, and DNS lookups of names outside your network. On by default. Turn it off so an agent tricked by something it read can't send data out. Monitors aren't affected. |
+| agents.credentials_need_manager | false | Agent work a person started (a chat, a manual run, a schedule they set) may only use stored credentials if that person can manage credentials. Stops someone with a smaller role using an agent to reach devices they couldn't. Off by default. |
 | agents.kill_switch | false | Stops every agent at once: no tool calls run until it's switched off (the kill switch at the bottom of the menu). |
 | auth.password_policy | {} | The password policy (Settings → Security): minimum length (12 by default), required kinds of character, how many old passwords can't be reused, maximum age, who must use two-factor sign-in, and an optional check against known-breached passwords. |
 | auth.sso_only | false | Single sign-on only: everyone but owners must sign in with Microsoft or Google (owners keep their password and two-factor, in case sign-in breaks). |
+| auth.sso_require_totp | false | Applies the password policy's two-factor requirement to people who sign in with Microsoft or Google too: they set up a MOSS code and enter it after signing in. Off by default: then only people who already have a MOSS code are asked for it, and everyone else is trusted on the provider's own checks. |
 | backups.last_scheduled | "" | When the last scheduled MOSS backup started (or the schedule was saved), so each slot runs once. |
 | backups.schedule | {} | Scheduled MOSS backups (Settings → Backups): off, daily or weekly at an hour in the install's time zone, and how many archives to keep (10 by default). Archives go to deploy/backups on the host, the same as deploy/backup.sh makes. |
 | changes.allow_emergency | false | Lets agents raise emergency changes that run straight away and are reviewed afterwards. Off by default. |
+| changes.approval_totp | false | Asks for the approver's two-factor code to approve a change, so a stolen session or chat account can't approve. Chat apps can't ask for a code, so their Approve button goes away. Off by default. |
+| changes.chat_approvals | "standard" | Which changes the Approve button in Telegram, Discord and Slack may approve: anything but high risk (the default), low risk only, or none (approve in MOSS). Emergency changes, access requests and dangerous tools are always approved in MOSS. |
+| changes.emergency_tools | [] | The only tools an emergency change may use, when emergency changes are allowed. Empty means any tool. |
 | changes.require_separate_approver | false | Requires a change to be approved by someone other than the person who asked for it. |
+| changes.window_hours | 24 | How many hours after its approval a change without a window of its own may be carried out (24 by default). After that it has to be raised again. |
 | homeassistant.allow_resume | false | Whether the Home Assistant integration may resume paused agents (pausing is always allowed). |
 | https.certificate | {} | The certificate uploaded in Settings → HTTPS, if any: who it's for, when it expires and its fingerprint. Moss reminds everyone in #general 30 and 7 days before it runs out. Empty when MOSS uses its own certificate authority. |
+| knowledge.agent_drafts | false | Makes what agents write in the wiki a draft: other agents don't see it until a person reads it and publishes it, so a note an agent was tricked into writing can't mislead the rest. Off by default. |
 | licence.key | "" | The business licence (Settings → About): a signed key, checked offline. Business integrations work only while it's valid, or for 14 days after it expires. |
 | licence.reminded | {} | Which reminders about the business licence's expiry have been sent (30 and 7 days before, on expiry, and when it stops). |
 | monitoring.quiet_until | "" | Maintenance mode: until this time, monitors keep checking but raise no incidents. Set from Home Assistant. |
@@ -24,6 +32,8 @@ Stored per install; most are switched on the Settings page.
 | tools.allow_dangerous | false | Permits tools marked dangerous, such as factory resets, still only through approved changes. Off by default. |
 | tools.allow_vulners | false | Allows vuln_scan's cve profile, which sends service names and versions to vulners.com. Off by default. |
 | tools.catalog_url | "" | An optional remote tools catalog (an https URL of its index). Empty means only the bundled catalog. |
+| tools.pin_hosts | true | Remembers each device's certificate or SSH host key the first time MOSS sends it a credential, and refuses to send credentials if it changes. On by default; a changed key is shown in Settings, Security to trust or investigate. |
+| tools.verify_tls | false | Makes device tools always check TLS certificates, so a credential only goes to a device with a trusted certificate. Off by default because most home lab devices use self-signed certificates. |
 | ups.shutdown_plan | {} | The UPS shutdown plan (Settings > Integrations > UPS): what to switch off, in order, when a UPS on battery runs low; who carries it out; and whether it asks for approval each time or was approved in advance with a two-factor code. |
 | ups.shutdown_run | {} | The shutdown MOSS raised in the current power cut, so it isn't raised twice and can be cancelled if the power comes back. |
 
@@ -336,7 +346,7 @@ A MOSS tool (works on MOSS itself; needs the changes.create permission). Close o
 Granted by: Change Management.
 
 ## Tool change_execute
-A MOSS tool (works on MOSS itself; needs the changes.create permission). Execute an approved change you raised: runs its planned calls in order through the policy gate and stops at the first failure. Afterwards, verify the result and call change_complete, or change_rollback if it went wrong.
+A MOSS tool (works on MOSS itself; needs the changes.create permission). Execute an approved change you raised: runs its planned calls in order through the policy gate and stops at the first failure. Run it again after fixing the cause and it continues from the failed step; steps that ran are never repeated. Afterwards, verify the result and call change_complete, or change_rollback if it went wrong.
 Granted by: Change Management.
 
 ## Tool change_get

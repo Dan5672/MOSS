@@ -39,6 +39,12 @@ Newest first. After an upgrade, Moss posts the newest section in #general.
   backed up. Agents can snapshot a VM before changing it.
 - **Pi-hole and AdGuard Home**: MOSS watches that blocking stays on, graphs your queries and block rate,
   and names devices in the inventory from what they know.
+- **Hardening options**, with a guide in docs/hardening.md. In Settings → Safety and Approval rules: keep
+  agents off the internet; remember each device's certificate or SSH key the first time it gets a credential
+  (on by default; changes are shown in Settings → Security); require trusted certificates; a two-factor code
+  to approve changes; which changes chat apps may approve; the tools emergency changes may use; wiki drafts
+  for what agents write; and credentials only for work that credential managers start. In deploy/.env: keep
+  backups on the host, keep the toolbox off the internet, and fix MOSS's sign-in address.
 
 ## 0.4.0
 - **Metric monitors**: interface traffic and any numeric value over SNMP, a server's load, memory and

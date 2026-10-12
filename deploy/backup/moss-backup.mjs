@@ -3,14 +3,15 @@
 // deletes and hands out archives, and only ever hands one out encrypted with a passphrase the person chose:
 // an archive holds the master key.
 //
-// Only reachable inside Docker, and only with the backup token (which the web app and the worker hold).
+// Only reachable inside Docker. The web app's backup token opens every route; the worker's run token only
+// starts a backup, so a compromised worker can't download an archive (and with it the master key).
 // No dependencies: Node's standard library, plus pg_dump, psql, tar and openssl from the image.
 import { spawn } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { chmod, chown, cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { join } from "node:path";
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 const DIR = process.env.BACKUP_DIR ?? "/backups";
 const SECRETS = process.env.MOSS_SECRETS_DIR ?? "/moss/secrets";
@@ -19,6 +20,10 @@ const CADDY_DATA = process.env.CADDY_DATA_DIR ?? "/caddy-data";
 const TLS = process.env.TLS_DIR ?? "/tls";
 const DATABASE_URL = process.env.DATABASE_URL ?? "";
 const TOKEN = (await readFile(process.env.BACKUP_TOKEN_FILE ?? "/run/secrets/backup_token", "utf8")).trim();
+const RUN_TOKEN = (await readFile(process.env.BACKUP_RUN_TOKEN_FILE ?? "/run/secrets/backup_run_token", "utf8").catch(() => "")).trim();
+// MOSS_BACKUP_DOWNLOADS=false (docs/hardening.md): archives never leave this service, so even the web app's token
+// can't get the master key out. Backups are then copied off the machine from deploy/backups on the host.
+const DOWNLOADS = process.env.MOSS_BACKUP_DOWNLOADS !== "false";
 const STATUS = join(DIR, ".status.json");
 const NAME = /^moss-backup-\d{8}T\d{6}Z\.tar\.gz$/;
 // openssl enc settings; restore.sh decrypts with the same.
@@ -88,6 +93,7 @@ async function backup(keep, reason) {
         "",
       ].join("\n"),
     );
+    await writeChecksums(work);
     const partial = join(DIR, `.${name}.partial`);
     await run("tar", ["-czf", partial, "-C", work, "."]);
     await chmod(partial, 0o600);
@@ -103,6 +109,22 @@ async function backup(keep, reason) {
     }
   }
   return name;
+}
+
+/** Every file's checksum, as deploy/lib.sh writes them: restore.sh refuses a damaged archive. */
+async function writeChecksums(work) {
+  const files = [];
+  const walk = async (dir, rel) => {
+    for (const e of await readdir(dir, { withFileTypes: true })) {
+      if (e.isDirectory()) await walk(join(dir, e.name), `${rel}/${e.name}`);
+      else if (rel !== "." || e.name !== "checksums") files.push(`${rel}/${e.name}`);
+    }
+  };
+  await walk(work, ".");
+  files.sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b))); // byte order, as LC_ALL=C sort
+  let checksums = "";
+  for (const f of files) checksums += `${createHash("sha256").update(await readFile(join(work, f))).digest("hex")}  ${f}\n`;
+  await writeFile(join(work, "checksums"), checksums);
 }
 
 function start(keep, reason) {
@@ -121,10 +143,17 @@ function start(keep, reason) {
     .finally(() => (running = null));
 }
 
-function authorised(req) {
+function matches(given, token) {
+  const want = Buffer.from(token);
+  return token.length > 0 && given.length === want.length && timingSafeEqual(given, want);
+}
+
+/** "full" for the web app's token, "run" for the worker's (starting a backup only), or null. */
+function access(req) {
   const given = Buffer.from((req.headers.authorization ?? "").replace(/^Bearer /, ""));
-  const want = Buffer.from(TOKEN);
-  return given.length === want.length && timingSafeEqual(given, want);
+  if (matches(given, TOKEN)) return "full";
+  if (matches(given, RUN_TOKEN)) return "run";
+  return null;
 }
 
 async function body(req) {
@@ -141,8 +170,10 @@ const send = (res, status, data) => res.writeHead(status, { "Content-Type": "app
 createServer(async (req, res) => {
   try {
     if (req.url === "/health") return send(res, 200, { ok: true });
-    if (!authorised(req)) return send(res, 401, { error: "unauthorised" });
+    const who = access(req);
+    if (!who) return send(res, 401, { error: "unauthorised" });
     const url = new URL(req.url, "http://backup");
+    if (who === "run" && !(req.method === "POST" && url.pathname === "/run")) return send(res, 401, { error: "unauthorised" });
     const m = /^\/backups\/([^/]+)(\/download)?$/.exec(url.pathname);
 
     if (req.method === "GET" && url.pathname === "/backups") {
@@ -160,6 +191,7 @@ createServer(async (req, res) => {
       return send(res, 200, { deleted: m[1] });
     }
     if (m && req.method === "POST" && m[2]) {
+      if (!DOWNLOADS) return send(res, 403, { error: "Downloading backups is turned off on this install (MOSS_BACKUP_DOWNLOADS=false). Copy them from deploy/backups on the host." });
       const { passphrase } = await body(req);
       if (typeof passphrase !== "string" || passphrase.length < 12) return send(res, 400, { error: "The passphrase needs at least 12 characters." });
       const file = join(DIR, m[1]);

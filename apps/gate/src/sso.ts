@@ -1,7 +1,8 @@
 // Single sign-on, the gate's part: exchange the code the browser brought back for an ID token (through the toolbox,
-// with the client secret only the gate can read), then check the token against the provider's published keys.
+// with the client secret only the gate can read), then check the token against the provider's published keys, which
+// the gate fetches itself: the toolbox, which brought the token, must not also choose the keys that check it.
 // The web app gets back who it's for, and matches them to a MOSS user itself.
-import { SSO_NAMES, SsoError, ssoAvailable, verifyIdToken, writeAudit, type SsoClaims, type SsoProvider } from "@moss/core";
+import { SSO_NAMES, SsoError, ssoAvailable, ssoKeysUrl, verifyIdToken, writeAudit, type SsoClaims, type SsoProvider } from "@moss/core";
 import type { JsonWebKey } from "node:crypto";
 import { systemToolCall, type SystemCallDeps } from "./system-call.js";
 
@@ -11,7 +12,7 @@ const keyCache = new Map<string, { at: number; keys: { keys?: JsonWebKey[] } }>(
 export type SsoExchangeResult = { ok: true; claims: SsoClaims } | { ok: false; error: string };
 
 export async function ssoExchange(
-  deps: SystemCallDeps,
+  deps: SystemCallDeps & { fetch?: typeof fetch },
   req: { orgId: string; provider: SsoProvider; code: string; redirectUri: string; codeVerifier: string },
   now = new Date(),
 ): Promise<SsoExchangeResult> {
@@ -37,9 +38,10 @@ export async function ssoExchange(
 
   const cacheKey = `${req.provider}:${client.tenantId ?? ""}`;
   const fetchKeys = async () => {
-    const res = await systemToolCall(deps, { orgId: req.orgId, tool: "oidc_keys", args: { provider: req.provider, ...(client.tenantId ? { tenantId: client.tenantId } : {}) }, label: `${name}'s signing keys` });
-    if (!res.ok) throw new SsoError(res.error);
-    const keys = res.result as { keys?: JsonWebKey[] };
+    const res = await (deps.fetch ?? fetch)(ssoKeysUrl(client), { signal: AbortSignal.timeout(10_000) });
+    if (res.status !== 200) throw new SsoError(`Couldn't fetch ${name}'s signing keys (HTTP ${res.status})`);
+    const body = (await res.json()) as { keys?: unknown };
+    const keys = { keys: Array.isArray(body.keys) ? (body.keys.slice(0, 50) as JsonWebKey[]) : [] };
     keyCache.set(cacheKey, { at: now.getTime(), keys });
     return keys;
   };

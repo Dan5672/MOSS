@@ -38,7 +38,7 @@ describe("server write tools", () => {
     const { run, commands } = fakeSsh(() => ({ stdout: "ActiveState=active\nSubState=running\nActiveEnterTimestamp=Tue 2026-10-06 10:00:00 AEST\n" }));
     const res = await sshTool("service_restart", { service: "nginx", action: "restart" }, run);
     expect(commands).toEqual([
-      "sudo -n systemctl restart 'nginx'; rc=$?; systemctl show 'nginx' --property=ActiveState,SubState,Result,ActiveEnterTimestamp --no-pager; exit $rc",
+      "sudo -n systemctl restart -- 'nginx'; rc=$?; systemctl show --property=ActiveState,SubState,Result,ActiveEnterTimestamp --no-pager -- 'nginx'; exit $rc",
     ]);
     expect(res).toMatchObject({ service: "nginx", action: "restart", active: "active", sub: "running" });
   });
@@ -54,7 +54,7 @@ describe("server write tools", () => {
     expect(await sshTool("container_restart", { container: "plex" }, run)).toMatchObject({ container: "plex", running: true, status: "running" });
     expect(await sshTool("host_reboot", { delayMinutes: 2 }, run)).toMatchObject({ scheduled: true, inMinutes: 2 });
     expect(commands).toEqual([
-      "docker restart 'plex' >/dev/null && docker inspect --format '{{json .State}}' 'plex'",
+      "docker restart -- 'plex' >/dev/null && docker inspect --format '{{json .State}}' -- 'plex'",
       "sudo -n shutdown -r +2 'Reboot by an approved MOSS change'",
     ]);
     await expect(sshTool("container_restart", { container: "plex; rm -rf /" }, run)).rejects.toThrow(/Invalid arguments/);

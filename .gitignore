@@ -11,4 +11,11 @@ deploy/secrets.before-restore-*/
 deploy/.last-upgrade
 __pycache__/
 deploy/certs/*.pem
+deploy/device-ca/*.pem
 docs/security/
+# Local agent tooling and personal Claude Code settings (the threat-modeler agent in .claude/agents is shared).
+.agents/
+skills-lock.json
+.claude/settings.local.json
+# The marketing site is kept out of the repository.
+site/

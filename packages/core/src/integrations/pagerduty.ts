@@ -62,7 +62,7 @@ export const PAGERDUTY: IntegrationDef = {
   },
   ops: {
     test: { tool: "pagerduty_change", args: () => ({ summary: "MOSS connected to this service" }) },
-    event: { tool: "pagerduty_event", callerArgs: ["action", "dedupKey", "summary", "severity", "source"] },
+    event: { tool: "pagerduty_event", callerArgs: ["incidentId", "action"], fromIncident: (inc, a) => pagerdutyEventArgs(inc, a.action === "resolve" ? "resolve" : "trigger") },
     incidents: { tool: "pagerduty_incidents", secret: { name: PAGERDUTY_API_SECRET, arg: "apiKey", label: "the REST API key" } },
   },
   features: [

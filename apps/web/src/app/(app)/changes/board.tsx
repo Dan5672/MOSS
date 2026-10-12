@@ -5,7 +5,7 @@ import { useState, type DragEvent } from "react";
 import { toast } from "sonner";
 import { ActionForm } from "@/components/action-form";
 import { Pill } from "@/components/badges";
-import { TextAreaField } from "@/components/field";
+import { TextAreaField, TextField } from "@/components/field";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
@@ -42,7 +42,7 @@ type Decision = { card: BoardCard; decision: "approve" | "reject" } | null;
  * (approve) or to Closed without running (reject); both are confirmed in a dialog, and the server checks
  * everything again. Each such card also has Approve and Reject buttons, for keyboards and touch screens.
  */
-export function ChangesBoard({ cards, canApprove }: { cards: BoardCard[]; canApprove: boolean }) {
+export function ChangesBoard({ cards, canApprove, approvalCode = false }: { cards: BoardCard[]; canApprove: boolean; approvalCode?: boolean }) {
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
   const [pending, setPending] = useState<Decision>(null);
@@ -151,6 +151,7 @@ export function ChangesBoard({ cards, canApprove }: { cards: BoardCard[]; canApp
               {pending.decision === "approve" ? (
                 <ActionForm action={async (prev, form) => close(await approveAction(pending.card.id, prev, form))} submitLabel="Approve">
                   <TextAreaField label="Comment (optional)" name="comment" rows={2} />
+                  {approvalCode && <TextField label="Your two-factor code" name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9 ]{6,7}" required />}
                   <label className="flex items-center gap-2 text-sm">
                     <input type="checkbox" name="force" /> Approve even if it conflicts with another change
                   </label>

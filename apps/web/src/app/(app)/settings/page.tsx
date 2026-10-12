@@ -8,8 +8,9 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
-import { confirmTotpAction, disableTotpAction, setMotionAction, setSetupChecklistHiddenAction, startTotpAction, toggleSettingAction } from "./actions";
+import { confirmTotpAction, disableTotpAction, saveApprovalRulesAction, setMotionAction, setSetupChecklistHiddenAction, startTotpAction, toggleSettingAction } from "./actions";
 import { ConnectChat } from "./chat-connect";
+import { weakens } from "./hardening";
 import { HttpsCard } from "./https-card";
 import { SignInAccounts } from "./sign-in-accounts";
 import { unlinkMyChatAction } from "./integrations/chat/actions";
@@ -43,6 +44,52 @@ const TOGGLES: { key: SettingKey; title: string; description: string; danger?: b
     permission: "settings.manage",
   },
   {
+    key: "agents.allow_internet",
+    title: "Agents may reach the internet",
+    description:
+      "Lets agents check public addresses (ping, TCP, HTTP, TLS) and look up names outside your network. Turn it off so an agent misled by something it read can't send your data out. Monitors aren't affected.",
+    permission: "settings.manage",
+  },
+  {
+    key: "tools.pin_hosts",
+    title: "Remember device keys",
+    description:
+      "The first time MOSS sends a device a credential, it remembers the device's certificate or SSH host key. If that changes, the credential isn't sent until you trust the new one in Settings, Security.",
+    permission: "settings.manage",
+  },
+  {
+    key: "tools.verify_tls",
+    title: "Require trusted certificates",
+    description:
+      "Credentials only go to devices whose certificate is signed by a trusted authority and names the device's IP address. A renewed certificate is then accepted without asking. Leave it off if your devices use self-signed certificates.",
+    permission: "settings.manage",
+  },
+  {
+    key: "changes.approval_totp",
+    title: "Two-factor code to approve",
+    description: "Approving a change asks for the approver's two-factor code, so a stolen session or chat account can't approve. The chat apps' Approve button goes away.",
+    permission: "settings.manage",
+  },
+  {
+    key: "knowledge.agent_drafts",
+    title: "Agents write wiki drafts",
+    description: "What agents write in the wiki waits for a person to publish it before other agents read it, so a note one agent was tricked into writing can't mislead the rest.",
+    permission: "settings.manage",
+  },
+  {
+    key: "agents.credentials_need_manager",
+    title: "Credentials only for work credential managers start",
+    description:
+      "Agent work someone started (a chat, a run, a schedule they set) may only use stored credentials if that person can manage credentials. Stops a smaller role reaching devices through an agent.",
+    permission: "settings.manage",
+  },
+  {
+    key: "auth.sso_require_totp",
+    title: "Two-factor for Microsoft and Google sign-in too",
+    description: "The password policy's two-factor rule applies to people who sign in with Microsoft or Google: they set up a MOSS code and enter it after signing in.",
+    permission: "settings.manage",
+  },
+  {
     key: "tools.allow_dangerous",
     title: "Allow dangerous tools",
     description: "Permit tools marked dangerous (for example factory resets), still only through approved changes.",
@@ -55,6 +102,7 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
   const user = await requireUser({ unblocks: "enrol_totp" });
   const q = await searchParams;
   const values = Object.fromEntries(await Promise.all(TOGGLES.map(async (t) => [t.key, await getSetting(db(), user.orgId, t.key)] as const)));
+  const [chatApprovals, emergencyTools] = await Promise.all([getSetting(db(), user.orgId, "changes.chat_approvals"), getSetting(db(), user.orgId, "changes.emergency_tools")]);
   const pendingSecret = (await cookies()).get("moss_totp_pending")?.value;
   const qr = pendingSecret ? await QRCode.toDataURL(totpUri(pendingSecret, user.email), { margin: 1, width: 200 }) : null;
   const [chatApps, myLinks] = await Promise.all([
@@ -147,13 +195,56 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
                       submitLabel={on ? "Turn off" : "Turn on"}
                       submitVariant={!on && t.danger ? "destructive" : "outline"}
                       confirm={!on && t.key === "tools.allow_dangerous" ? "Allow dangerous tools? They still need approved changes." : undefined}
-                    />
+                      inline
+                    >
+                      {/* Weakening a protection asks for the person's code (see ./hardening.ts). */}
+                      {user.totpEnabled && weakens(t.key, !on) && <TextField label="Your two-factor code" name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9 ]{6,7}" required />}
+                    </ActionForm>
                   )}
                 </div>
               );
             })}
           </CardContent>
         </Card>
+
+        {user.permissions.has("settings.manage") && (
+          <Card id="approvals">
+            <CardHeader>
+              <CardTitle>Approval rules</CardTitle>
+              <CardDescription>What may be approved from a chat app, and what emergency changes may do. See the hardening guide (docs/hardening.md).</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ActionForm action={saveApprovalRulesAction} submitLabel="Save">
+                <SelectField
+                  label="Approve from Telegram, Discord and Slack"
+                  name="chatApprovals"
+                  defaultValue={chatApprovals}
+                  options={[
+                    { value: "standard", label: "Anything but high-risk changes" },
+                    { value: "low_risk", label: "Low-risk changes only" },
+                    { value: "off", label: "Nothing: approve in MOSS" },
+                  ]}
+                  hint="Emergency changes, access requests, dangerous tools and anything that can take a device offline are always approved in MOSS."
+                />
+                <TextField
+                  label="Tools emergency changes may use"
+                  name="emergencyTools"
+                  defaultValue={emergencyTools.join(", ")}
+                  hint="Tool names separated by commas, for example service_restart, container_restart. Empty: any tool. Only matters while emergency changes are allowed."
+                />
+                {user.totpEnabled && (
+                  <TextField
+                    label="Your two-factor code"
+                    name="code"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    hint="Needed when you allow more from chat or more tools in emergencies."
+                  />
+                )}
+              </ActionForm>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>

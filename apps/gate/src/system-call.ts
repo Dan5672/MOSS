@@ -4,9 +4,10 @@
 // allow it. The secret is decrypted only then, and scrubbed from whatever comes back.
 import { decryptSecret, redactSecrets } from "@moss/core";
 import { networks, secrets, type Database } from "@moss/db";
-import { checkScope, contains, parseRange, type IpRange } from "@moss/policy";
+import { checkScope, secretScopeError } from "@moss/policy";
 import { BUILT_IN_TOOLS, parseToolArgs, SYSTEM_TOOLS } from "@moss/tools";
 import { and, eq } from "drizzle-orm";
+import { credentialCall } from "./pins.js";
 import type { ToolboxClient } from "./toolbox-client.js";
 
 export interface SystemCallDeps {
@@ -37,25 +38,22 @@ export async function systemToolCall(
   const scope = checkScope(def.manifest, args, rules);
   if (!scope.allow) return { ok: false, error: `Blocked by policy: ${scope.reason}` };
 
-  if (!useSecret) return call(deps, req.tool, args, req.label);
+  if (!useSecret) return call(deps, req.orgId, req.tool, args, [], req.label);
   // The credential's own scope still applies: the hosts and tools its owner allowed.
   if (!secret) return { ok: false, error: `Add ${req.label}'s credential first` };
-  if (secret.allowedTools.length > 0 && !secret.allowedTools.includes(req.tool)) return { ok: false, error: `The ${useSecret.name} secret may not be used with ${req.tool}` };
-  if (secret.allowedHosts.length > 0) {
-    const hosts = secret.allowedHosts.map(parseRange).filter((r): r is IpRange => r !== null);
-    if (!scope.ranges.every((t) => hosts.some((h) => contains(h, t)))) return { ok: false, error: `The ${useSecret.name} secret may not be used against ${scope.targets.join(", ")}` };
-  }
+  const outOfScope = secretScopeError(secret, req.tool, scope.targets, scope.ranges);
+  if (outOfScope) return { ok: false, error: outOfScope };
   const value = decryptSecret(deps.masterKey, secret.id, secret);
 
-  const res = await call(deps, req.tool, { ...args, [useSecret.arg]: value }, req.label, value);
+  const res = await call(deps, req.orgId, req.tool, { ...args, [useSecret.arg]: value }, scope.targets, req.label, value);
   return res.ok ? { ...res, args: { ...args, [useSecret.arg]: `secret:${useSecret.name}` } } : res;
 }
 
-async function call(deps: SystemCallDeps, tool: string, args: Record<string, unknown>, label: string, secretValue?: string): Promise<SystemCallResult> {
+async function call(deps: SystemCallDeps, orgId: string, tool: string, args: Record<string, unknown>, targets: string[], label: string, secretValue?: string): Promise<SystemCallResult> {
   const hide = (text: string) => (secretValue ? redactSecrets(text, [secretValue]) : text);
   let response: { ok: boolean; result?: unknown; error?: string };
   try {
-    response = await deps.toolbox.call(tool, args);
+    response = secretValue ? await credentialCall(deps.db, deps.toolbox, orgId, { tool, args, targets }, { type: "system", id: null }) : await deps.toolbox.call(tool, args);
   } catch (err) {
     response = { ok: false, error: `Toolbox unavailable: ${(err as Error).message}` };
   }

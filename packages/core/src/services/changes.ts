@@ -12,6 +12,7 @@ import {
   customTools,
   incidentComments,
   incidents,
+  providers,
   secretGrants,
   secrets,
   standardChangeTemplates,
@@ -19,7 +20,7 @@ import {
   type Database,
   type PlannedToolCall,
 } from "@moss/db";
-import { BUILT_IN_TOOLS, customToolDefinition, customToolSpecSchema, parseToolArgs, type ToolDefinition } from "@moss/tools";
+import { BUILT_IN_TOOLS, customToolDefinition, customToolSpecSchema, parseToolArgs, SYSTEM_TOOLS, type ToolDefinition } from "@moss/tools";
 import { and, asc, desc, eq, inArray, ne, type SQL } from "drizzle-orm";
 import { getSetting } from "../store/settings-store.js";
 import { writeAudit } from "../store/audit-store.js";
@@ -61,6 +62,32 @@ export function normalizeCalls(calls: PlannedToolCall[], tools: ReadonlyMap<stri
     if (!parsed.ok) throw new ChangeError(`Planned call ${i + 1} (${c.tool}): ${parsed.error}`);
     return { tool: c.tool, args: parsed.args };
   });
+}
+
+// Tools that can take a device, a network or a site offline. A change that uses one is high risk whatever its
+// author says, so it is approved in MOSS, never with a chat button.
+const HIGH_IMPACT_TOOLS = new Set([
+  "host_reboot",
+  "host_shutdown",
+  "proxmox_guest_power",
+  "homeassistant_power_cycle",
+  "opnsense_block",
+  "pfsense_block",
+  "unifi_client_block",
+  "unifi_wlan_enable",
+  "cloudflare_dns_record",
+  // Answering names with other addresses, or switching a smart plug, moves traffic or powers a device off as surely.
+  "pihole_local_dns",
+  "adguard_rewrite",
+  // Blocking a domain can cut a whole household off a service.
+  "pihole_domain_rule",
+  "adguard_rule",
+  "homeassistant_switch",
+]);
+
+/** The stated risk, raised to high when the plan uses a high-impact or dangerous tool. */
+export function assessRisk(stated: "low" | "medium" | "high", calls: PlannedToolCall[], tools: ReadonlyMap<string, ToolDefinition> = BUILT_IN_TOOLS) {
+  return calls.some((c) => HIGH_IMPACT_TOOLS.has(c.tool) || tools.get(c.tool)?.manifest.class === "dangerous") ? "high" : stated;
 }
 
 /** Every tool a change in this org can plan: the built-ins plus the org's enabled custom tools. */
@@ -159,6 +186,7 @@ export async function createChangeRequest(db: Database, orgId: string, input: Ne
   const tools = opts.tools ?? (await orgToolDefinitions(db, orgId));
   const plannedCalls = normalizeCalls(planned, tools);
   const rollbackCalls = normalizeCalls(input.rollbackCalls ?? [], tools);
+  risk = assessRisk(risk, [...plannedCalls, ...rollbackCalls], tools);
 
   let status: ChangeStatus = "submitted";
   let postReviewRequired = false;
@@ -167,6 +195,9 @@ export async function createChangeRequest(db: Database, orgId: string, input: Ne
     if (!(await getSetting(db, orgId, "changes.allow_emergency"))) {
       throw new ChangeError("Emergency changes are disabled in settings; raise a normal change for approval");
     }
+    const allowed = await getSetting(db, orgId, "changes.emergency_tools");
+    const other = [...plannedCalls, ...rollbackCalls].find((c) => allowed.length > 0 && !allowed.includes(c.tool));
+    if (other) throw new ChangeError(`${other.tool} isn't one of the tools emergency changes may use (Settings, Safety); raise a normal change for approval`);
     status = "approved";
     postReviewRequired = true;
   }
@@ -324,6 +355,25 @@ async function recordDecision(
 }
 
 /** Grants what an approved access request asked for. Returns what was granted, by name. */
+// Uses of a secret that only MOSS itself makes (the chat bridge, the LLM proxy) besides the system tools.
+const SYSTEM_SECRET_USES = new Set(["chat_bridge", "llm_proxy"]);
+
+/**
+ * Secrets MOSS uses for itself and never gives an agent: LLM provider keys, and any secret whose allowed tools are
+ * all system uses (chat bot tokens, SSO client secrets, the PagerDuty REST key, ...).
+ */
+async function systemSecretIds(db: Pick<Database, "select">, orgId: string, rows: { id: string; allowedTools: string[] }[]) {
+  const ids = new Set(rows.filter((r) => r.allowedTools.length > 0 && r.allowedTools.every((t) => SYSTEM_SECRET_USES.has(t) || SYSTEM_TOOLS.has(t))).map((r) => r.id));
+  if (rows.length) {
+    const keys = await db
+      .select({ id: providers.apiKeySecretId })
+      .from(providers)
+      .where(and(eq(providers.orgId, orgId), inArray(providers.apiKeySecretId, rows.map((r) => r.id))));
+    for (const k of keys) if (k.id) ids.add(k.id);
+  }
+  return ids;
+}
+
 async function applyAccessGrant(tx: Pick<Database, "select" | "insert">, orgId: string, agentId: string, grant: AccessGrant, userId: string) {
   const granted: string[] = [];
   const custom = grant.tools.length
@@ -341,8 +391,13 @@ async function applyAccessGrant(tx: Pick<Database, "select" | "insert">, orgId: 
     granted.push(tool);
   }
   if (grant.secretIds.length) {
-    const rows = await tx.select({ id: secrets.id, name: secrets.name }).from(secrets).where(and(eq(secrets.orgId, orgId), inArray(secrets.id, grant.secretIds)));
+    const rows = await tx
+      .select({ id: secrets.id, name: secrets.name, allowedTools: secrets.allowedTools })
+      .from(secrets)
+      .where(and(eq(secrets.orgId, orgId), inArray(secrets.id, grant.secretIds)));
+    const system = await systemSecretIds(tx, orgId, rows);
     for (const r of rows) {
+      if (system.has(r.id)) continue;
       await tx.insert(secretGrants).values({ secretId: r.id, agentId, grantedBy: userId }).onConflictDoNothing();
       granted.push(`secret:${r.name}`);
     }
@@ -372,9 +427,14 @@ export async function requestAccess(db: Database, orgId: string, agentId: string
   const unknown = wanted.filter((t) => !knownTools.has(t) && !custom.some((c) => c.key === t));
   if (unknown.length) throw new ChangeError(`No such tool: ${unknown.join(", ")}`);
   const names = [...new Set((req.secrets ?? []).map((n) => n.replace(/^secret:/, "")))];
-  const found = names.length ? await db.select({ id: secrets.id, name: secrets.name }).from(secrets).where(and(eq(secrets.orgId, orgId), inArray(secrets.name, names))) : [];
+  const found = names.length
+    ? await db.select({ id: secrets.id, name: secrets.name, allowedTools: secrets.allowedTools }).from(secrets).where(and(eq(secrets.orgId, orgId), inArray(secrets.name, names)))
+    : [];
   const missing = names.filter((n) => !found.some((f) => f.name === n));
   if (missing.length) throw new ChangeError(`No such secret: ${missing.join(", ")}. Ask the owner to store it first.`);
+  const system = await systemSecretIds(db, orgId, found);
+  const refused = found.filter((f) => system.has(f.id)).map((f) => f.name);
+  if (refused.length) throw new ChangeError(`${refused.join(", ")} ${refused.length > 1 ? "are" : "is"} for MOSS itself and can't be given to an agent`);
   const [haveTools, haveSecrets] = await Promise.all([
     agentToolGrants(db, agentId),
     db.select({ id: secretGrants.secretId }).from(secretGrants).where(eq(secretGrants.agentId, agentId)),

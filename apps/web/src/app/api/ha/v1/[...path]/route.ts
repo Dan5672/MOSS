@@ -17,7 +17,7 @@ import {
   writeAudit,
   type IntegrationCaller,
 } from "@moss/core";
-import { agents, agentSchedules, conversationMessages, incidentComments, incidents, monitors } from "@moss/db";
+import { agents, agentSchedules, conversationMembers, conversationMessages, conversations, incidentComments, incidents, monitors } from "@moss/db";
 import { and, asc, desc, eq, gt, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/server/db";
@@ -77,15 +77,19 @@ async function handle(req: Request, path: string[], method: "GET" | "POST") {
   const id = path.find((p) => /^[0-9a-f-]{36}$/.test(p));
 
   switch (route) {
+    // What MOSS shows on its dashboard: only for someone who may see the dashboard.
     case "GET state":
+      await need(c, "dashboard.read");
       return haSnapshot(c.orgId);
 
     case "GET events": {
+      await need(c, "dashboard.read");
       const after = url.searchParams.get("after");
       return haEvents(c.orgId, after === null ? null : Number(after) || 0);
     }
 
     case "GET calendar": {
+      await need(c, "dashboard.read");
       const start = new Date(url.searchParams.get("start") ?? Date.now());
       const end = new Date(url.searchParams.get("end") ?? Date.now() + 7 * 86_400_000);
       if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) throw new ApiError(400, "start and end must be times, start first");
@@ -192,6 +196,13 @@ async function handle(req: Request, path: string[], method: "GET" | "POST") {
     }
     case "GET ask/:id": {
       await need(c, "agents.chat");
+      // Only the asker's own conversation.
+      const [member] = await db()
+        .select({ id: conversations.id })
+        .from(conversations)
+        .innerJoin(conversationMembers, and(eq(conversationMembers.conversationId, conversations.id), eq(conversationMembers.userId, c.userId)))
+        .where(and(eq(conversations.id, id!), eq(conversations.orgId, c.orgId)));
+      if (!member) throw new ApiError(404, "No such conversation");
       const since = new Date(url.searchParams.get("since") ?? 0);
       const [reply] = await db()
         .select({ body: conversationMessages.body, status: conversationMessages.status, agentId: conversationMessages.authorAgentId })
@@ -203,6 +214,7 @@ async function handle(req: Request, path: string[], method: "GET" | "POST") {
     }
 
     case "GET agents": {
+      await need(c, "agents.read");
       const rows = await db()
         .select({ id: agents.id, name: agents.name, title: agents.title })
         .from(agents)

@@ -34,6 +34,8 @@ export async function createTestDb(suite: string) {
   const client = postgres(url, { max: 5, onnotice: () => {} });
   const db = drizzle(client, { schema });
   await migrate(db, { migrationsFolder: fileURLToPath(new URL("../migrations", import.meta.url)) });
+  // As the migrate step does: the job queue's schema, which pg-boss fills but doesn't make (openQueue).
+  await db.execute(sql`create schema if not exists pgboss`);
   const tables = await db.execute<{ tablename: string }>(sql`select tablename from pg_tables where schemaname = 'public'`);
   const names = tables.map((t) => `"${t.tablename}"`).join(", ");
   if (names) await db.execute(sql.raw(`truncate ${names} restart identity cascade`));

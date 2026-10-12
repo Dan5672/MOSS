@@ -36,6 +36,8 @@ const paramSchema = z
       } catch {
         ctx.addIssue({ code: "custom", message: "pattern is not a valid regular expression" });
       }
+      // shortcut: patterns aren't checked for catastrophic backtracking; values are capped at maxLength (200 by
+      // default) and only owners write patterns. Move to RE2 if catalogs from strangers become common.
     }
   });
 
@@ -187,7 +189,11 @@ export function renderCustomRequest(spec: CustomToolSpec, args: Record<string, u
   };
   const fill = (text: string, encode: (s: string) => string) => text.replace(PLACEHOLDER, (_, name: string) => encode(value(name)));
   const r = spec.request;
-  const path = fill(r.path, encodeURIComponent);
+  // "." and ".." survive encoding and would move the request to another path on the device.
+  const path = fill(r.path, (v) => {
+    if (v === "." || v === "..") throw new Error("A path value can't be . or ..");
+    return encodeURIComponent(v);
+  });
   const query = Object.entries(r.query ?? {})
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(fill(v, (s) => s))}`)
     .join("&");

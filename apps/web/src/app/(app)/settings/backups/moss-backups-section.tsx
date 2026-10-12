@@ -9,6 +9,7 @@ import { backupServiceStatus } from "@/server/backup-service";
 import { db } from "@/server/db";
 import { DownloadMossBackup } from "./download-dialog";
 import { backUpNowAction, deleteMossBackupAction, saveBackupScheduleAction } from "./moss-actions";
+import { config } from "@/server/config";
 
 function size(bytes: number) {
   return bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -100,7 +101,7 @@ export async function MossBackupsSection({ orgId }: { orgId: string }) {
                       <TableCell className="text-right font-mono">{size(b.bytes)}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
-                          <DownloadMossBackup name={b.name} />
+                          {config.backupDownloads() && <DownloadMossBackup name={b.name} />}
                           <ActionForm
                             action={deleteMossBackupAction.bind(null, b.name)}
                             submitLabel="Delete"

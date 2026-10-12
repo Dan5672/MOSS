@@ -11,6 +11,7 @@
 #                upgrade changed it, in which case anything recorded since the upgrade is lost.
 #   --yes        don't ask for confirmation
 #   --no-backup  skip the backup (not recommended)
+#   --allow-unsigned  upgrade to a release tag even if its signature can't be checked (not recommended)
 #
 # How it stays safe:
 #   - The new images are built while the old version keeps running, so a failed build changes nothing.
@@ -25,11 +26,13 @@ target=""
 yes=false
 backup=true
 rollback=false
+unsigned=false
 for arg in "$@"; do
   case "$arg" in
     --yes) yes=true ;;
     --no-backup) backup=false ;;
     --rollback) rollback=true ;;
+    --allow-unsigned) unsigned=true ;;
     -*) die "unknown option $arg" ;;
     *) target=$arg ;;
   esac
@@ -142,6 +145,14 @@ else
   ref=$target
 fi
 new=$(git_repo rev-parse --verify --quiet "$ref^{commit}") || die "unknown version: $target"
+# Release tags are signed: a tag that doesn't verify against a key you trust may not be ours.
+if git_repo show-ref --verify --quiet "refs/tags/$target" && ! git_repo verify-tag "$target" >/dev/null 2>&1; then
+  if $unsigned; then
+    warn "$target is not signed by a key you trust; continuing because of --allow-unsigned"
+  else
+    die "$target is not signed by a key you trust (git verify-tag $target). Import the MOSS release key, or pass --allow-unsigned."
+  fi
+fi
 old=$(git_repo rev-parse HEAD)
 old_branch=$(git_repo symbolic-ref --quiet --short HEAD || true)
 old_version=$(git_repo describe --tags --always "$old")

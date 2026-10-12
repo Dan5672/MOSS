@@ -1,0 +1,10 @@
+# For development only: publishes Postgres and the gate on this machine's loopback, for tests and a web app run
+# with `pnpm dev`. Normal installs leave both unpublished. Use it with MOSS_COMPOSE_FILES in deploy/.env:
+#   MOSS_COMPOSE_FILES="docker-compose.yml docker-compose.dev.yml"
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+  gate:
+    ports:
+      - "127.0.0.1:7080:7080"

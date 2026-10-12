@@ -5,10 +5,13 @@ import type { Gate } from "./service.js";
 const WORKER = "w".repeat(40);
 const WEB = "x".repeat(40);
 const BRIDGE = "b".repeat(40);
+const LLM = "l".repeat(40);
 
 describe("gate route tokens", () => {
   const server = buildGateServer({} as Gate, {
     token: WORKER,
+    llmToken: LLM,
+    llmProxy: async () => ({ status: 200, headers: {}, body: "ok" }),
     secrets: { token: WEB, write: async () => ({ id: "s", created: true }) },
     bridge: { token: BRIDGE, credentials: async () => [{ orgId: "o", platform: "telegram", token: "bot-token" }] },
   });
@@ -21,5 +24,12 @@ describe("gate route tokens", () => {
     }
     const write = await server.inject({ method: "POST", url: "/v1/%73ecrets", headers: { authorization: `Bearer ${WORKER}` }, payload: {} });
     expect(write.statusCode).toBe(401);
+  });
+
+  it("lets the LLM token reach the LLM proxy and nothing else", async () => {
+    expect((await get("/v1/llm/00000000-0000-0000-0000-000000000000/v1/models", LLM)).statusCode).toBe(200);
+    expect((await get("/v1/tools?agentId=00000000-0000-0000-0000-000000000000", LLM)).statusCode).toBe(401);
+    const call = await server.inject({ method: "POST", url: "/v1/tool-calls", headers: { authorization: `Bearer ${LLM}` }, payload: {} });
+    expect(call.statusCode).toBe(401);
   });
 });

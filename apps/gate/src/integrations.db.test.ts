@@ -1,14 +1,18 @@
 // The gate's integration calls (Pi-hole as the example), against Postgres with a fake toolbox.
-import { bootstrapOrg, encryptSecret, generateMasterKey, saveModule } from "@moss/core";
+import { bootstrapOrg, createIncident, encryptSecret, generateMasterKey, saveLicence, saveModule, signLicence } from "@moss/core";
 import { agents, agentToolOverrides, auditLog, models, networks, providers, secretGrants, secrets, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { desc, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createGate, type Gate } from "./service.js";
 import type { ToolboxClient } from "./toolbox-client.js";
 
 const PASSWORD = "pihole-app-password-123";
+const fixtures = join(__dirname, "../../../packages/core/src/fixtures/licence");
+process.env.MOSS_LICENCE_EXTRA_PUBLIC_KEY = readFileSync(join(fixtures, "test.pub"), "utf8").trim();
 
 describe.skipIf(!TEST_DATABASE_URL)("integration calls (gate)", () => {
   let db: Database;
@@ -69,7 +73,7 @@ describe.skipIf(!TEST_DATABASE_URL)("integration calls (gate)", () => {
     await configure(true, { host: "192.168.66.5" });
     expect(await gate.integration({ orgId, key: "pihole", op: "summary" })).toMatchObject({ ok: false, error: expect.stringMatching(/^Blocked by policy: .*off-limits/) });
     await configure(true, { host: "192.168.1.15" });
-    expect(await gate.integration({ orgId, key: "pihole", op: "summary" })).toEqual({ ok: false, error: "The pihole-password secret may not be used against 192.168.1.15" });
+    expect(await gate.integration({ orgId, key: "pihole", op: "summary" })).toEqual({ ok: false, error: "Secret pihole-password may not be used against 192.168.1.15" });
     expect(calls).toEqual([]);
 
     await configure(true);
@@ -94,6 +98,29 @@ describe.skipIf(!TEST_DATABASE_URL)("integration calls (gate)", () => {
     });
     expect(calls).toEqual([{ tool: "docker_api_containers", args: { target: "192.168.1.20", port: 2375, timeoutMs: 10000, checkUpdates: false } }]);
     expect(await gate.integration({ orgId, key: "docker", op: "health" })).toEqual({ ok: false, error: "Health checks is switched off" });
+  });
+
+  it("builds a PagerDuty page from the incident itself, whatever the worker sends", async () => {
+    const lic = signLicence(
+      { v: 1, kid: "test", id: "l1", licensee: "Home", plan: "business", features: ["pagerduty"], issued: "2030-01-01T00:00:00.000Z", expires: "2099-01-01T00:00:00.000Z" },
+      readFileSync(join(fixtures, "test.key"), "utf8"),
+    );
+    await saveLicence(db, orgId, lic, { type: "user", id: ownerId });
+    const keyId = randomUUID();
+    await db.insert(secrets).values({ id: keyId, orgId, name: "pagerduty-routing-key", type: "api_token", allowedTools: ["pagerduty_event", "pagerduty_change"], ...encryptSecret(masterKey, keyId, "r".repeat(32)) });
+    await saveModule(db, orgId, "pagerduty", { enabled: true, config: {} }, { type: "user", id: ownerId });
+    const inc = await createIncident(db, orgId, { type: "incident", title: "NAS is down", priority: "P1" }, { type: "user", id: ownerId });
+    reply = { ok: true, result: {} };
+    const sent = await gate.integration({ orgId, key: "pagerduty", op: "event", args: { incidentId: inc.id, action: "acknowledge", summary: "Click https://evil.example", severity: "info" } });
+    expect(sent).toMatchObject({ ok: true });
+    expect(calls.at(-1)!.args).toMatchObject({ action: "trigger", dedupKey: inc.id, summary: `INC-${String(inc.number).padStart(4, "0")} NAS is down`, severity: "critical" });
+    expect(await gate.integration({ orgId, key: "pagerduty", op: "event", args: { incidentId: randomUUID(), action: "trigger" } })).toEqual({ ok: false, error: "No such incident" });
+    // A secret limited to some hosts is never used by a call without a target (the same rule as agents' calls).
+    await db.update(secrets).set({ allowedHosts: ["192.168.1.40"] }).where(eq(secrets.id, keyId));
+    expect(await gate.integration({ orgId, key: "pagerduty", op: "event", args: { incidentId: inc.id, action: "trigger" } })).toEqual({
+      ok: false,
+      error: "Secret pagerduty-routing-key is host-scoped but the call has no target",
+    });
   });
 
   it("lets agents use a cloud integration's tools only while it's on", async () => {

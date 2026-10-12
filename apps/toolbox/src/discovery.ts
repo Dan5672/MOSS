@@ -5,6 +5,7 @@ import type { NameLookupHost, NameLookupResult, SnmpResult, TracerouteResult, Un
 import { XMLParser } from "fast-xml-parser";
 import { request } from "node:https";
 import { clean } from "./parsers.js";
+import { pinnedConnection, pinScope } from "./pins.js";
 import type { Exec } from "./runners.js";
 
 export class DiscoveryError extends Error {}
@@ -28,7 +29,10 @@ export type HttpGet = (url: string, headers: Record<string, string>, timeoutMs: 
  */
 export const httpsGet: HttpGet = (url, headers, timeoutMs) =>
   new Promise((resolve, reject) => {
-    const req = request(url, { method: "GET", headers, rejectUnauthorized: false, timeout: timeoutMs }, (res) => {
+    const u = new URL(url);
+    const verifyTls = pinScope.getStore()?.verifyTls === true;
+    const pinned = pinnedConnection(u.hostname.replace(/^\[|\]$/g, ""), Number(u.port || 443), verifyTls, timeoutMs);
+    const req = request(url, { method: "GET", headers, rejectUnauthorized: verifyTls, timeout: timeoutMs, ...(pinned ? { createConnection: pinned as never } : {}) }, (res) => {
       let size = 0;
       const chunks: Buffer[] = [];
       res.on("data", (c: Buffer) => {

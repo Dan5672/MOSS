@@ -1,9 +1,9 @@
 // MOSS's chat bridge: Telegram and Discord bots. It reads and writes MOSS's database like the worker, gets the
 // bot tokens from the gate (which decrypts them only while their integration is on), and is the only service
 // that talks to Telegram and Discord.
+import { openQueue } from "@moss/agent";
 import { createDb } from "@moss/db";
 import { readFileSync } from "node:fs";
-import { PgBoss } from "pg-boss";
 import { createBridge, type Credential } from "./bridge.js";
 
 function secretFromEnv(name: string): string {
@@ -19,7 +19,11 @@ const gateUrl = (process.env.GATE_URL ?? "http://gate:7080").replace(/\/+$/, "")
 const bridgeToken = secretFromEnv("BRIDGE_TOKEN");
 const log = (msg: string, extra: Record<string, unknown> = {}) => console.log(JSON.stringify({ at: new Date().toISOString(), msg, ...extra }));
 
-const boss = new PgBoss(databaseUrl);
+// One failed promise somewhere must not take every chat app down with it.
+process.on("unhandledRejection", (err) => log("unhandled rejection", { error: String(err) }));
+
+// The job queue signs in as its own role (deploy/docker-compose.yml); development uses the one database URL.
+const boss = openQueue(process.env.QUEUE_DATABASE_URL ?? databaseUrl);
 boss.on("error", (err) => log("queue error", { error: String(err) }));
 await boss.start();
 

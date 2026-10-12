@@ -13,7 +13,7 @@ import { gworkspaceAlerts, gworkspaceDevices, gworkspaceUsers } from "./google.j
 import { awsAlarms, awsExposure, awsInventory } from "./aws.js";
 import { merakiDevices, merakiNetwork } from "./meraki.js";
 import { m365Devices, m365ServiceHealth, m365Users } from "./microsoft.js";
-import { oidcExchange, oidcKeys } from "./oidc.js";
+import { oidcExchange } from "./oidc.js";
 import { pagerdutyChange, pagerdutyEvent, pagerdutyIncidents } from "./pagerduty.js";
 import { nutStatus } from "./nut.js";
 import { opnsenseBlock, opnsenseStatus, pfsenseBlock, pfsenseStatus } from "./firewalls.js";
@@ -27,6 +27,7 @@ import { promises as dns } from "node:dns";
 import { networkInterfaces } from "node:os";
 import { DiscoveryError, httpsGet, nameLookup, snmpQuery, traceroute, unifiClients, type HttpGet } from "./discovery.js";
 import { parseArpScan, parseNmapXml, parsePing } from "./parsers.js";
+import { PinMismatch } from "./pins.js";
 import { httpProbe, tcpConnect, tlsInspect, type HttpProbeArgs } from "./probes.js";
 
 const NMAP_PROFILES: Record<string, string[]> = {
@@ -150,7 +151,7 @@ export async function runTool(
     return await runToolInner(name, rawArgs, exec, interfaces, get, send, ssh);
   } catch (err) {
     // Device-side problems (bad key, no answer, wrong port) are tool errors the agent can read, not crashes.
-    if (err instanceof DiscoveryError || err instanceof ServerError || err instanceof HomelabError) throw new ToolError(err.message);
+    if (err instanceof DiscoveryError || err instanceof ServerError || err instanceof HomelabError || err instanceof PinMismatch) throw new ToolError(err.message);
     throw err;
   }
 }
@@ -322,8 +323,6 @@ async function runToolInner(
       return pagerdutyIncidents(args as never);
     case "oidc_exchange":
       return oidcExchange(args as never);
-    case "oidc_keys":
-      return oidcKeys(args as never);
     case "moss_releases":
       return mossReleases(args as never);
     case "tailscale_devices":

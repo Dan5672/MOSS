@@ -461,6 +461,27 @@ export const networks = pgTable(
   (t) => [uniqueIndex("networks_org_cidr_idx").on(t.orgId, t.cidr)],
 );
 
+/**
+ * The TLS certificate or SSH host key a device presented the first time MOSS sent it a credential. Later calls
+ * with a credential must see the same one (the gate passes it to the toolbox, which checks before sending).
+ */
+export const hostPins = pgTable(
+  "host_pins",
+  {
+    id: id(),
+    orgId: uuid("org_id").notNull(),
+    kind: text("kind", { enum: ["tls", "ssh"] }).notNull(),
+    host: text("host").notNull(),
+    port: integer("port").notNull(),
+    fingerprint: text("fingerprint").notNull(),
+    /** A different fingerprint the device presented since, waiting for a person to trust it or not. */
+    changedTo: text("changed_to"),
+    changedAt: timestamp("changed_at", { withTimezone: true }),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("host_pins_org_kind_host_port_idx").on(t.orgId, t.kind, t.host, t.port)],
+);
+
 export const assets = pgTable(
   "assets",
   {
@@ -599,6 +620,8 @@ export const changeRequests = pgTable("change_requests", {
   postReviewRequired: boolean("post_review_required").notNull().default(false),
   /** An agent asking for access: the tools and secrets it gets when this is approved. Nothing else runs. */
   accessGrant: jsonb("access_grant").$type<AccessGrant>(),
+  /** Which planned calls (by position) have run successfully: the gate never runs one twice. */
+  executedCalls: jsonb("executed_calls").$type<number[]>().notNull().default([]),
   ...timestamps(),
 });
 
@@ -1036,6 +1059,8 @@ export const knowledgeNotes = pgTable(
     parentId: uuid("parent_id").references((): AnyPgColumn => knowledgeNotes.id, { onDelete: "set null" }),
     /** The device a page is about, shown on the asset's page. */
     assetId: uuid("asset_id").references(() => assets.id, { onDelete: "set null" }),
+    /** Written by an agent while "agent drafts" is on: other agents don't see it until a person publishes it. */
+    draft: boolean("draft").notNull().default(false),
     createdByUserId: uuid("created_by_user_id").references(() => users.id),
     createdByAgentId: uuid("created_by_agent_id").references(() => agents.id),
     updatedByUserId: uuid("updated_by_user_id").references(() => users.id),

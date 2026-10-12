@@ -98,7 +98,7 @@ test("models: add a local provider and a model", async () => {
   await expect(page.getByRole("navigation", { name: "Agents" }).getByRole("link", { name: "Wiki" })).toHaveCount(0);
   await page.getByLabel("Type").selectOption("ollama");
   await page.getByLabel("Name", { exact: true }).fill("Local Ollama");
-  await page.getByLabel("Base URL (optional for hosted providers)").fill("http://127.0.0.1:11434/v1");
+  await page.getByLabel("Base URL (Ollama and OpenAI-compatible only)").fill("http://127.0.0.1:11434/v1");
   await page.getByRole("button", { name: "Add provider" }).click();
   await expect(page.getByText("Added Local Ollama.")).toBeVisible();
 
@@ -1420,6 +1420,8 @@ test("licence: add a business licence (checked first), see what it covers, and r
 });
 
 test("business: Microsoft 365 locked without a licence; with one, people in MOSS sign in with Microsoft", async () => {
+  // It signs the owner in three times with a fresh two-factor code, and each may wait for the next 30-second step.
+  test.slow();
   const TENANT = "11111111-2222-3333-4444-555555555555";
   const CLIENT = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
   const ssoAs = (email: string) => page.request.post(`http://127.0.0.1:${E2E_GATE_PORT}/sso-next`, { data: { email } });
@@ -1501,6 +1503,10 @@ test("business: Microsoft 365 locked without a licence; with one, people in MOSS
   await expect(accounts).toContainText("Linked to your Microsoft account.");
   await signOut();
   await page.getByRole("link", { name: "Sign in with Microsoft" }).click();
+  // The owner has two-factor in MOSS, so it's asked for after Microsoft too.
+  await expect(page.getByRole("heading", { name: "One more step" })).toBeVisible();
+  await page.getByLabel("Code").fill(await freshTotp());
+  await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
 
   // Single sign-on only: a viewer's password is refused; the owner's still works.

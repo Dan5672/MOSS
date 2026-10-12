@@ -7,6 +7,7 @@ import { act, type ActionState } from "@/server/action";
 import { PermissionError, requirePermission, verifyUserTotp } from "@/server/auth";
 import { BACKUP_NAME, deleteMossBackup, issueDownloadTicket, startMossBackup } from "@/server/backup-service";
 import { db } from "@/server/db";
+import { config } from "@/server/config";
 
 /** MOSS backups hold the master key: they need both managing settings and managing secrets. */
 async function requireBackupManager() {
@@ -60,6 +61,7 @@ export async function deleteMossBackupAction(name: string, _: ActionState): Prom
  * archive encrypted with that passphrase.
  */
 export async function prepareBackupDownloadAction(name: string, form: FormData): Promise<{ ticket?: string; error?: string }> {
+  if (!config.backupDownloads()) return { error: "Downloading backups is turned off on this install. Copy them from deploy/backups on the host." };
   try {
     const user = await requireBackupManager();
     if (!BACKUP_NAME.test(name)) return { error: "No such backup." };

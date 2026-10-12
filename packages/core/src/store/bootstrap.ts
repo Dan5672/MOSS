@@ -1,6 +1,6 @@
 // First-run bootstrap: default org, built-in roles, and the owner account.
 import { orgs, rolePermissions, roles, userRoles, users, type Database } from "@moss/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { hashPassword } from "../auth/password.js";
 import { BUILT_IN_ROLES } from "../auth/rbac.js";
 import { writeAudit } from "./audit-store.js";
@@ -30,10 +30,15 @@ export interface BootstrapInput {
 
 /** Creates the org and owner. Refuses to run twice. */
 export async function bootstrapOrg(db: Database, input: BootstrapInput) {
-  const existing = await db.select({ id: orgs.id }).from(orgs).limit(1);
-  if (existing.length > 0) throw new Error("MOSS is already set up");
   const passwordHash = await hashPassword(input.ownerPassword);
-  const [org] = await db.insert(orgs).values({ name: input.orgName }).returning();
+  // Locked, so two people submitting the setup form at once can't both create an org.
+  const org = await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('moss:bootstrap'))`);
+    const existing = await tx.select({ id: orgs.id }).from(orgs).limit(1);
+    if (existing.length > 0) throw new Error("MOSS is already set up");
+    const [row] = await tx.insert(orgs).values({ name: input.orgName }).returning();
+    return row;
+  });
   const roleIds = await ensureBuiltInRoles(db, org!.id);
   const [owner] = await db
     .insert(users)

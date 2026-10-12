@@ -1,4 +1,6 @@
-import { describePolicy, getPasswordPolicy } from "@moss/core";
+import { describePolicy, getPasswordPolicy, getSetting } from "@moss/core";
+import { hostPins } from "@moss/db";
+import { asc, eq, sql } from "drizzle-orm";
 import { ActionForm } from "@/components/action-form";
 import { CheckboxField, SelectField, TextField } from "@/components/field";
 import { PageHeader } from "@/components/page";
@@ -6,7 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
-import { changePasswordAction, savePasswordPolicyAction } from "./actions";
+import { changePasswordAction, hostPinAction, savePasswordPolicyAction } from "./actions";
 
 export const metadata = { title: "Security" };
 
@@ -16,6 +18,12 @@ export default async function SecurityPage({ searchParams }: PageProps<"/setting
   const sp = await searchParams;
   const policy = await getPasswordPolicy(db(), user.orgId);
   const canManage = user.permissions.has("settings.manage");
+  const [pins, pinning] = canManage
+    ? await Promise.all([
+        db().select().from(hostPins).where(eq(hostPins.orgId, user.orgId)).orderBy(sql`${hostPins.changedAt} desc nulls last`, asc(hostPins.host), asc(hostPins.port)),
+        getSetting(db(), user.orgId, "tools.pin_hosts"),
+      ])
+    : [[], false];
 
   return (
     <>
@@ -81,6 +89,42 @@ export default async function SecurityPage({ searchParams }: PageProps<"/setting
                   hint="Checked with Have I Been Pwned. Only the first 5 characters of the password's SHA-1 hash are sent, never the password."
                 />
               </ActionForm>
+            </CardContent>
+          </Card>
+        )}
+
+        {canManage && (
+          <Card id="device-keys" className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle>Device keys</CardTitle>
+              <CardDescription>
+                The certificate or SSH host key each device presented the first time MOSS sent it a credential. If a device presents a different one, MOSS sends it nothing
+                until you check the device and trust the new key. {pinning ? "" : "Remembering device keys is off (Settings, Safety)."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3 text-sm">
+              {pins.length === 0 && <p className="text-muted-foreground">No device has been sent a credential yet.</p>}
+              {pins.map((p) => (
+                <div key={p.id} className="flex flex-wrap items-start justify-between gap-3 border-t-2 pt-3 first:border-t-0 first:pt-0">
+                  <div className="min-w-0">
+                    <div className="font-medium">
+                      {p.host}:{p.port} <span className="text-muted-foreground">· {p.kind === "tls" ? "TLS certificate" : "SSH host key"}</span>
+                    </div>
+                    <div className="break-all font-mono text-xs text-muted-foreground">{p.fingerprint || "Not trusted yet"}</div>
+                    {p.changedTo && (
+                      <div className="mt-1 text-alarm" role="alert">
+                        {p.fingerprint ? "Changed" : "A new port on a device MOSS knows, first seen"} {p.changedAt?.toLocaleString()}:{" "}
+                        <span className="break-all font-mono text-xs">{p.changedTo}</span>. Check this on the device (a new certificate after an update, or a device
+                        replaced) before trusting it. If you can&apos;t explain it, something else may be answering at this address.
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    {p.changedTo && <ActionForm action={hostPinAction.bind(null, p.id, "trust", p.changedTo)} submitLabel="Trust new key" inline confirm={`Trust ${p.changedTo} for ${p.host}? Credentials will go to it again.`} />}
+                    <ActionForm action={hostPinAction.bind(null, p.id, "forget", null)} submitLabel="Forget" submitVariant="outline" inline />
+                  </div>
+                </div>
+              ))}
             </CardContent>
           </Card>
         )}

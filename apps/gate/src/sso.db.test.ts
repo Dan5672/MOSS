@@ -16,12 +16,14 @@ process.env.MOSS_LICENCE_EXTRA_PUBLIC_KEY = readFileSync(join(fixtures, "test.pu
 const TENANT = "11111111-2222-3333-4444-555555555555";
 const CLIENT = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-const jwk = { ...publicKey.export({ format: "jwk" }), kid: "k1" };
+const jwk = { ...publicKey.export({ format: "jwk" }), kid: "k1", use: "sig" };
+// A toolbox that has been taken over signs its own token; its key must never be the one that checks it.
+const forger = generateKeyPairSync("rsa", { modulusLength: 2048 });
 
-function idToken(claims: Record<string, unknown>) {
+function idToken(claims: Record<string, unknown>, key = privateKey) {
   const part = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
   const body = `${part({ alg: "RS256", kid: "k1" })}.${part(claims)}`;
-  return `${body}.${sign("RSA-SHA256", Buffer.from(body), privateKey).toString("base64url")}`;
+  return `${body}.${sign("RSA-SHA256", Buffer.from(body), key).toString("base64url")}`;
 }
 
 describe.skipIf(!TEST_DATABASE_URL)("single sign-on (gate)", () => {
@@ -37,9 +39,14 @@ describe.skipIf(!TEST_DATABASE_URL)("single sign-on (gate)", () => {
   const toolbox: ToolboxClient = {
     call: async (tool, args) => {
       calls.push({ tool, args });
-      return tool === "oidc_exchange" ? { ok: true, result: { idToken: token } } : { ok: true, result: { keys: [jwk] } };
+      return tool === "oidc_exchange" ? { ok: true, result: { idToken: token } } : { ok: true, result: { keys: [{ ...forger.publicKey.export({ format: "jwk" }), kid: "k1" }] } };
     },
   };
+  const keyRequests: string[] = [];
+  const fakeFetch = (async (url: string | URL | Request) => {
+    keyRequests.push(String(url));
+    return new Response(JSON.stringify({ keys: [jwk] }), { status: 200 });
+  }) as typeof fetch;
   const req = { code: "c0de", redirectUri: "https://moss.acme.test/api/auth/sso/microsoft/callback", codeVerifier: "v".repeat(43) };
 
   beforeAll(async () => {
@@ -48,7 +55,7 @@ describe.skipIf(!TEST_DATABASE_URL)("single sign-on (gate)", () => {
     const id = randomUUID();
     await db.insert(secrets).values({ id, orgId, name: "m365-client-secret", type: "api_token", allowedTools: ["m365_users", "oidc_exchange"], ...encryptSecret(masterKey, id, "the-client-secret") });
     await saveModule(db, orgId, "m365", { enabled: true, config: { fields: { tenantId: TENANT, clientId: CLIENT }, options: { ssoEnabled: true } } }, { type: "user", id: ownerId });
-    gate = createGate({ db, masterKey, toolbox });
+    gate = createGate({ db, masterKey, toolbox, fetch: fakeFetch });
   });
   afterAll(() => close?.());
 
@@ -66,7 +73,13 @@ describe.skipIf(!TEST_DATABASE_URL)("single sign-on (gate)", () => {
     token = idToken({ iss: `https://login.microsoftonline.com/${TENANT}/v2.0`, aud: CLIENT, tid: TENANT, oid: "oid-1", preferred_username: "ann@acme.test", nonce: "n1", iat: t, exp: t + 600 });
     expect(await gate.sso({ orgId, provider: "microsoft", ...req })).toEqual({ ok: true, claims: { provider: "microsoft", id: "oid-1", email: "ann@acme.test", name: undefined, nonce: "n1", tenantId: TENANT } });
     expect(calls[0]).toEqual({ tool: "oidc_exchange", args: { provider: "microsoft", tenantId: TENANT, clientId: CLIENT, clientSecret: "the-client-secret", ...req, timeoutMs: 10000 } });
-    expect(calls[1]).toMatchObject({ tool: "oidc_keys", args: { provider: "microsoft", tenantId: TENANT } });
+    expect(calls).toHaveLength(1);
+    expect(keyRequests).toEqual([`https://login.microsoftonline.com/${TENANT}/discovery/v2.0/keys`]);
+  });
+
+  it("refuses a token signed by anyone but the provider, whatever the toolbox says", async () => {
+    token = idToken({ iss: `https://login.microsoftonline.com/${TENANT}/v2.0`, aud: CLIENT, tid: TENANT, oid: "oid-1", preferred_username: "ann@acme.test", iat: t, exp: t + 600 }, forger.privateKey);
+    expect(await gate.sso({ orgId, provider: "microsoft", ...req })).toEqual({ ok: false, error: "The sign-in token's signature doesn't match" });
   });
 
   it("refuses a token for another directory, and Google while it isn't set up", async () => {

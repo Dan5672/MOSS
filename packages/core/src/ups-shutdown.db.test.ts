@@ -54,7 +54,7 @@ describe.skipIf(!TEST_DATABASE_URL)("UPS shutdown plan (postgres)", () => {
     await readings([ups({ onBattery: true, charge: 30, runtimeSeconds: 540 })]);
     expect(await upsShutdownTick(db, orgId)).toBe("shutdown raised for approval");
     const [c] = await db.select().from(changeRequests);
-    expect(c).toMatchObject({ status: "submitted", type: "normal", risk: "medium", requestedByAgentId: agentId, title: "Shut down for the power cut (UPS apc: 9 minutes left)" });
+    expect(c).toMatchObject({ status: "submitted", type: "normal", risk: "high", requestedByAgentId: agentId, title: "Shut down for the power cut (UPS apc: 9 minutes left)" });
     expect(c!.plannedCalls.map((p) => [p.tool, p.args.target])).toEqual([
       ["host_shutdown", "192.168.1.30"],
       ["host_shutdown", "192.168.1.10"],

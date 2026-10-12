@@ -10,7 +10,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // --- Servers over SSH ----------------------------------------------------------------------------
 
-const SAFE_NAME = /^[A-Za-z0-9@._:-]{1,128}$/;
+const SAFE_NAME = /^[A-Za-z0-9@._:][A-Za-z0-9@._:-]{0,127}$/; // no leading "-", which a command would read as an option
 const quote = (name: string) => {
   // The argument schemas already restrict names; this keeps the shell quoting airtight regardless.
   if (!SAFE_NAME.test(name)) throw new ServerError("Invalid name");
@@ -26,7 +26,7 @@ function sudoHint(stderr: string, what: string) {
 
 export async function serviceRestart(t: SshTarget & { service: string; action: "restart" | "start" | "stop" }, ssh: SshRun = sshRun) {
   const unit = quote(t.service);
-  const res = await run(t, `sudo -n systemctl ${t.action} ${unit}; rc=$?; systemctl show ${unit} --property=ActiveState,SubState,Result,ActiveEnterTimestamp --no-pager; exit $rc`, ssh);
+  const res = await run(t, `sudo -n systemctl ${t.action} -- ${unit}; rc=$?; systemctl show --property=ActiveState,SubState,Result,ActiveEnterTimestamp --no-pager -- ${unit}; exit $rc`, ssh);
   if (res.code !== 0) throw sudoHint(res.stderr, "systemctl") ?? new ServerError(`systemctl ${t.action} ${t.service} failed: ${clean(res.stderr) ?? `exit ${res.code}`}`);
   const p = parseSystemctlShow(res.stdout);
   return { target: t.target, service: t.service, action: t.action, active: p.ActiveState, sub: p.SubState, since: p.ActiveEnterTimestamp || undefined, ...pinNote(t, res.hostKeySha256) };
@@ -34,7 +34,7 @@ export async function serviceRestart(t: SshTarget & { service: string; action: "
 
 export async function containerRestart(t: SshTarget & { container: string; action: "restart" | "start" | "stop" }, ssh: SshRun = sshRun) {
   const name = quote(t.container);
-  const res = await run(t, `docker ${t.action} ${name} >/dev/null && docker inspect --format '{{json .State}}' ${name}`, ssh);
+  const res = await run(t, `docker ${t.action} -- ${name} >/dev/null && docker inspect --format '{{json .State}}' -- ${name}`, ssh);
   if (res.code !== 0) {
     const err = clean(res.stderr) ?? "";
     if (/permission denied/i.test(err)) throw new ServerError(`${t.user} isn't allowed to use Docker on ${t.target}`);

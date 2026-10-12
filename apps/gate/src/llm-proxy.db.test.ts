@@ -1,6 +1,7 @@
 // LLM proxy: real SDK clients -> gate (HTTP) -> fake upstream. Run with MOSS_TEST_DATABASE_URL set.
-import { bootstrapOrg, encryptSecret, generateMasterKey } from "@moss/core";
-import { providers, secrets, type Database } from "@moss/db";
+import { bootstrapOrg, encryptSecret, generateMasterKey, setSetting } from "@moss/core";
+import { budgets, providers, secrets, type Database } from "@moss/db";
+import { eq } from "drizzle-orm";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { AnthropicAdapter, OpenAICompatibleAdapter } from "@moss/llm";
 import { randomUUID } from "node:crypto";
@@ -23,6 +24,8 @@ describe.skipIf(!TEST_DATABASE_URL)("gate LLM proxy (postgres)", () => {
   let anthropicId: string;
   let openrouterId: string;
   let subscriptionId: string;
+  let orgId: string;
+  let proxy: ReturnType<typeof createLlmProxy>;
   const upstream: { url: string; headers: Record<string, string>; body: any }[] = [];
 
   const fakeUpstream = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -48,6 +51,7 @@ describe.skipIf(!TEST_DATABASE_URL)("gate LLM proxy (postgres)", () => {
     ({ db, close } = await createTestDb("gate_llm"));
     const masterKey = generateMasterKey();
     const { org } = await bootstrapOrg(db, { orgName: "x", ownerEmail: "o@x.test", ownerName: "o", ownerPassword: "a-long-test-password" });
+    orgId = org.id;
     const addKey = async (name: string, value: string) => {
       const id = randomUUID();
       await db.insert(secrets).values({ id, orgId: org.id, name, type: "api_token", ...encryptSecret(masterKey, id, value) });
@@ -55,7 +59,8 @@ describe.skipIf(!TEST_DATABASE_URL)("gate LLM proxy (postgres)", () => {
     };
     [{ id: anthropicId }] = await db
       .insert(providers)
-      .values({ orgId: org.id, kind: "anthropic", name: "Claude", apiKeySecretId: await addKey("anthropic-key", ANTHROPIC_KEY) })
+      // A base URL stored for a cloud provider is ignored, so the key only ever goes to that provider.
+      .values({ orgId: org.id, kind: "anthropic", name: "Claude", baseUrl: "https://evil.example", apiKeySecretId: await addKey("anthropic-key", ANTHROPIC_KEY) })
       .returning();
     [{ id: openrouterId }] = await db
       .insert(providers)
@@ -68,7 +73,8 @@ describe.skipIf(!TEST_DATABASE_URL)("gate LLM proxy (postgres)", () => {
       .returning();
 
     const gate = createGate({ db, masterKey, toolbox: { call: async () => ({ ok: true }) } });
-    app = buildGateServer(gate, { token: GATE_TOKEN, llmProxy: createLlmProxy({ db, masterKey, fetch: fakeUpstream }) });
+    proxy = createLlmProxy({ db, masterKey, fetch: fakeUpstream });
+    app = buildGateServer(gate, { token: GATE_TOKEN, llmProxy: proxy });
     await app.listen({ host: "127.0.0.1", port: 0 });
     gateUrl = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
   });
@@ -104,6 +110,17 @@ describe.skipIf(!TEST_DATABASE_URL)("gate LLM proxy (postgres)", () => {
     const call = upstream.at(-1)!;
     expect(call.url).toBe("https://openrouter.ai/api/v1/chat/completions");
     expect(call.headers.authorization).toBe(`Bearer ${OPENROUTER_KEY}`);
+  });
+
+  it("refuses every call while the kill switch is on or the org's hard budget is used up", async () => {
+    const call = () => proxy({ providerId: anthropicId, path: "v1/messages", method: "POST", headers: {}, body: { model: "m", max_tokens: 1, messages: [] } });
+    await setSetting(db, orgId, "agents.kill_switch", true);
+    expect((await call()).status).toBe(429);
+    await setSetting(db, orgId, "agents.kill_switch", false);
+    const [b] = await db.insert(budgets).values({ orgId, period: "day", unit: "tokens", hardLimit: "0" }).returning();
+    expect((await call()).status).toBe(429);
+    await db.delete(budgets).where(eq(budgets.id, b!.id));
+    expect((await call()).status).toBe(200);
   });
 
   it("refuses non-inference paths, bad tokens and unknown providers", async () => {

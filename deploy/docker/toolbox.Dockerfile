@@ -1,5 +1,5 @@
 # MOSS toolbox: runs network tools on behalf of the gate. Build context: repo root.
-FROM node:24-bookworm-slim AS build
+FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS build
 WORKDIR /src
 RUN corepack enable
 COPY . .
@@ -11,7 +11,7 @@ RUN pnpm install --frozen-lockfile \
 # stage (on the same base image as the toolbox, so nothing extra is downloaded) so curl and unzip don't end up
 # in the toolbox. Only network-facing templates are kept (no code,
 # javascript, headless, file, cloud or DAST templates).
-FROM node:24-bookworm-slim AS scanners
+FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS scanners
 ARG NUCLEI_VERSION=3.11.1
 ARG NUCLEI_SHA256=ea63d4ae232808cd7c6bc00d0142428e231fab59dae01042246097d195835ab6
 ARG TEMPLATES_VERSION=10.5.0
@@ -27,14 +27,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
  && cd /opt/nuclei-templates && rm -rf code javascript headless file cloud dast workflows .github helpers profiles \
  && test -x /usr/local/bin/nuclei && test -d /opt/nuclei-templates/http
 
-FROM node:24-bookworm-slim
+FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20
 COPY --from=scanners /usr/local/bin/nuclei /usr/local/bin/nuclei
 COPY --from=scanners /opt/nuclei-templates /opt/nuclei-templates
 RUN apt-get update \
- && apt-get install -y --no-install-recommends nmap arp-scan iputils-ping traceroute snmp libcap2-bin ca-certificates testssl.sh \
+ && apt-get install -y --no-install-recommends nmap arp-scan iputils-ping traceroute snmp libcap2-bin ca-certificates testssl.sh iptables \
  # Grant raw-socket capabilities to the scanners only, so the service itself runs unprivileged.
  && setcap cap_net_raw,cap_net_admin+eip /usr/bin/nmap \
  && setcap cap_net_raw+eip /usr/sbin/arp-scan \
+ # No setuid programs: the container keeps SETUID only so toolbox-start.sh can drop to node.
+ && find / -xdev -perm /6000 -type f -exec chmod a-s {} + \
  && rm -rf /var/lib/apt/lists/* \
  # Fail the build if any tool binary is missing. (Keep libcap2-bin: iputils-ping depends on it.)
  # Existence checks only: nmap's NET_ADMIN file capability can't be exercised in the build sandbox.
@@ -42,11 +44,13 @@ RUN apt-get update \
  && command -v traceroute && command -v snmpget && command -v snmpbulkwalk \
  && test -f /usr/share/nmap/scripts/nbstat.nse && test -f /usr/share/nmap/scripts/upnp-info.nse \
  && test -f /usr/share/nmap/scripts/dns-service-discovery.nse \
- && test -f /usr/share/nmap/scripts/vulners.nse && command -v testssl && test -x /usr/local/bin/nuclei
+ && test -f /usr/share/nmap/scripts/vulners.nse && command -v testssl && test -x /usr/local/bin/nuclei \
+ && command -v iptables && command -v ip6tables && command -v setpriv
 WORKDIR /app
 COPY --from=build /out /app
-USER node
-ENV NODE_ENV=production PORT=7070
+# Starts as root only to apply MOSS_TOOLBOX_INTERNET=false's firewall rules, then runs as node (toolbox-start.sh).
+COPY deploy/docker/toolbox-start.sh /usr/local/bin/toolbox-start
+ENV MOSS_IMAGE=1 NODE_ENV=production PORT=7070
 EXPOSE 7070
 HEALTHCHECK --interval=30s --timeout=3s CMD node -e "fetch('http://127.0.0.1:7070/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-CMD ["node", "dist/main.js"]
+CMD ["sh", "/usr/local/bin/toolbox-start"]

@@ -118,7 +118,15 @@ describe("evaluate", () => {
 
   it("allows a write call that exactly matches the approved plan", () => {
     const d = evaluate(restartCall, sshExec, ctx({ change: approvedChange }));
-    expect(d).toEqual({ allow: true, targets: ["192.168.1.1"], secretHandles: ["router-ssh"] });
+    expect(d).toEqual({ allow: true, targets: ["192.168.1.1"], secretHandles: ["router-ssh"], plannedIndex: 0 });
+  });
+
+  it("runs each planned step once: a step that already ran can't be replayed", () => {
+    const change = { ...approvedChange, status: "in_progress", executedCalls: [0] };
+    expect(evaluate(restartCall, sshExec, ctx({ change }))).toMatchObject({ allow: false, code: "call_already_run" });
+    // The same call planned twice runs twice, once per step.
+    const twice = { ...change, plannedCalls: [...approvedChange.plannedCalls, ...approvedChange.plannedCalls] };
+    expect(evaluate(restartCall, sshExec, ctx({ change: twice }))).toMatchObject({ allow: true, plannedIndex: 1 });
   });
 
   it("denies write calls that deviate from the approved plan", () => {
@@ -226,7 +234,7 @@ describe("public addresses", () => {
   const call = (tool: string, target: string): ToolCall => ({ tool, args: tool === "nmap_scan" ? { targets: [target] } : { target } });
 
   it("knows private, internal and special-use ranges", () => {
-    for (const p of ["10.1.2.3", "172.20.0.1", "192.168.0.1", "100.64.1.1", "127.0.0.1", "169.254.1.1", "::1", "fd00::1", "fe80::1"]) {
+    for (const p of ["10.1.2.3", "172.20.0.1", "192.168.0.1", "100.64.1.1", "127.0.0.1", "169.254.1.1", "::1", "fd00::1", "fe80::1", "198.18.0.1", "224.0.0.1", "255.255.255.255", "192.0.0.8", "2002:a00:1::1", "64:ff9b:1::a00:1", "ff02::1", "::ffff:0:a00:1"]) {
       expect(isPrivateRange(parseRange(p)!), p).toBe(true);
     }
     for (const p of ["8.8.8.8", "1.1.1.1", "172.32.0.1", "100.128.0.1", "2606:4700::1111"]) expect(isPrivateRange(parseRange(p)!), p).toBe(false);
@@ -245,6 +253,23 @@ describe("public addresses", () => {
     const blocked = ctx({ networks: [{ cidr: "8.8.8.0/24", status: "off_limits" }] }, { toolGrants: grants });
     expect(evaluate(call("ping", "8.8.8.8"), ping, blocked)).toMatchObject({ allow: false, code: "target_off_limits" });
     expect(evaluateMonitorCheck(call("ping", "1.1.1.1"), ping, [])).toMatchObject({ allow: true });
+  });
+
+  it("keeps agents off the internet when the owner says so, but not monitors", () => {
+    const dns: ToolManifest = { name: "dns_lookup", class: "read", targetArgs: [] };
+    const probe: ToolManifest = { name: "http_probe", class: "read", targetArgs: ["target"], publicTargets: true };
+    const off = ctx({ allowInternet: false }, { toolGrants: new Set(["ping", "dns_lookup", "http_probe"]) });
+    expect(evaluate(call("ping", "8.8.8.8"), ping, off)).toMatchObject({ allow: false, code: "setting_disabled" });
+    expect(evaluate(call("ping", "192.168.1.5"), ping, off)).toMatchObject({ allow: true });
+    expect(evaluateMonitorCheck(call("ping", "1.1.1.1"), ping, [])).toMatchObject({ allow: true });
+    const lookup = (name: string) => evaluate({ tool: "dns_lookup", args: { name, type: "A" } }, dns, off);
+    for (const n of ["nas", "nas.local", "printer.lan", "pi.home.arpa", "NAS.Internal.", "192.168.1.5"]) expect(lookup(n), n).toMatchObject({ allow: true });
+    for (const n of ["secret-data.attacker.example", "google.com", "8.8.8.8"]) expect(lookup(n), n).toMatchObject({ allow: false, code: "setting_disabled" });
+    expect(evaluate({ tool: "dns_lookup", args: { name: "google.com", type: "A" } }, dns, ctx({}, { toolGrants: new Set(["dns_lookup"]) }))).toMatchObject({ allow: true });
+    // A query string is never an agent's, internet or not.
+    const get = (path: string) => evaluate({ tool: "http_probe", args: { target: "192.168.1.5", path } }, probe, off);
+    expect(get("/health")).toMatchObject({ allow: true });
+    expect(get("/api/reboot?confirm=1")).toMatchObject({ allow: false, code: "invalid_target" });
   });
 
   it("treats an IPv4-mapped IPv6 address as the IPv4 host it reaches", () => {

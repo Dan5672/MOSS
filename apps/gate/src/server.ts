@@ -2,6 +2,8 @@
 //   worker (GATE_TOKEN):   tool calls, tool listing, monitor checks, module calls, LLM proxy
 //   web    (WEB_TOKEN):    write-only secrets API, config backup downloads, a person's module calls (/v1/web/...)
 //   bridge (BRIDGE_TOKEN): the Telegram and Discord bot tokens (/v1/bridge/...)
+//   LLM    (LLM_TOKEN):    the LLM proxy only (/v1/llm/...): what the Claude Code CLI holds, so a CLI talked into
+//                          misbehaving can't make tool calls with it
 import Fastify from "fastify";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { Readable } from "node:stream";
@@ -21,6 +23,8 @@ function sameToken(a: string, b: string): boolean {
 export interface GateServerOptions {
   token: string;
   llmProxy?: LlmProxy;
+  /** A second token for the LLM proxy routes only. */
+  llmToken?: string;
   /** Enables the secrets API, authenticated with its own token. */
   secrets?: {
     token: string;
@@ -37,6 +41,7 @@ export interface GateServerOptions {
 
 export function buildGateServer(gate: Gate, opts: GateServerOptions) {
   if (opts.token.length < 32) throw new Error("GATE_TOKEN must be at least 32 characters");
+  if (opts.llmToken !== undefined && (opts.llmToken.length < 32 || sameToken(opts.llmToken, opts.token))) throw new Error("LLM_TOKEN must be at least 32 characters and differ from GATE_TOKEN");
   if (opts.secrets && opts.secrets.token.length < 32) throw new Error("WEB_TOKEN must be at least 32 characters");
   if (opts.secrets && sameToken(opts.secrets.token, opts.token)) throw new Error("WEB_TOKEN must differ from GATE_TOKEN");
   if (opts.bridge && (opts.bridge.token.length < 32 || sameToken(opts.bridge.token, opts.token) || (opts.secrets && sameToken(opts.bridge.token, opts.secrets.token)))) {
@@ -56,7 +61,8 @@ export function buildGateServer(gate: Gate, opts: GateServerOptions) {
     const webRoute = route.startsWith("/v1/secrets") || route.startsWith("/v1/backups") || route.startsWith("/v1/web/");
     const bridgeRoute = route.startsWith("/v1/bridge/");
     const expected = bridgeRoute ? opts.bridge?.token : webRoute ? opts.secrets?.token : opts.token;
-    if (typeof presented !== "string" || !expected || !sameToken(presented, expected)) {
+    const llm = route.startsWith("/v1/llm/") && !!opts.llmToken && typeof presented === "string" && sameToken(presented, opts.llmToken);
+    if (!llm && (typeof presented !== "string" || !expected || !sameToken(presented, expected))) {
       return reply.code(401).send({ error: "unauthorized" });
     }
   });

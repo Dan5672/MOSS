@@ -25,7 +25,8 @@ export const MEMORY_TOOLS: PlatformTool[] = [
       limit: z.number().int().min(1).max(50).default(10),
     }),
     run: async ({ db, orgId }, args) =>
-      (await searchNotes(db, orgId, args)).map((n) => ({
+      // Drafts (Settings, Safety: agent drafts) wait for a person before any agent reads them.
+      (await searchNotes(db, orgId, { ...args, published: true })).map((n) => ({
         id: n.id,
         title: n.title,
         body: n.body,
@@ -50,8 +51,11 @@ export const MEMORY_TOOLS: PlatformTool[] = [
     }),
     run: async ({ db, orgId, agentId }, { id, ...note }) => {
       const actor = { type: "agent" as const, id: agentId };
+      // A person's note stays theirs: text an agent picked up from the network must not rewrite what people decided.
+      const before = id ? await getNote(db, orgId, id) : null;
+      if (before && !before.updatedByAgentId) return { error: "A person wrote that note last. Write a new note instead, or ask them to change it." };
       const row = id ? await updateNote(db, orgId, id, note, actor) : await createNote(db, orgId, note, actor);
-      return { [id ? "updated" : "created"]: row.id, title: row.title };
+      return { [id ? "updated" : "created"]: row.id, title: row.title, ...(row.draft ? { draft: "Saved as a draft: a person reviews it before other agents see it." } : {}) };
     },
   },
   {
@@ -62,7 +66,7 @@ export const MEMORY_TOOLS: PlatformTool[] = [
     permission: "knowledge.read",
     args: z.object({ query: z.string().min(1).max(100), limit: z.number().int().min(1).max(20).default(8) }),
     run: async ({ db, orgId }, { query, limit }) =>
-      (await searchNotes(db, orgId, { query, limit })).map((n) => ({ title: n.title, slug: n.slug, excerpt: n.body.slice(0, 300), updatedAt: n.updatedAt.toISOString() })),
+      (await searchNotes(db, orgId, { query, limit, published: true })).map((n) => ({ title: n.title, slug: n.slug, excerpt: n.body.slice(0, 300), updatedAt: n.updatedAt.toISOString() })),
   },
   {
     name: "wiki_read",
@@ -70,7 +74,7 @@ export const MEMORY_TOOLS: PlatformTool[] = [
     permission: "knowledge.read",
     args: z.object({ page: z.string().min(1).max(120).describe("The page's slug or title") }),
     run: async ({ db, orgId }, { page }) => {
-      const p = await findPage(db, orgId, page);
+      const p = await findPage(db, orgId, page, { published: true });
       if (!p) return { error: `No wiki page "${page}". Search with wiki_search, or create it with wiki_write.` };
       const parent = p.parentId ? await getNote(db, orgId, p.parentId) : null;
       return { title: p.title, slug: p.slug, parent: parent?.title ?? null, assetId: p.assetId, body: p.body, updatedAt: p.updatedAt.toISOString(), by: p.updatedByAgentId ? "agent" : "person" };
@@ -91,13 +95,13 @@ export const MEMORY_TOOLS: PlatformTool[] = [
     }),
     run: async ({ db, orgId, agentId }, { page, title, body, parent, asset }) => {
       const actor = { type: "agent" as const, id: agentId };
-      const parentPage = parent ? await findPage(db, orgId, parent) : null;
+      const parentPage = parent ? await findPage(db, orgId, parent, { published: true }) : null;
       if (parent && !parentPage) return { error: `No page "${parent}" to put this under. Create it first, or leave parent out.` };
       const existing = page ? await findPage(db, orgId, page) : await findPage(db, orgId, title);
       if (page && !existing) return { error: `No wiki page "${page}" to update.` };
       const input = { title, body, ...(parentPage ? { parentId: parentPage.id } : {}), ...(asset ? { assetId: asset } : {}) };
       const row = existing ? await updateNote(db, orgId, existing.id, input, actor) : await createNote(db, orgId, input, actor);
-      return { [existing ? "updated" : "created"]: row.slug, title: row.title, link: `/wiki/${row.slug}` };
+      return { [existing ? "updated" : "created"]: row.slug, title: row.title, link: `/wiki/${row.slug}`, ...(row.draft ? { draft: "Saved as a draft: a person reviews it before other agents see it." } : {}) };
     },
   },
   {

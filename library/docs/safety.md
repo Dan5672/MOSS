@@ -24,7 +24,8 @@ A refused call is logged as tool.denied with a code and a reason; the agent sees
   without a network entry. Private ranges (RFC 1918, CGNAT 100.64/10, loopback, link-local, IPv6 fc00::/7 and
   fe80::/10) always need an allowed network, as do scanners, address ranges and anything that signs in.
 - target_off_limits: the network is marked off-limits, on purpose.
-- invalid_target: the target isn't an IP or CIDR (hostnames must be resolved first).
+- invalid_target: the target isn't an IP or CIDR (hostnames must be resolved first), or an agent's
+  http_probe path has a query string (never allowed for agents).
 - change_required: a write tool needs an approved change request.
 - change_not_executable / change_outside_window / call_not_in_change_plan: the change isn't approved
   yet, the window hasn't started or has ended, or the call differs from the approved plan in any way.
@@ -34,7 +35,12 @@ A refused call is logged as tool.denied with a code and a reason; the agent sees
 - secret_required: a credential must be passed as a secret:<name> handle, never typed in.
 - module_disabled: switch the integration on (Settings > Integrations).
 - setting_disabled: the action needs a setting switched on first, e.g. "Allow CVE lookups" (Settings) for
-  vuln_scan's cve profile, which sends service versions to vulners.com.
+  vuln_scan's cve profile, which sends service versions to vulners.com. Also when "Agents may reach the
+  internet" is off: light checks of public addresses, and DNS lookups of names outside the network (anything but
+  single-word names, .local, .lan, .home, .home.arpa, .internal, .localdomain, .corp, .intranet and private IPs)
+  are refused. Monitors still reach the internet. Also when "Credentials only for work credential managers
+  start" is on and the person who started the run (a chat, manual run, schedule, incident or comment) can't manage
+  credentials: carrying out an approved change still may, so raise a change instead.
 - invalid_args: the arguments don't fit the tool. For example a password secret passed as an API key:
   pass it as password (with the username) instead.
 
@@ -53,6 +59,24 @@ optionally to tools, and granted to specific agents. A password secret can carry
 agents see the username, and the gate fills it in for tools that sign in. Saving a secret shows its
 length and refuses values with spaces at either end, several lines, or that read like a note, unless you
 tick "Save it even if it looks unusual". Values are scrubbed from tool results and the audit log.
+
+Device keys: with "Remember device keys" on (the default, Settings → Safety), the first time a credential goes to
+a device over HTTPS or SSH, MOSS remembers its certificate or host key. If it later presents a different one,
+nothing is sent and the call fails saying so; Settings → Security → Device keys shows the change, to trust
+after checking the device (a firmware update or renewed certificate) or to investigate. A port MOSS hasn't
+used on a known device needs a key the device already showed, and a device that used HTTPS is never sent a
+credential over plain HTTP. "Require trusted certificates" makes every device certificate be checked against
+a trusted authority (public ones, plus deploy/device-ca/ca.pem); renewed certificates are then accepted. The
+hardening guide (docs/hardening.md) explains these and the other optional settings: two-factor approvals,
+chat approval rules, emergency tool lists, agent wiki drafts (agents' pages wait for a person to publish
+them), and the deploy/.env options.
+
+At work, or for anything you can't afford to lose, the hardening guide's first advice is: give agents
+read-only credentials to critical systems (firewalls, routers, core switches, hypervisors, storage and
+backups, identity and email). If you do give write access, only let people into MOSS whom you'd trust
+with those systems directly. Owners, admins and change approvers can approve what runs, and operators
+and their linked chat accounts can ask agents for work and raise changes. Standard changes, and emergency
+changes if allowed, run without approval.
 
 ## Untrusted data
 Scan results, device names, banners, web pages, log lines and webhook payloads come from the network and
