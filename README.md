@@ -13,7 +13,7 @@ Nothing changes on your network without your say-so. Agents work inside the budg
 network boundaries you set, any change they want to make waits for your approval, and every action is
 recorded.
 
-> **Early release (v0.1).** MOSS works end to end, but it's young software: expect rough edges and
+> **Early release (v0.5).** MOSS works end to end, but it's young software: expect rough edges and
 > changes between releases. Only point it at networks you own or are allowed to manage.
 
 ![The Basement: MOSS's agents at their desks. Nina is working an incident and Iris a security check, while the others are on a break.](docs/screenshots/basement.png)
