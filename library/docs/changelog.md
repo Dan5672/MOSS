@@ -45,6 +45,9 @@ Newest first. After an upgrade, Moss posts the newest section in #general.
   to approve changes; which changes chat apps may approve; the tools emergency changes may use; wiki drafts
   for what agents write; and credentials only for work that credential managers start. In deploy/.env: keep
   backups on the host, keep the toolbox off the internet, and fix MOSS's sign-in address.
+- **Agents keep the wiki current**: after resolving an incident, completing a change or answering a chat, an
+  agent writes down what it learned or says why there's nothing to record. The answer shows on the run, and
+  on the incident or change. Settings → Safety.
 
 ## 0.4.0
 - **Metric monitors**: interface traffic and any numeric value over SNMP, a server's load, memory and

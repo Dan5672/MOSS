@@ -19,7 +19,16 @@ type StepContent = Record<string, unknown> & {
   code?: string;
   reason?: string;
   message?: string;
+  /** "moss" for a question MOSS asked the agent (the wiki check), not something the model said. */
+  from?: string;
 };
+
+// The wiki check's outcome (packages/agent/src/runtime.ts).
+const WIKI_CHECK = {
+  written: { label: "wiki updated", tone: "green" },
+  skipped: { label: "no wiki update needed", tone: "gray" },
+  unanswered: { label: "no wiki update recorded", tone: "amber" },
+} as const;
 
 export default async function RunPage({ params }: PageProps<"/runs/[id]">) {
   const { id } = await params;
@@ -63,6 +72,12 @@ export default async function RunPage({ params }: PageProps<"/runs/[id]">) {
         </details>
       )}
       {run.summary && <p className="mb-6 px-frame p-4 text-sm whitespace-pre-wrap">{run.summary}</p>}
+      {run.wikiCheck && (
+        <p className="mb-6 flex flex-wrap items-baseline gap-2 text-sm">
+          <Pill tone={WIKI_CHECK[run.wikiCheck].tone}>{WIKI_CHECK[run.wikiCheck].label}</Pill>
+          <span className="text-muted-foreground">{run.wikiCheckNote ?? "It finished without writing down what it learned or saying why not."}</span>
+        </p>
+      )}
       {question && (
         <section aria-labelledby="run-question" className="mb-6 grid gap-3 border-2 border-amber p-4">
           <h2 id="run-question" className="text-sm font-semibold">
@@ -83,6 +98,7 @@ export default async function RunPage({ params }: PageProps<"/runs/[id]">) {
             <li key={s.id} className="px-frame p-3 text-sm">
               {s.kind === "message" && (
                 <>
+                  {c.from === "moss" && <Pill tone="amber">MOSS asked</Pill>}
                   {c.text && <p className="whitespace-pre-wrap">{c.text}</p>}
                   {c.toolCalls?.map((t, i) => (
                     <div key={i} className="mt-1 flex flex-wrap items-baseline gap-2">

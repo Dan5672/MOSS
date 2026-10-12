@@ -21,6 +21,7 @@ const TOGGLES: SettingKey[] = [
   "tools.verify_tls",
   "changes.approval_totp",
   "knowledge.agent_drafts",
+  "knowledge.wiki_check",
   "agents.credentials_need_manager",
   "auth.sso_require_totp",
 ];

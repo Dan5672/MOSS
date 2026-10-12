@@ -202,6 +202,7 @@ describe.skipIf(!TEST_DATABASE_URL)("agent runtime (postgres)", () => {
       "run_history",
       "wiki_read",
       "wiki_search",
+      "wiki_skip",
       "wiki_write",
     ]);
     expect(session.effort).toBe("medium");
@@ -392,8 +393,17 @@ describe.skipIf(!TEST_DATABASE_URL)("agent runtime (postgres)", () => {
       },
       { toolCalls: [{ id: "r1", name: "incident_update", input: { incidentId, status: "resolved", note: "Woken via CR; verified with ping" } }] },
       { text: "Done." },
+      // The wiki check: it closed both without writing anything down, so MOSS asks once.
+      {
+        toolCalls: [{ id: "w1", name: "wiki_write", input: { title: "Wake the backup server", body: "Wake-on-LAN to aa:bb:cc:00:00:20 via 192.168.1.255." } }],
+        expect: (input) => expect("text" in input && input.text).toMatch(/^MOSS: you closed CR-\d+, INC-\d+ but haven't recorded/),
+      },
+      { text: "Written up." },
     ];
-    expect((await runAgent(deps(), { agentId: nina.id, task: "execute", trigger: "event", triggerRef: changeId })).status).toBe("succeeded");
+    const run = await runAgent(deps(), { agentId: nina.id, task: "execute", trigger: "event", triggerRef: changeId });
+    expect(run).toMatchObject({ status: "succeeded", summary: "Done." });
+    const [recorded] = await db.select().from(agentRuns).where(eq(agentRuns.id, run.runId!));
+    expect(recorded).toMatchObject({ wikiCheck: "written", wikiCheckNote: "Wake the backup server" });
 
     const wol = gateCalls.filter((c) => c.tool === "wake_on_lan");
     expect(wol).toEqual([{ agentId: nina.id, tool: "wake_on_lan", args: { mac: "aa:bb:cc:00:00:20", broadcast: "192.168.1.255", port: 9 }, changeId, runId: expect.any(String) }]);
@@ -402,7 +412,8 @@ describe.skipIf(!TEST_DATABASE_URL)("agent runtime (postgres)", () => {
     expect(change!.notes.map((n) => n.body)).toContain("Step 1 wake_on_lan: ok");
     const inc = await getIncident(db, actor.orgId, incidentId);
     expect(inc!.status).toBe("resolved");
-    expect(inc!.comments.map((c) => c.body)).toEqual(expect.arrayContaining([expect.stringContaining("finished: succeeded")]));
+    expect(inc!.comments.map((c) => c.body)).toEqual(expect.arrayContaining([expect.stringContaining("finished: succeeded"), "Wiki updated: Wake the backup server"]));
+    expect(change!.notes.map((n) => n.body)).toContain("Wiki updated: Wake the backup server");
   });
 
   it("stops other agents from executing a change they did not raise", async () => {

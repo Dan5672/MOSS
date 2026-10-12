@@ -307,6 +307,13 @@ export const agentRuns = pgTable(
     requestedByUserId: uuid("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
     status: text("status", { enum: ["running", "succeeded", "failed", "aborted"] }).notNull().default("running"),
     summary: text("summary"),
+    /**
+     * Whether the run kept the wiki current after resolving an incident, completing a change or answering a chat: it
+     * wrote a page or note, said why none was needed, or didn't answer. Null when no check was due.
+     */
+    wikiCheck: text("wiki_check", { enum: ["written", "skipped", "unanswered"] }),
+    /** What it wrote (titles), or its reason for writing nothing. */
+    wikiCheckNote: text("wiki_check_note"),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
     endedAt: timestamp("ended_at", { withTimezone: true }),
   },

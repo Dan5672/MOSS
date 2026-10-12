@@ -23,6 +23,7 @@ Stored per install; most are switched on the Settings page.
 | homeassistant.allow_resume | false | Whether the Home Assistant integration may resume paused agents (pausing is always allowed). |
 | https.certificate | {} | The certificate uploaded in Settings → HTTPS, if any: who it's for, when it expires and its fingerprint. Moss reminds everyone in #general 30 and 7 days before it runs out. Empty when MOSS uses its own certificate authority. |
 | knowledge.agent_drafts | false | Makes what agents write in the wiki a draft: other agents don't see it until a person reads it and publishes it, so a note an agent was tricked into writing can't mislead the rest. Off by default. |
+| knowledge.wiki_check | true | After an agent resolves an incident, completes a change or answers a chat, it is asked once to record what it learned in the wiki or knowledge base, or to say why nothing needs recording. The answer is kept on the run, and on the incident or change as a comment. On by default; it costs one short extra model turn when the agent hadn't already written something. |
 | licence.key | "" | The business licence (Settings → About): a signed key, checked offline. Business integrations work only while it's valid, or for 14 days after it expires. |
 | licence.reminded | {} | Which reminders about the business licence's expiry have been sent (30 and 7 days before, on expiry, and when it stops). |
 | monitoring.quiet_until | "" | Maintenance mode: until this time, monitors keep checking but raise no incidents. Set from Home Assistant. |
@@ -449,6 +450,10 @@ Granted by: Network Wiki, Team Memory.
 A MOSS tool (works on MOSS itself; needs the knowledge.read permission). Search the network wiki: pages about devices, the network's layout, how-tos and decisions, written by the team. Returns each page's title, slug and the start of its text; read a page in full with wiki_read.
 Granted by: Network Wiki, Team Memory.
 
+## Tool wiki_skip
+A MOSS tool (works on MOSS itself; needs the knowledge.read permission). Say why nothing from this run needs writing down, when MOSS asks you to keep the wiki current (for example: "covered by How-tos/Restart NAS", or "the person only asked a question"). Your reason is shown to people on the run and on the incident or change.
+Granted by: Network Wiki.
+
 ## Tool wiki_write
 A MOSS tool (works on MOSS itself; needs the knowledge.manage permission). Create a wiki page, or update one (give its slug or title as page). Write Markdown; link other pages with [[Page title]]. Keep pages current rather than appending forever: rewrite what's out of date. The previous version is kept in the page's history.
 Granted by: Network Wiki, Team Memory.
@@ -511,7 +516,7 @@ Tools: name_lookup, snmp_query, traceroute, inventory_search.
 
 ## Skill Network Wiki
 Core: built into every agent (except Moss). Key network-wiki. Keep the team's network wiki current - devices, layout, how-tos and decisions.
-Tools: wiki_search, wiki_read, wiki_write, inventory_search.
+Tools: wiki_search, wiki_read, wiki_write, wiki_skip, inventory_search.
 
 ## Skill Security Baseline Review
 Added per agent. Key security-baseline. Look for exposed services and risky configurations on allowed networks.

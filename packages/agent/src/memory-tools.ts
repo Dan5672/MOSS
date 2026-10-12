@@ -105,6 +105,17 @@ export const MEMORY_TOOLS: PlatformTool[] = [
     },
   },
   {
+    name: "wiki_skip",
+    description:
+      "Say why nothing from this run needs writing down, when MOSS asks you to keep the wiki current (for example: " +
+      '"covered by How-tos/Restart NAS", or "the person only asked a question"). Your reason is shown to people on the ' +
+      "run and on the incident or change.",
+    permission: "knowledge.read",
+    args: z.object({ reason: z.string().min(1).max(300) }),
+    // The runtime records the reason on the run (see the wiki check in runtime.ts).
+    run: async () => ({ recorded: true }),
+  },
+  {
     name: "run_history",
     description:
       "Recent runs by you or another agent on the team: when, why it ran, how it ended and its summary. Use it to avoid " +

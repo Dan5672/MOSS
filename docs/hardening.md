@@ -228,6 +228,9 @@ and agents can't change a page a person has published.
 Editing a draft yourself publishes it too. Publish only publishes the version you read: if an agent changes
 the draft meanwhile, you're asked to read it again.
 
+Drafts matter more with **Agents keep the wiki current** on (the default): agents are asked to write down
+what they learned after every incident, change and chat, so they write more.
+
 **Good to know.** Pages agents wrote before you turned this on stay published; review them once. Anyone
 who may edit the wiki (operators included) may publish.
 
