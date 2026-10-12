@@ -33,7 +33,7 @@ export const config = {
   /** The backup service (MOSS backups), and its token. Absent on installs without it. */
   backupUrl: () => process.env.BACKUP_URL ?? null,
   backupToken: () => secretFromEnv("BACKUP_TOKEN") ?? "",
-  /** The one-time code deploy/init.sh printed, needed to set MOSS up (unset: no code, e.g. development). */
+  /** The one-time code deploy/init.sh made (install.sh prints a link with it), needed to set MOSS up (unset: no code, e.g. development). */
   setupCode: () => secretFromEnv("MOSS_SETUP_CODE") ?? null,
   libraryDir: () => process.env.MOSS_LIBRARY_DIR ?? resolve(process.cwd(), "../../library"),
   /** Always mark the session cookie Secure (it already is for any sign-in over HTTPS). */

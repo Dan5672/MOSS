@@ -44,6 +44,7 @@ export default defineConfig({
     env: {
       DATABASE_URL: dbUrl.toString(),
       MOSS_APP_KEY: "11".repeat(32),
+      MOSS_SETUP_CODE: "c0de1234",
       WEB_TOKEN: E2E_WEB_TOKEN,
       // Stand-in for the gate's secrets API, started by global-setup.
       GATE_URL: `http://127.0.0.1:${E2E_GATE_PORT}`,

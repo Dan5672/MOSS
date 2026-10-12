@@ -97,17 +97,14 @@ tested. On Windows, run these commands in WSL or Git Bash, not PowerShell.
 git clone https://github.com/Dan5672/MOSS.git
 cd MOSS
 git checkout "$(git tag --list 'v*' --sort=-v:refname | head -n 1)"   # the newest release
-sh deploy/init.sh   # creates the settings, keys and passwords MOSS needs
-docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+sh deploy/install.sh   # creates the settings and keys, then builds and starts MOSS
 ```
 
 The first start builds MOSS on your computer, which takes a while: 10 to 20 minutes on a typical
-mini PC.
-
-Open the address `init.sh` printed (for example https://192.168.1.20) and create your account with
-the **setup code** it printed (it's also in `deploy/secrets/setup.code`), so nobody else on your
-network can claim MOSS first. If `init.sh` didn't find your computer's network address, open
-https://localhost on that computer and add the address in Settings → HTTPS. Then:
+mini PC. When it's ready, `install.sh` prints a link like `https://192.168.1.20/setup?code=…`: open
+it and create your account. The code in the link means nobody else on your network can claim MOSS
+before you do. If the link says `localhost`, MOSS couldn't find your computer's network address:
+open the link on that computer, and add the address in Settings → HTTPS. Then:
 
 1. **Networks:** add your home network (for example `192.168.1.0/24`) and mark it **allowed**.
 2. **Agents → Models:** add an AI provider (an API key, or a local Ollama address).
@@ -122,7 +119,7 @@ to think about before giving an AI agent access to your devices.
 
 ### Using MOSS from your phone and other devices
 
-It works straight away: any device on your home network can open the address `init.sh` printed. There's
+It works straight away: any device on your home network can open the address `install.sh` printed. There's
 no reverse proxy to set up and no ports to open on your router.
 
 - **The browser warning, once per device.** MOSS makes its own certificate, so nothing is bought or

@@ -60,6 +60,10 @@ test("app icons load for signed-out visitors", async ({ request }) => {
 test("first run: setup creates the owner and signs them in", async () => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/setup$/);
+  // install.sh prints a link with the setup code in it: the form takes it, and the address bar forgets it.
+  await page.goto("/setup?code=c0de1234");
+  await expect(page.getByLabel("Setup code")).toHaveValue("c0de1234");
+  await expect(page).toHaveURL(/\/setup$/);
   await page.getByLabel("Name for this network").fill("Home");
   await page.getByLabel("Your name").fill(OWNER.name);
   await page.getByLabel("Email").fill(OWNER.email);

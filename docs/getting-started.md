@@ -30,28 +30,27 @@ WSL or Git Bash, not PowerShell.
 git clone https://github.com/Dan5672/MOSS.git
 cd MOSS
 git checkout "$(git tag --list 'v*' --sort=-v:refname | head -n 1)"   # the newest release
-sh deploy/init.sh
-docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+sh deploy/install.sh
 ```
 
-`deploy/init.sh` creates:
+`deploy/install.sh` creates:
 
 - `deploy/.env`: your settings, with a random database password;
-- `deploy/secrets/`: the **master key** that encrypts every password and key you give MOSS, and
-  the tokens MOSS's own services use to talk to each other.
+- `deploy/secrets/`: the **master key** that encrypts every password and key you give MOSS, the
+  tokens MOSS's own services use to talk to each other, and a one-time **setup code**
+  (`setup.code`), so nobody else on your network can claim MOSS before you do.
+
+Then it builds and starts MOSS, which takes a while the first time: 10 to 20 minutes on a typical mini
+PC. When MOSS is ready it prints a link like `https://192.168.1.20/setup?code=…`, with the setup code
+already in it: open it and create your account.
 
 > **Back up `deploy/secrets/master.key` somewhere safe, away from this machine.** Without it, the
 > credentials stored in MOSS can't be decrypted, even from a backup.
 
-- `deploy/secrets/setup.code`: a one-time code, also printed by `init.sh`, that you enter when you
-  create your account, so nobody else on your network can claim MOSS before you do.
-
-The first build takes a while: 10 to 20 minutes on a typical mini PC.
-
 ## 2. Open MOSS over HTTPS
 
 New installs come with HTTPS switched on, so every device on your network gets an encrypted
-connection. `init.sh` prints the addresses MOSS answers to, for example `https://192.168.1.20`. If it
+connection. `install.sh` prints the addresses MOSS answers to, for example `https://192.168.1.20`. If it
 didn't find your computer's network address, open https://localhost on that computer and add the
 address in **Settings → HTTPS → Change addresses**.
 
