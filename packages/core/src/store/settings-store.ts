@@ -27,6 +27,8 @@ export const SETTING_DEFAULTS = {
   "changes.emergency_tools": [] as string[],
   /** What agents write to the wiki is a draft that other agents don't see until a person publishes it. */
   "knowledge.agent_drafts": false,
+  /** After resolving an incident, completing a change or answering a chat, agents write what they learned or say why not. */
+  "knowledge.wiki_check": true,
   /** Agent work a person started may only use credentials if that person can manage credentials. */
   "agents.credentials_need_manager": false,
   /** The password policy's two-factor requirement applies to people who sign in with Microsoft or Google too. */
@@ -99,6 +101,8 @@ export const SETTING_DESCRIPTIONS = {
     "The only tools an emergency change may use, when emergency changes are allowed. Empty means any tool.",
   "knowledge.agent_drafts":
     "Makes what agents write in the wiki a draft: other agents don't see it until a person reads it and publishes it, so a note an agent was tricked into writing can't mislead the rest. Off by default.",
+  "knowledge.wiki_check":
+    "After an agent resolves an incident, completes a change or answers a chat, it is asked once to record what it learned in the wiki or knowledge base, or to say why nothing needs recording. The answer is kept on the run, and on the incident or change as a comment. On by default; it costs one short extra model turn when the agent hadn't already written something.",
   "agents.credentials_need_manager":
     "Agent work a person started (a chat, a manual run, a schedule they set) may only use stored credentials if that person can manage credentials. Stops someone with a smaller role using an agent to reach devices they couldn't. Off by default.",
   "auth.sso_require_totp":

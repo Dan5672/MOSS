@@ -33,6 +33,14 @@ be turned off, edited or deleted.
 - Agents only respond to people (never to each other's messages), and only to people allowed to chat
   with agents.
 
+## Keeping the wiki current
+After an agent resolves an incident, completes a change or answers a chat, MOSS checks it wrote down what
+it learned. If it hasn't, MOSS asks it once: it writes a wiki page or note, or says why nothing needs
+recording (wiki_skip). The answer shows on the run page ("wiki updated", "no wiki update needed" with the
+reason, or "no wiki update recorded"), and on the incident or change as a comment. A chat's reply is sent
+before the question, unchanged. Agents on a Claude subscription are reminded after incidents and changes
+but not asked after chats. Turn it off in Settings → Safety: "Agents keep the wiki current".
+
 ## Consulting Moss
 Other agents can ask Moss about MOSS with ask_moss and get the answer in the same run.
 

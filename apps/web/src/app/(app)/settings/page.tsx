@@ -77,6 +77,13 @@ const TOGGLES: { key: SettingKey; title: string; description: string; danger?: b
     permission: "settings.manage",
   },
   {
+    key: "knowledge.wiki_check",
+    title: "Agents keep the wiki current",
+    description:
+      "After resolving an incident, completing a change or answering a chat, an agent records what it learned, or says why there's nothing to record. The answer shows on the run and the incident or change.",
+    permission: "settings.manage",
+  },
+  {
     key: "agents.credentials_need_manager",
     title: "Credentials only for work credential managers start",
     description:
