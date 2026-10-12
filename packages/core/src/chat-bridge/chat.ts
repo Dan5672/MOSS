@@ -7,10 +7,11 @@ import { BUILT_IN_TOOLS } from "@moss/tools";
 import { and, asc, eq, isNotNull, isNull, lte, sql, type AnyColumn } from "drizzle-orm";
 import { createHash, randomInt } from "node:crypto";
 import { z } from "zod";
-import { approveChange, rejectChange } from "../services/changes.js";
+import { approveChange, assessRisk, rejectChange } from "../services/changes.js";
 import { openDm, postMessage } from "../services/conversations.js";
 import { loadModule } from "../services/modules.js";
 import { userPermissions } from "../services/notifications.js";
+import { getSetting } from "../store/settings-store.js";
 import { integrationLicensed } from "../licensing/service.js";
 
 export const CHAT_PLATFORMS = ["telegram", "discord", "slack"] as const;
@@ -173,12 +174,40 @@ export async function handleIncoming(db: Database, m: Incoming, now = new Date()
   return posted.agentsToAnswer.includes(agent.id) ? { replies: [], run: { agentId: agent.id, conversationId, userId: user.id } } : { replies: [] };
 }
 
+/** What a change will do, one line per planned call, for approvers who only see the chat message. */
+export function describePlan(calls: { tool: string; args: Record<string, unknown> }[]): string {
+  if (calls.length === 0) return "";
+  const shown = calls.slice(0, 10).map((c, i) => `${i + 1}. ${c.tool} ${JSON.stringify(c.args)}`.slice(0, 240));
+  if (calls.length > shown.length) shown.push(`…and ${calls.length - shown.length} more`);
+  return `\n\nPlanned steps:\n${shown.join("\n")}`;
+}
+
 // --- Buttons ---------------------------------------------------------------------------------------
 
 /** Why a change can't be decided from a chat app (it must be done in MOSS), or null. */
-export function chatApprovalBlocked(c: Pick<typeof changeRequests.$inferSelect, "type" | "risk" | "plannedCalls" | "accessGrant">): string | null {
+/** What the owner lets chat apps approve (Settings, Safety). */
+export interface ChatApprovalRules {
+  level: "standard" | "low_risk" | "off";
+  /** Approving needs a two-factor code, which a chat button can't give. */
+  totp: boolean;
+}
+
+export async function chatApprovalRules(db: Database, orgId: string): Promise<ChatApprovalRules> {
+  const [level, totp] = await Promise.all([getSetting(db, orgId, "changes.chat_approvals"), getSetting(db, orgId, "changes.approval_totp")]);
+  return { level, totp };
+}
+
+export function chatApprovalBlocked(
+  c: Pick<typeof changeRequests.$inferSelect, "type" | "risk" | "plannedCalls" | "accessGrant">,
+  rules: ChatApprovalRules = { level: "standard", totp: false },
+): string | null {
+  if (rules.level === "off") return "Changes are approved in MOSS.";
+  if (rules.totp) return "Approving needs your two-factor code, so it's done in MOSS.";
   if (c.type === "emergency") return "Emergency changes are reviewed in MOSS.";
-  if (c.risk === "high") return "High-risk changes are approved in MOSS.";
+  // The plan's own risk too, not only the stored one, which whoever raised the change wrote.
+  const risk = c.risk === "high" ? "high" : assessRisk(c.risk, c.plannedCalls);
+  if (risk === "high") return "High-risk changes are approved in MOSS.";
+  if (rules.level === "low_risk" && risk !== "low") return "Only low-risk changes are approved from chat.";
   if (c.accessGrant) return "Access for an agent is approved in MOSS.";
   if (c.plannedCalls.some((p) => BUILT_IN_TOOLS.get(p.tool)?.manifest.class === "dangerous")) return "Changes with dangerous tools are approved in MOSS.";
   return null;
@@ -195,7 +224,7 @@ export async function handleButton(db: Database, b: { orgId: string; platform: C
   const [change] = await db.select().from(changeRequests).where(and(eq(changeRequests.id, m[2]!), eq(changeRequests.orgId, b.orgId)));
   if (!change) return { text: "That change no longer exists." };
   if (change.status !== "submitted") return { text: `That change is ${change.status.replace(/_/g, " ")} already.` };
-  const blocked = chatApprovalBlocked(change);
+  const blocked = chatApprovalBlocked(change, await chatApprovalRules(db, b.orgId));
   if (blocked) return { text: blocked };
   try {
     if (m[1] === "approve") {
@@ -254,11 +283,14 @@ export async function queueChatMessages(db: Database, now = new Date()): Promise
       if (n.kind === "dm") continue;
       const changeId = n.kind === "change" ? /^\/changes\/([0-9a-f-]{36})$/.exec(n.link ?? "")?.[1] : undefined;
       let buttons: { label: string; data: string }[] = [];
-      if (changeId && config.approvals) {
+      let plan = "";
+      if (changeId) {
         const [c] = await db.select().from(changeRequests).where(eq(changeRequests.id, changeId));
-        if (c && c.status === "submitted" && !chatApprovalBlocked(c)) buttons = [{ label: "Approve", data: `approve:${c.id}` }, { label: "Reject", data: `reject:${c.id}` }];
+        if (c) plan = describePlan(c.plannedCalls);
+        if (c && config.approvals && c.status === "submitted" && !chatApprovalBlocked(c, await chatApprovalRules(db, c.orgId))) buttons = [{ label: "Approve", data: `approve:${c.id}` }, { label: "Reject", data: `reject:${c.id}` }];
       }
-      rows.push({ orgId: l.orgId, platform: l.platform, chatId: l.chatId, text: `${n.title}${n.body ? `\n\n${n.body}` : ""}${link(config, n.link)}`.slice(0, 3500), buttons });
+      // The plan comes straight after the title, so the agent's description can't push it past the length cap.
+      rows.push({ orgId: l.orgId, platform: l.platform, chatId: l.chatId, text: `${n.title}${plan}${n.body ? `\n\n${n.body}` : ""}${link(config, n.link)}`.slice(0, 3500), buttons });
     }
 
     // Agents' replies in this person's DMs since the last time.

@@ -82,6 +82,10 @@ export interface SsoClaims {
 
 const b64json = (s: string) => JSON.parse(Buffer.from(s, "base64url").toString("utf8")) as Record<string, unknown>;
 
+/** Where a provider publishes the keys its ID tokens are signed with. */
+export const ssoKeysUrl = (c: Pick<SsoClient, "provider" | "tenantId">) =>
+  c.provider === "microsoft" ? `${MS}/${encodeURIComponent(c.tenantId ?? "")}/discovery/v2.0/keys` : "https://www.googleapis.com/oauth2/v3/certs";
+
 /** Checks an ID token and returns who it's for, or throws SsoError saying why not. */
 export function verifyIdToken(token: string, keys: { keys?: JsonWebKey[] }, c: SsoClient, now = new Date()): SsoClaims {
   const parts = token.split(".");
@@ -95,7 +99,11 @@ export function verifyIdToken(token: string, keys: { keys?: JsonWebKey[] }, c: S
     throw new SsoError("The sign-in token is malformed");
   }
   if (header.alg !== "RS256") throw new SsoError("The sign-in token isn't signed the expected way");
-  const jwk = (keys.keys ?? []).find((k) => (k as { kid?: string }).kid === header.kid);
+  // Only RSA signing keys: a key published for encryption, or of another type, never checks a sign-in.
+  const jwk = (keys.keys ?? []).find((k) => {
+    const key = k as { kid?: string; kty?: string; use?: string };
+    return key.kid === header.kid && key.kty === "RSA" && (key.use === undefined || key.use === "sig");
+  });
   if (!jwk) throw new SsoError("The sign-in token was signed with a key the provider doesn't publish");
   const good = verify("RSA-SHA256", Buffer.from(`${parts[0]}.${parts[1]}`), createPublicKey({ key: jwk, format: "jwk" }), Buffer.from(parts[2]!, "base64url"));
   if (!good) throw new SsoError("The sign-in token's signature doesn't match");

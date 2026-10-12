@@ -11,7 +11,6 @@ import {
   loadIntegration,
   notePagerdutyChanges,
   orgsWithModule,
-  pagerdutyEventArgs,
   pagerdutyPages,
   upsShutdownTick,
   type IntegrationState,
@@ -97,7 +96,7 @@ export async function pagerdutyIncident(db: Database, call: IntegrationCaller, i
   if (!(await integrationLicensed(db, inc.orgId, def))) return;
   const { enabled, config } = await loadIntegration(db, inc.orgId, def);
   if (!enabled || !pagerdutyPages(config, inc.priority)) return;
-  const res = await call(inc.orgId, "pagerduty", "event", pagerdutyEventArgs(inc, action));
+  const res = await call(inc.orgId, "pagerduty", "event", { incidentId: inc.id, action });
   const system = { type: "system" as const, id: null };
   if (!res.ok) {
     log?.("PagerDuty event failed", { orgId: inc.orgId, action, error: res.error });

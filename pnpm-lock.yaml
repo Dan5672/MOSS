@@ -41,6 +41,9 @@ importers:
 
   apps/gate:
     dependencies:
+      '@moss/agent':
+        specifier: workspace:*
+        version: link:../../packages/agent
       '@moss/core':
         specifier: workspace:*
         version: link:../../packages/core

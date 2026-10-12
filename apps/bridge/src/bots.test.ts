@@ -101,14 +101,17 @@ describe("Slack", () => {
     const sent: unknown[] = [];
     const h = handlers();
     const bot = new SlackBot("xoxb-bot", "xapp-app", h, fetchImpl);
-    (bot as unknown as { ws: { send(x: string): void; close(): void } }).ws = { send: (x: string) => sent.push(JSON.parse(x)), close: () => {} };
+    Object.assign(bot as unknown as object, { teamId: "T1", ws: { send: (x: string) => sent.push(JSON.parse(x)), close: () => {} } });
 
-    const event = (id: string, e: Record<string, unknown>) => bot.onFrame(JSON.stringify({ envelope_id: id, type: "events_api", payload: { event: { type: "message", ...e } } }));
+    const event = (id: string, e: Record<string, unknown>, team = "T1") =>
+      bot.onFrame(JSON.stringify({ envelope_id: id, type: "events_api", payload: { team_id: team, event: { type: "message", ...e } } }));
     await event("e1", { channel: "D1", channel_type: "im", user: "U7", text: "link AB12CD34" });
     await event("e2", { channel: "C1", channel_type: "channel", user: "U7", text: "hi" });
     await event("e3", { channel: "D1", channel_type: "im", bot_id: "B1", text: "echo" });
     await event("e4", { channel: "D1", channel_type: "im", user: "U7", subtype: "message_changed", text: "x" });
-    expect(sent).toEqual([{ envelope_id: "e1" }, { envelope_id: "e2" }, { envelope_id: "e3" }, { envelope_id: "e4" }]);
+    // Another workspace the app is installed in: acknowledged, never acted on.
+    await event("e5", { channel: "D9", channel_type: "im", user: "U9", text: "link AB12CD34" }, "T2");
+    expect(sent).toEqual([{ envelope_id: "e1" }, { envelope_id: "e2" }, { envelope_id: "e3" }, { envelope_id: "e4" }, { envelope_id: "e5" }]);
     expect(h.seen).toEqual([{ externalUserId: "U7", chatId: "D1", text: "/link AB12CD34" }]);
     expect(calls).toEqual([{ url: "https://slack.com/api/chat.postMessage", body: { channel: "D1", text: "echo: /link AB12CD34", unfurl_links: false } }]);
 
@@ -116,7 +119,7 @@ describe("Slack", () => {
       JSON.stringify({
         envelope_id: "i1",
         type: "interactive",
-        payload: { type: "block_actions", user: { id: "U7" }, actions: [{ value: "approve:abc" }], response_url: "https://hooks.slack.com/actions/T1/1/abc", message: { text: "CR-3 needs approval" } },
+        payload: { type: "block_actions", team: { id: "T1" }, user: { id: "U7" }, actions: [{ value: "approve:abc" }], response_url: "https://hooks.slack.com/actions/T1/1/abc", message: { text: "CR-3 needs approval" } },
       }),
     );
     expect(calls.at(-1)).toEqual({ url: "https://hooks.slack.com/actions/T1/1/abc", body: { replace_original: true, text: "CR-3 needs approval\n\nApproved by Dana." } });

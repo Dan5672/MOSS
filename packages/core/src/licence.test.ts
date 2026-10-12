@@ -66,6 +66,8 @@ describe("licence keys", () => {
     expect(licencePublicKeys({ MOSS_LICENCE_EXTRA_PUBLIC_KEY: `e2e:${k.pub}` })).toMatchObject({ "moss-2026": expect.any(String), e2e: k.pub });
     expect(Object.keys(licencePublicKeys({ MOSS_LICENCE_EXTRA_PUBLIC_KEY: "not a key" }))).toEqual(["moss-2026"]);
     expect(licencePublicKeys({ MOSS_LICENCE_EXTRA_PUBLIC_KEY: `moss-2026:${k.pub}` })["moss-2026"]).not.toBe(k.pub);
+    // An installed MOSS (its images set MOSS_IMAGE) never takes a test key.
+    expect(Object.keys(licencePublicKeys({ MOSS_IMAGE: "1", MOSS_LICENCE_EXTRA_PUBLIC_KEY: `e2e:${k.pub}` }))).toEqual(["moss-2026"]);
   });
 
   it("verifies keys made by scripts/licence.mjs", () => {

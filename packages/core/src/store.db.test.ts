@@ -1,5 +1,5 @@
 // Integration tests against Postgres. Run with MOSS_TEST_DATABASE_URL set.
-import { agents, auditLog, budgets, models, providers, tokenUsage, type Database } from "@moss/db";
+import { agents, auditLog, budgets, models, orgs, providers, tokenUsage, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -85,5 +85,19 @@ describe.skipIf(!TEST_DATABASE_URL)("core stores (postgres)", () => {
     // Evaluated tomorrow, today's usage no longer counts against the daily budget.
     const tomorrow = new Date(Date.now() + 86_400_000);
     expect((await getBudgetStatus(db, orgId, agent!.id, tomorrow)).checks.find((c) => c.period === "day")?.spent).toBe(0);
+  });
+});
+
+describe.skipIf(!TEST_DATABASE_URL)("first-run setup (postgres)", () => {
+  it("creates one org when two people submit the setup form at once", async () => {
+    const { db, close } = await createTestDb("core_bootstrap_race");
+    try {
+      const input = (n: number) => ({ orgName: `Org ${n}`, ownerEmail: `o${n}@example.com`, ownerName: "O", ownerPassword: "a-long-test-password" });
+      const results = await Promise.allSettled([bootstrapOrg(db, input(1)), bootstrapOrg(db, input(2))]);
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      expect(await db.select().from(orgs)).toHaveLength(1);
+    } finally {
+      await close();
+    }
   });
 });

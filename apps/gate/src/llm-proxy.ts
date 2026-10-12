@@ -6,7 +6,7 @@
 // worker. The CLI authenticates to the gate with the worker's service token like any other client;
 // the gate swaps in the owner's subscription OAuth token (from `claude setup-token`), so the token
 // never reaches the worker either.
-import { decryptSecret } from "@moss/core";
+import { decryptSecret, getBudgetStatus, getSetting } from "@moss/core";
 import { providers, secrets, type Database } from "@moss/db";
 import { eq } from "drizzle-orm";
 
@@ -43,6 +43,9 @@ export interface ProxyResponse {
   body: ReadableStream<Uint8Array> | string | null;
 }
 
+// Matches no agent, so only the org-wide budgets count.
+const NO_AGENT = "00000000-0000-0000-0000-000000000000";
+
 export function createLlmProxy(deps: { db: Database; masterKey: Buffer; fetch?: typeof fetch }) {
   const doFetch = deps.fetch ?? fetch;
 
@@ -55,6 +58,10 @@ export function createLlmProxy(deps: { db: Database; masterKey: Buffer; fetch?: 
 
     const [provider] = await deps.db.select().from(providers).where(eq(providers.id, req.providerId));
     if (!provider || !provider.enabled) return error(404, "Unknown or disabled provider");
+    // The kill switch and the org's own hard budgets hold here too, not only in the worker that asks.
+    // shortcut: the proxy doesn't know which agent is asking, so per-agent budgets are left to the worker's checks.
+    if (await getSetting(deps.db, provider.orgId, "agents.kill_switch")) return error(429, "The kill switch is on");
+    if ((await getBudgetStatus(deps.db, provider.orgId, NO_AGENT)).overHard) return error(429, "The organisation's hard budget is used up");
 
     const subscription = provider.kind === "claude_code";
     const family = provider.kind === "anthropic" || subscription ? "anthropic" : "openai_compatible";
@@ -63,7 +70,8 @@ export function createLlmProxy(deps: { db: Database; masterKey: Buffer; fetch?: 
     if (!ALLOWED_PATHS[family]!.test(req.path)) return error(403, `Path /${req.path} is not an allowed inference endpoint`);
     if (!["GET", "POST"].includes(req.method)) return error(405, "Method not allowed");
 
-    const base = (provider.baseUrl ?? DEFAULT_BASE_URLS[provider.kind])?.replace(/\/+$/, "");
+    // Cloud providers always go to their own API: a changed base URL would send the stored key elsewhere.
+    const base = (DEFAULT_BASE_URLS[provider.kind] ?? provider.baseUrl)?.replace(/\/+$/, "");
     if (!base) return error(400, "This provider needs a base URL");
 
     let apiKey: string | undefined;

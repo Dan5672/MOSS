@@ -4,14 +4,12 @@ name: moss
 
 services:
   postgres:
-    image: pgvector/pgvector:pg17
+    image: pgvector/pgvector:pg17@sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-moss}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-moss}
-    ports:
-      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks: [backend]
@@ -28,6 +26,13 @@ services:
     command: ["node", "node_modules/@moss/db/dist/migrate.js"]
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-moss}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-moss}
+      # Creates each service's own role (see packages/db/src/roles.ts) after the migrations.
+      MOSS_DB_PASSWORD_GATE: ${MOSS_DB_PASSWORD_GATE:?run deploy/init.sh}
+      MOSS_DB_PASSWORD_WEB: ${MOSS_DB_PASSWORD_WEB:?run deploy/init.sh}
+      MOSS_DB_PASSWORD_WORKER: ${MOSS_DB_PASSWORD_WORKER:?run deploy/init.sh}
+      MOSS_DB_PASSWORD_BRIDGE: ${MOSS_DB_PASSWORD_BRIDGE:?run deploy/init.sh}
+      MOSS_DB_PASSWORD_BACKUP: ${MOSS_DB_PASSWORD_BACKUP:?run deploy/init.sh}
+      MOSS_DB_PASSWORD_QUEUE: ${MOSS_DB_PASSWORD_QUEUE:?run deploy/init.sh}
     networks: [backend]
     depends_on:
       postgres: { condition: service_healthy }
@@ -39,17 +44,16 @@ services:
     build: { context: .., dockerfile: deploy/docker/gate.Dockerfile }
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-moss}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-moss}
+      DATABASE_URL: postgres://moss_gate:${MOSS_DB_PASSWORD_GATE:?run deploy/init.sh}@postgres:5432/${POSTGRES_DB:-moss}
       MOSS_MASTER_KEY_FILE: /run/secrets/master_key
       GATE_TOKEN_FILE: /run/secrets/gate_token
+      LLM_TOKEN_FILE: /run/secrets/llm_token
       TOOLBOX_TOKEN_FILE: /run/secrets/toolbox_token
       TOOLBOX_URL: http://toolbox:7070
       WEB_TOKEN_FILE: /run/secrets/web_token
       # The chat bridge fetches the Telegram and Discord bot tokens with its own token.
       BRIDGE_TOKEN_FILE: /run/secrets/bridge_token
-    secrets: [master_key, gate_token, toolbox_token, web_token, bridge_token]
-    ports:
-      - "127.0.0.1:7080:7080"
+    secrets: [master_key, gate_token, llm_token, toolbox_token, web_token, bridge_token]
     networks: [backend, tools]
     read_only: true
     cap_drop: [ALL]
@@ -58,21 +62,25 @@ services:
       migrate: { condition: service_completed_successfully }
       toolbox: { condition: service_started }
 
-  # Agent runtime + scheduler. Holds no secrets: LLM calls go through the gate's proxy,
+  # Agent runtime + scheduler. Holds no stored credentials (only its own service tokens): LLM calls go through the gate's proxy,
   # which injects provider API keys, and tool calls go through the gate's policy checks.
   worker:
     image: moss-worker:${MOSS_VERSION:-dev}
     build: { context: .., dockerfile: deploy/docker/worker.Dockerfile }
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-moss}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-moss}
+      DATABASE_URL: postgres://moss_worker:${MOSS_DB_PASSWORD_WORKER:?run deploy/init.sh}@postgres:5432/${POSTGRES_DB:-moss}
+      QUEUE_DATABASE_URL: postgres://moss_queue:${MOSS_DB_PASSWORD_QUEUE:?run deploy/init.sh}@postgres:5432/${POSTGRES_DB:-moss}
       GATE_URL: http://gate:7080
       GATE_TOKEN_FILE: /run/secrets/gate_token
+      # LLM calls, and what the Claude Code CLI holds: the LLM proxy only.
+      LLM_TOKEN_FILE: /run/secrets/llm_token
       # Starts scheduled MOSS backups (Settings → Backups) on the backup service.
       BACKUP_URL: http://backup:7090
-      BACKUP_TOKEN_FILE: /run/secrets/backup_token
+      # Can only start a backup; listing, deleting and downloading need the web app's token.
+      BACKUP_TOKEN_FILE: /run/secrets/backup_run_token
       TZ: ${TZ:-UTC}
-    secrets: [gate_token, backup_token]
+    secrets: [gate_token, llm_token, backup_run_token]
     networks: [backend]
     read_only: true
     tmpfs: [/tmp] # scratch home for Claude Code runs
@@ -89,20 +97,27 @@ services:
     build: { context: .., dockerfile: deploy/docker/web.Dockerfile, args: { MOSS_RELEASE: "${MOSS_RELEASE:-dev}" } }
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-moss}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-moss}
+      DATABASE_URL: postgres://moss_web:${MOSS_DB_PASSWORD_WEB:?run deploy/init.sh}@postgres:5432/${POSTGRES_DB:-moss}
+      QUEUE_DATABASE_URL: postgres://moss_queue:${MOSS_DB_PASSWORD_QUEUE:?run deploy/init.sh}@postgres:5432/${POSTGRES_DB:-moss}
       GATE_URL: http://gate:7080
       WEB_TOKEN_FILE: /run/secrets/web_token
       MOSS_APP_KEY_FILE: /run/secrets/app_key
+      # Needed once, to create the first account (printed by init.sh).
+      MOSS_SETUP_CODE_FILE: /run/secrets/setup_code
       # MOSS backups (Settings → Backups): start, list, delete, and download encrypted.
       BACKUP_URL: http://backup:7090
       BACKUP_TOKEN_FILE: /run/secrets/backup_token
+      # false: no backup downloads from Settings (docs/hardening.md); the backup service refuses them too.
+      MOSS_BACKUP_DOWNLOADS: ${MOSS_BACKUP_DOWNLOADS:-true}
+      # The addresses people open MOSS at, comma-separated (docs/hardening.md). Empty: taken from each request.
+      MOSS_PUBLIC_URL: ${MOSS_PUBLIC_URL:-}
       MOSS_SECURE_COOKIES: ${MOSS_SECURE_COOKIES:-false}
       # HTTPS mode (empty when off), so Settings can show how to trust MOSS's certificate or upload one.
       MOSS_TLS: ${MOSS_TLS:-}
       MOSS_HTTPS_HOSTS: ${MOSS_HTTPS_HOSTS:-}
       # Same zone as the worker, which runs agent schedules in it, so times on screen match.
       TZ: ${TZ:-UTC}
-    secrets: [web_token, app_key, backup_token]
+    secrets: [web_token, app_key, backup_token, setup_code]
     volumes:
       # Settings → HTTPS writes an uploaded certificate here for the https service, and reloads it through
       # the admin socket there with the HTTPS config (read-only).
@@ -127,12 +142,22 @@ services:
     restart: unless-stopped
     environment:
       TOOLBOX_TOKEN_FILE: /run/secrets/toolbox_token
+      # false: the toolbox can only reach private addresses (docs/hardening.md). Cloud integrations and monitors of
+      # internet addresses stop working.
+      MOSS_TOOLBOX_INTERNET: ${MOSS_TOOLBOX_INTERNET:-true}
+      # Your own certificate authority for devices (optional, deploy/device-ca/ca.pem): trusted for device
+      # connections when certificates are checked, never for cloud or sign-in traffic.
+      MOSS_DEVICE_CA_FILE: /device-ca/ca.pem
+    volumes:
+      - ./device-ca:/device-ca:ro
     secrets: [toolbox_token]
     networks: [tools, egress]
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
-    cap_add: [NET_RAW, NET_ADMIN]
+    # NET_RAW and NET_ADMIN for the scanners (file capabilities on nmap and arp-scan) and the optional firewall;
+    # SETUID and SETGID only so toolbox-start.sh can drop from root to node. The service runs with no capabilities.
+    cap_add: [NET_RAW, NET_ADMIN, SETUID, SETGID]
 
   # Telegram and Discord: the bots people link their chat accounts to, for alerts, approvals and chatting with
   # agents. The only service that talks to those apps (on the egress network); it gets the bot tokens from the
@@ -142,7 +167,8 @@ services:
     build: { context: .., dockerfile: deploy/docker/bridge.Dockerfile }
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-moss}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-moss}
+      DATABASE_URL: postgres://moss_bridge:${MOSS_DB_PASSWORD_BRIDGE:?run deploy/init.sh}@postgres:5432/${POSTGRES_DB:-moss}
+      QUEUE_DATABASE_URL: postgres://moss_queue:${MOSS_DB_PASSWORD_QUEUE:?run deploy/init.sh}@postgres:5432/${POSTGRES_DB:-moss}
       GATE_URL: http://gate:7080
       BRIDGE_TOKEN_FILE: /run/secrets/bridge_token
       TZ: ${TZ:-UTC}
@@ -160,7 +186,7 @@ services:
   # "moss" (MOSS_TAILSCALE_HOSTNAME) and serves https://moss.<tailnet>.ts.net. Enable with the tailscale profile
   # (COMPOSE_PROFILES=https,tailscale) and an auth key in MOSS_TAILSCALE_AUTHKEY.
   tailscale:
-    image: tailscale/tailscale:stable
+    image: tailscale/tailscale:stable@sha256:c507f3a2a6ab1cabd8d809b98edeb41edbd5c3fb6ad9632ffd098b4c7d0b4065
     profiles: [tailscale]
     restart: unless-stopped
     hostname: ${MOSS_TAILSCALE_HOSTNAME:-moss}
@@ -181,7 +207,7 @@ services:
   # MOSS backups from the web: the same archives as deploy/backup.sh, into deploy/backups. It reads the
   # secrets and .env (to put them in the archive) and hands archives out only encrypted with a passphrase.
   # Root inside the container, with just the capabilities to read those files and give archives to the
-  # backups folder's owner; reachable only by the web app and worker, with the backup token.
+  # backups folder's owner; reachable only by the web app (backup token) and the worker (run token: start a backup, nothing else).
   backup:
     image: moss-backup:${MOSS_VERSION:-dev}
     build:
@@ -190,10 +216,12 @@ services:
       args: { MOSS_RELEASE: "${MOSS_RELEASE:-dev}", MOSS_COMMIT: "${MOSS_COMMIT:-unknown}" }
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-moss}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-moss}
+      DATABASE_URL: postgres://moss_backup:${MOSS_DB_PASSWORD_BACKUP:?run deploy/init.sh}@postgres:5432/${POSTGRES_DB:-moss}
       BACKUP_TOKEN_FILE: /run/secrets/backup_token
+      BACKUP_RUN_TOKEN_FILE: /run/secrets/backup_run_token
+      MOSS_BACKUP_DOWNLOADS: ${MOSS_BACKUP_DOWNLOADS:-true}
       TZ: ${TZ:-UTC}
-    secrets: [backup_token]
+    secrets: [backup_token, backup_run_token]
     volumes:
       - ./secrets:/moss/secrets:ro
       - ./.env:/moss/env:ro
@@ -219,12 +247,15 @@ services:
     build: { context: .., dockerfile: deploy/docker/https.Dockerfile }
     profiles: [https]
     restart: unless-stopped
+    # Root without capabilities, in the web app's group (node, 1000): /tls/web, its files and Caddy's admin socket are
+    # shared by the two containers through that group, and closed to everyone else.
+    user: "0:1000"
     # /tls/web is shared with the web app (which writes the uploaded certificate, the choice of certificate and the
     # names MOSS answers to); it starts out as "MOSS's own CA", for MOSS_HTTPS_HOSTS.
     command:
       - sh
       - -c
-      - mkdir -p /tls/web/sites && chmod 0777 /tls/web /tls/web/sites && { [ -f /tls/web/tls.caddy ] || echo "tls internal" > /tls/web/tls.caddy; } && { [ -f /tls/web/lan.caddy ] || printf '%s {\n\timport lan_site\n}\n' "$$MOSS_HTTPS_HOSTS" > /tls/web/lan.caddy; } && { [ -f /tls/web/sni.caddy ] || echo "default_sni $$MOSS_HTTPS_DEFAULT_NAME" > /tls/web/sni.caddy; } && exec caddy run --config "/etc/caddy/${MOSS_TLS:-internal}.Caddyfile" --adapter caddyfile
+      - mkdir -p /tls/web/sites && chgrp 1000 /tls/web /tls/web/sites && chmod 0770 /tls/web /tls/web/sites && { [ -f /tls/web/tls.caddy ] || echo "tls internal" > /tls/web/tls.caddy; } && { [ -f /tls/web/lan.caddy ] || printf '%s {\n\timport lan_site\n}\n' "$$MOSS_HTTPS_HOSTS" > /tls/web/lan.caddy; } && { [ -f /tls/web/sni.caddy ] || echo "default_sni $$MOSS_HTTPS_DEFAULT_NAME" > /tls/web/sni.caddy; } && exec caddy run --config "/etc/caddy/${MOSS_TLS:-internal}.Caddyfile" --adapter caddyfile
     environment:
       # Only the starting list: after that, Settings → HTTPS → Addresses.
       MOSS_HTTPS_HOSTS: ${MOSS_HTTPS_HOSTS:-localhost}
@@ -257,11 +288,14 @@ networks:
 secrets:
   master_key: { file: ./secrets/master.key }
   gate_token: { file: ./secrets/gate.token }
+  llm_token: { file: ./secrets/llm.token }
   toolbox_token: { file: ./secrets/toolbox.token }
   web_token: { file: ./secrets/web.token }
   app_key: { file: ./secrets/app.key }
   backup_token: { file: ./secrets/backup.token }
+  backup_run_token: { file: ./secrets/backup-run.token }
   bridge_token: { file: ./secrets/bridge.token }
+  setup_code: { file: ./secrets/setup.code }
 
 volumes:
   pgdata:

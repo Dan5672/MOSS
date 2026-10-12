@@ -29,6 +29,8 @@ export function toMrkdwn(text: string): string {
 export class SlackBot implements Bot {
   private ws: WebSocket | null = null;
   private stopped = false;
+  /** The workspace the bot token belongs to; envelopes from any other workspace are ignored. */
+  private teamId: string | null = null;
 
   constructor(
     private readonly botToken: string,
@@ -65,6 +67,7 @@ export class SlackBot implements Bot {
   private async connect() {
     if (this.stopped) return;
     try {
+      if (!this.teamId) this.teamId = (await this.api<{ team_id?: string }>("auth.test", this.botToken)).team_id ?? null;
       const { url } = await this.api<{ url: string }>("apps.connections.open", this.appToken);
       const ws = this.openSocket(url);
       this.ws = ws;
@@ -92,6 +95,10 @@ export class SlackBot implements Bot {
     }
     if (env.envelope_id) this.ws?.send(JSON.stringify({ envelope_id: env.envelope_id }));
     if (env.type === "disconnect") return this.ws?.close(); // Slack asks for a fresh connection now and then
+    // An app installed in more than one workspace hears all of them: only people in MOSS's own workspace count.
+    const p = env.payload ?? {};
+    const team = typeof p.team_id === "string" ? p.team_id : (p.team as { id?: string } | undefined)?.id;
+    if (!this.teamId || team !== this.teamId) return this.handlers.log("slack envelope from another workspace; ignored", { team });
     try {
       if (env.type === "events_api") await this.onEvent((env.payload?.event ?? {}) as Record<string, unknown>);
       if (env.type === "interactive") await this.onInteraction(env.payload ?? {});

@@ -75,7 +75,10 @@ async function request(
   const qs = Object.entries(p.query)
     .map(([k, v]) => (v === "" ? enc(k) : `${enc(k)}=${enc(v)}`))
     .join("&");
-  const res = await f(`https://${p.host}${path}${qs ? `?${qs}` : ""}`, { headers, signal: AbortSignal.timeout(a.timeoutMs) });
+  // The path is sent exactly as it was signed, and only ever to AWS.
+  const url = new URL(`https://${p.host}${path.split("/").map(enc).join("/")}${qs ? `?${qs}` : ""}`);
+  if (url.hostname !== p.host || !url.hostname.endsWith(".amazonaws.com")) throw new AwsError(`Refusing to send a request to ${p.host}`);
+  const res = await f(url.toString(), { headers, signal: AbortSignal.timeout(a.timeoutMs) });
   const text = await res.text();
   if (res.status === 200) return text ? (xml.parse(text) as Record<string, unknown>) : {};
   const code = /<Code>([^<]+)<\/Code>/.exec(text)?.[1] ?? `HTTP ${res.status}`;
@@ -209,7 +212,9 @@ export async function awsExposure(a: Creds, f: Fetch = fetch as unknown as Fetch
     if (block.RestrictPublicBuckets === "true" && block.IgnorePublicAcls === "true") continue;
     const policyPublic = o(o(await at({ policyStatus: "" })).PolicyStatus).IsPublic === "true";
     const aclPublic = list(o(o(o(await at({ acl: "" })).AccessControlPolicy).AccessControlList).Grant).some((g) => /AllUsers|AuthenticatedUsers/.test(String(o(g.Grantee).URI ?? "")));
-    if (policyPublic || aclPublic) findings.push({ key: `s3:${name}`, resource: name, issue: `Public S3 bucket (${policyPublic ? "bucket policy" : "ACL"})`, region });
+    // The key names how it's public, so a bucket acknowledged as public by ACL is flagged again if its policy opens it too.
+    const how = [policyPublic && "policy", aclPublic && "acl"].filter(Boolean).join("+");
+    if (how) findings.push({ key: `s3:${name}:${how}`, resource: name, issue: `Public S3 bucket (${policyPublic ? "bucket policy" : "ACL"})`, region });
   }
 
   // The account: root MFA, root access keys, and access keys older than 90 days.

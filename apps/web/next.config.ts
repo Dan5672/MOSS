@@ -10,7 +10,20 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["postgres", "pg-boss"],
   poweredByHeader: false,
   // MOSS reached through Tailscale (https://moss.<tailnet>.ts.net) keeps working if the proxy changes the Host header.
+  // Another tailnet's site can't use this: ts.net is a public suffix, so the session cookie (SameSite=Lax) isn't sent.
   experimental: { serverActions: { allowedOrigins: ["*.ts.net"] } },
+  // No other site may frame MOSS (clickjacking an Approve button). TV dashboards stay frameable, e.g. in Home Assistant.
+  async headers() {
+    return [
+      {
+        source: "/:path((?!tv/).*)",
+        headers: [
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+        ],
+      },
+    ];
+  },
   // Settings → Modules was renamed Integrations.
   async redirects() {
     return [

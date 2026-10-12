@@ -58,6 +58,12 @@ tar -xzf "$archive" -C "$work" || die "cannot read $archive"
 [ -f "$work/db.dump" ] && [ -f "$work/manifest" ] && [ -f "$work/secrets/master.key" ] || die "$archive is not a MOSS backup"
 manifest() { sed -n "s/^$1=//p" "$work/manifest"; }
 
+# A damaged archive is refused. A forged one can't be told apart (it would carry its own master key and checksums):
+# only restore backups you made and kept safe.
+if [ -f "$work/checksums" ]; then
+  backup_checksums "$work" | cmp -s - "$work/checksums" || die "$archive is damaged: its files don't match their checksums"
+fi
+
 info "Backup from $(manifest created): MOSS $(manifest version), $(manifest migrations) database migrations"
 
 # Secrets: the database's stored secrets are encrypted with the backup's master key.
@@ -114,7 +120,7 @@ dc exec -T postgres sh -c '
   psql -X -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres \
     -c "DROP DATABASE IF EXISTS \"$POSTGRES_DB\" WITH (FORCE)" \
     -c "CREATE DATABASE \"$POSTGRES_DB\" OWNER \"$POSTGRES_USER\""' || die "could not recreate the database"
-dc exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error' <"$work/db.dump" ||
+dc exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --no-privileges --exit-on-error' <"$work/db.dump" ||
   die "pg_restore failed. The database may be incomplete; fix the problem and restore again."
 
 info "Starting MOSS"
@@ -122,12 +128,15 @@ if $checkout; then dc up -d --build >&2; else dc up -d >&2; fi
 wait_healthy || die "MOSS did not come back healthy. Check: docker compose logs"
 if [ -f "$work/https-pki.tar" ] && dc ps --services 2>/dev/null | grep -qx https; then
   info "Restoring the HTTPS certificate authority"
-  dc exec -T https sh -c 'rm -rf /data/caddy/pki && tar -C /data -xf -' <"$work/https-pki.tar" && dc restart https >/dev/null 2>&1 ||
+  dc exec -T https sh -c 'rm -rf /data/caddy/pki && tar -C /data -xf - caddy/pki' <"$work/https-pki.tar" && dc restart https >/dev/null 2>&1 ||
     warn "could not restore the HTTPS certificate authority; devices will need to trust the new one"
 fi
 if [ -f "$work/https-tls.tar" ] && dc ps --services 2>/dev/null | grep -qx https; then
   info "Restoring the uploaded HTTPS certificate"
-  dc exec -T https sh -c 'tar -C /tls -xf - && chmod 0777 /tls/web' <"$work/https-tls.tar" && dc restart https >/dev/null 2>&1 ||
+  # Only the files MOSS writes there: a backup can't bring in other Caddy config.
+  tar -tf "$work/https-tls.tar" | grep -qvE '^web/?$|^web/(tls\.caddy|lan\.caddy|sni\.caddy|uploaded-cert\.pem|uploaded-key\.pem|cloudflare-token|sites/?|sites/letsencrypt\.caddy)$' &&
+    die "the backup's HTTPS files include something MOSS doesn't write there; not restoring them"
+  dc exec -T https sh -c 'tar -C /tls -xf - && chgrp 1000 /tls/web && chmod 0770 /tls/web' <"$work/https-tls.tar" && dc restart https >/dev/null 2>&1 ||
     warn "could not restore the uploaded HTTPS certificate; MOSS uses its own until you upload it again"
 fi
 info "Restore complete"

@@ -1,10 +1,10 @@
 // Loads everything the policy needs for one tool call, straight from the database.
 // Nothing here comes from the agent except the ids it supplied.
 import { agentToolGrants, getBudgetStatus, getSetting } from "@moss/core";
-import { agents, changeRequests, customTools, networks, secretGrants, secrets, type Database } from "@moss/db";
+import { agents, changeApprovals, changeRequests, customTools, networks, secretGrants, secrets, type Database } from "@moss/db";
 import type { PolicyContext, SecretPolicy } from "@moss/policy";
 import { customToolSpecSchema } from "@moss/tools";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 
 export type SecretRow = typeof secrets.$inferSelect;
 
@@ -50,9 +50,10 @@ export async function loadContext(
   opts: { changeId?: string; secretNames: string[]; now?: Date },
 ): Promise<LoadedContext> {
   const orgId = agent.orgId;
-  const [killSwitch, allowDangerous, budget, toolGrants, networkRows] = await Promise.all([
+  const [killSwitch, allowDangerous, allowInternet, budget, toolGrants, networkRows] = await Promise.all([
     getSetting(db, orgId, "agents.kill_switch"),
     getSetting(db, orgId, "tools.allow_dangerous"),
+    getSetting(db, orgId, "agents.allow_internet"),
     getBudgetStatus(db, orgId, agent.id, opts.now),
     loadToolGrants(db, agent.id),
     db.select({ cidr: networks.cidr, status: networks.status, dnsServer: networks.dnsServer }).from(networks).where(eq(networks.orgId, orgId)),
@@ -87,11 +88,25 @@ export async function loadContext(
       .from(changeRequests)
       .where(and(eq(changeRequests.id, opts.changeId), eq(changeRequests.orgId, orgId)));
     if (cr) {
+      // Without a window of its own, an approved change may run for a while after its approval, not forever.
+      let windowEnd = cr.windowEnd;
+      if (!windowEnd) {
+        const [approval] = await db
+          .select({ at: changeApprovals.createdAt })
+          .from(changeApprovals)
+          .where(and(eq(changeApprovals.changeId, cr.id), eq(changeApprovals.decision, "approved")))
+          .orderBy(desc(changeApprovals.createdAt))
+          .limit(1);
+        const hours = await getSetting(db, orgId, "changes.window_hours");
+        const from = Math.max((approval?.at ?? cr.createdAt).getTime(), cr.windowStart?.getTime() ?? 0);
+        windowEnd = new Date(from + hours * 3_600_000);
+      }
       change = {
         id: cr.id,
         status: cr.status,
         windowStart: cr.windowStart,
-        windowEnd: cr.windowEnd,
+        windowEnd,
+        executedCalls: cr.executedCalls,
         plannedCalls: cr.plannedCalls,
         rollbackCalls: cr.rollbackCalls,
         agentId: cr.requestedByAgentId,
@@ -107,6 +122,7 @@ export async function loadContext(
       now: opts.now ?? new Date(),
       killSwitch,
       allowDangerousTools: allowDangerous,
+      allowInternet,
       agent: { id: agent.id, status: agent.status, overBudget: budget.overHard, toolGrants, secretGrants: granted },
       networks: networkRows,
       secrets: secretPolicies,

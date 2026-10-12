@@ -36,7 +36,13 @@ export async function requestOrigin(): Promise<string> {
   const h = await headers();
   const proto = h.get("x-forwarded-proto")?.split(",")[0]?.trim() || "http";
   const host = h.get("x-forwarded-host")?.split(",")[0]?.trim() || h.get("host") || "localhost";
-  return `${proto}://${host}`;
+  return pickOrigin(`${proto}://${host}`, config.publicUrls());
+}
+
+/** With MOSS_PUBLIC_URL set, only one of its addresses is used for sign-in links, whatever the request's headers say. */
+export function pickOrigin(origin: string, publicUrls: string[]): string {
+  if (publicUrls.length === 0) return origin;
+  return publicUrls.find((u) => u.toLowerCase() === origin.toLowerCase()) ?? publicUrls[0]!;
 }
 
 export const ssoRedirectUri = (origin: string, provider: SsoProvider) => `${origin}/api/auth/sso/${provider}/callback`;
@@ -60,9 +66,18 @@ export interface SsoLinkIntent {
   provider: SsoProvider;
 }
 
+/** Someone who signed in with a provider and still owes their MOSS two-factor code (see the callback). */
+export const SSO_2FA_COOKIE = "moss_sso_2fa";
+export const SSO_2FA_SECONDS = 300;
+export interface SsoSecondFactor {
+  userId: string;
+  provider: SsoProvider;
+  next: string;
+}
+
 const mac = (body: string) => createHmac("sha256", config.appKey()).update(`moss-sso:${body}`).digest("base64url");
 
-export function sealSsoCookie(c: SsoCookie | SsoLinkIntent, seconds = SSO_COOKIE_SECONDS): string {
+export function sealSsoCookie(c: SsoCookie | SsoLinkIntent | SsoSecondFactor, seconds = SSO_COOKIE_SECONDS): string {
   const body = Buffer.from(JSON.stringify({ ...c, exp: Date.now() + seconds * 1000 })).toString("base64url");
   return `${body}.${mac(body)}`;
 }

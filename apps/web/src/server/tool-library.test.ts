@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
-const { bundledCatalog, fetchPublicText, isPrivateAddress } = await import("./tool-library");
+const { bundledCatalog, fetchPublicText, isPrivateAddress, pinnedLookup } = await import("./tool-library");
 
 const CATALOG = fileURLToPath(new URL("../../../../library/tool-catalog", import.meta.url));
 
@@ -27,5 +27,15 @@ describe("tools catalog", () => {
     await expect(fetchPublicText("https://127.0.0.1/x.yaml")).rejects.toThrow(/private or local/);
     await expect(fetchPublicText("https://[::ffff:127.0.0.1]/x.yaml")).rejects.toThrow(/private or local/);
     await expect(fetchPublicText("https://user:pw@example.com/x.yaml")).rejects.toThrow(/credentials/);
+  });
+
+  it("connects to the address it checked, whatever a second lookup would say", () => {
+    const lookup = pinnedLookup("185.199.108.133");
+    const one = vi.fn();
+    const all = vi.fn();
+    lookup("catalog.example", {}, one);
+    lookup("catalog.example", { all: true }, all);
+    expect(one).toHaveBeenCalledWith(null, "185.199.108.133", 4);
+    expect(all).toHaveBeenCalledWith(null, [{ address: "185.199.108.133", family: 4 }]);
   });
 });

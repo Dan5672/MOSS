@@ -151,6 +151,13 @@ describe.skipIf(!TEST_DATABASE_URL)("monitor checks (postgres)", () => {
       expect(JSON.stringify(second)).not.toContain("c0mmunity");
     });
 
+    it("scrubs a credential the device echoes back in a successful check", async () => {
+      reply = (_tool, args) => ({ target: args.target, preset: "get", values: { "1.3.6.1.2.1.1.1.0": "configured with c0mmunity" } });
+      const m = await createMonitor(db, orgId, { name: "Descr", kind: "snmp", target: "192.168.1.1", config: { secret: "router-snmp", oid: "1.3.6.1.2.1.1.1.0" } }, person);
+      const result = await gate.checkMonitor(m.id);
+      expect(JSON.stringify(result)).not.toContain("c0mmunity");
+    });
+
     it("needs secrets.manage to use a secret, and the secret's own host scope", async () => {
       await expect(monitor({ name: "x", kind: "snmp", target: "192.168.1.1", config: { secret: "router-snmp", oid: "1.3.6.1.2.1.1.3.0" } })).rejects.toThrow(/secrets.manage/);
       await expect(createMonitor(db, orgId, { name: "x", kind: "snmp", target: "192.168.1.1", config: { secret: "nope", oid: "1.3.6.1.2.1.1.3.0" } }, person)).rejects.toThrow(/no stored secret/);

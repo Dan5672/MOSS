@@ -65,6 +65,7 @@ describe("custom tools", () => {
     });
     expect(customHttp.args.safeParse(r).success).toBe(true);
     expect(() => renderCustomRequest(spec, { host: "10.0.0.5", name: "x" }, "tok\r\nX-Evil: 1")).toThrow(/line break/);
+    expect(() => renderCustomRequest(spec, { host: "10.0.0.5", name: ".." }, "tok")).toThrow(/can't be \. or \.\./);
   });
 
   it("picks parts of a JSON result", () => {

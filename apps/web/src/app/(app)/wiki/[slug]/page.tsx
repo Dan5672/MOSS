@@ -9,7 +9,7 @@ import { NoPermission, PageHeader, timeAgo } from "@/components/page";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { nameLookup } from "@/server/people";
-import { deletePageAction } from "../actions";
+import { deletePageAction, publishPageAction } from "../actions";
 import { ancestors, linkResolver } from "../shared";
 
 export default async function WikiPageView({ params }: PageProps<"/wiki/[slug]">) {
@@ -64,6 +64,15 @@ export default async function WikiPageView({ params }: PageProps<"/wiki/[slug]">
           </div>
         }
       />
+      {page.draft && (
+        <div role="status" className="px-frame mb-4 flex max-w-3xl flex-wrap items-center justify-between gap-3 border-2 border-alarm p-4 text-sm">
+          <span>
+            <strong>Draft by an agent.</strong> Other agents won&apos;t read it until a person publishes it. Check it says nothing you didn&apos;t expect: an agent can
+            be tricked by what it reads on your network.
+          </span>
+          {canEdit && <ActionForm action={publishPageAction.bind(null, page.id, page.updatedAt.toISOString())} submitLabel="Publish" inline />}
+        </div>
+      )}
       <article className="px-frame max-w-3xl bg-card p-5">
         <Markdown text={page.body} links={linkResolver(pages)} />
       </article>

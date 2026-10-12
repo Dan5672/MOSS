@@ -3,7 +3,7 @@
 // agent calls, and only then sent to the toolbox. Hostnames never reach a probe as a target.
 import { applyThresholds, decryptSecret, isHostIp, redactSecrets, writeAudit, type CheckResult } from "@moss/core";
 import { monitors, networks, secrets, type Database } from "@moss/db";
-import { contains, evaluateMonitorCheck, parseRange, type IpRange, type NetworkRule } from "@moss/policy";
+import { evaluateMonitorCheck, parseRange, secretScopeError, type IpRange, type NetworkRule } from "@moss/policy";
 import {
   BUILT_IN_TOOLS,
   parseToolArgs,
@@ -17,6 +17,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import { runHomeAssistantOp } from "./home-assistant.js";
 import { haSensorResult, hostCheck, snmpCheck, type Call, type Caller, type Monitor, type SecretArg } from "./metric-checks.js";
+import { credentialCall } from "./pins.js";
 import type { ToolboxClient } from "./toolbox-client.js";
 
 export interface MonitorCheckDeps {
@@ -69,9 +70,10 @@ export async function runMonitorCheck(deps: MonitorCheckDeps, monitorId: string)
     }
     const hide = (text: string) => (value ? redactSecrets(text, [value]) : text).slice(0, 500);
     try {
-      const res = await deps.toolbox.call(tool, args);
+      const res = value ? await credentialCall(deps.db, deps.toolbox, m!.orgId, { tool, args, targets: decision.targets }, { type: "system", id: null }) : await deps.toolbox.call(tool, args);
       if (!res.ok) return { ok: false, result: { ok: false, message: hide(res.error ?? "check failed") } };
-      return { ok: true, result: res.result as T };
+      // A device that echoes the credential back must not get it stored with the result.
+      return { ok: true, result: (value && res.result !== undefined ? JSON.parse(redactSecrets(JSON.stringify(res.result), [value])) : res.result) as T };
     } catch (err) {
       return { ok: false, result: { ok: false, message: hide(`Toolbox unavailable: ${(err as Error).message}`) } };
     }
@@ -81,12 +83,8 @@ export async function runMonitorCheck(deps: MonitorCheckDeps, monitorId: string)
     if (!deps.masterKey) return "this gate can't decrypt monitor credentials";
     const [row] = await deps.db.select().from(secrets).where(and(eq(secrets.orgId, m!.orgId), eq(secrets.name, name)));
     if (!row) return `there's no stored secret called ${name}`;
-    if (row.allowedTools.length > 0 && !row.allowedTools.includes(tool)) return `secret ${name} may not be used with ${tool}`;
-    if (row.allowedHosts.length > 0) {
-      const hosts = row.allowedHosts.map(parseRange).filter((r): r is IpRange => r !== null);
-      const ranges = targets.map(parseRange).filter((r): r is IpRange => r !== null);
-      if (!ranges.length || !ranges.every((t) => hosts.some((h) => contains(h, t)))) return `secret ${name} may not be used against ${targets.join(", ")}`;
-    }
+    const outOfScope = secretScopeError(row, tool, targets, targets.map(parseRange).filter((r): r is IpRange => r !== null));
+    if (outOfScope) return outOfScope;
     return { value: decryptSecret(deps.masterKey, row.id, row) };
   }
 

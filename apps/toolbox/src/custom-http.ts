@@ -4,6 +4,7 @@ import { pickJson, type RenderedRequest } from "@moss/tools";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { clean } from "./parsers.js";
+import { checkPlainText, deviceCa, pinnedConnection, pinScope } from "./pins.js";
 
 const MAX_BODY = 1024 * 1024;
 const MAX_TEXT = 8 * 1024;
@@ -28,13 +29,23 @@ export const sendRequest: RawRequest = (r, maxBytes = MAX_BODY) =>
   new Promise((resolve, reject) => {
     const send = r.scheme === "https" ? httpsRequest : httpRequest;
     const host = r.target.includes(":") ? `[${r.target}]` : r.target;
+    const verifyTls = r.verifyTls || pinScope.getStore()?.verifyTls === true;
+    const pinned = r.scheme === "https" ? pinnedConnection(r.target, r.port, verifyTls, r.timeoutMs) : undefined;
+    if (r.scheme === "http") {
+      try {
+        checkPlainText(r.target);
+      } catch (err) {
+        return reject(err);
+      }
+    }
     const req = send(
       `${r.scheme}://${host}:${r.port}${r.path}`,
       {
         method: r.method,
         headers: { ...r.headers, ...(r.body !== undefined ? { "Content-Length": String(Buffer.byteLength(r.body)) } : {}) },
         timeout: r.timeoutMs,
-        ...(r.scheme === "https" ? { rejectUnauthorized: r.verifyTls } : {}),
+        ...(r.scheme === "https" ? { rejectUnauthorized: verifyTls, ...(verifyTls && deviceCa ? { ca: deviceCa } : {}) } : {}),
+        ...(pinned ? { createConnection: pinned as never } : {}),
       },
       (res) => {
         const chunks: Buffer[] = [];

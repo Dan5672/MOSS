@@ -1,0 +1,1 @@
+ALTER TABLE "change_requests" ADD COLUMN "executed_calls" jsonb DEFAULT '[]'::jsonb NOT NULL;

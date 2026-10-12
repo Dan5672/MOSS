@@ -4,6 +4,7 @@ import * as schema from "./schema.js";
 
 export * from "./schema.js";
 export { schema };
+export { applyServiceRoles, SERVICE_ROLES, type ServiceRole } from "./roles.js";
 
 export type Database = ReturnType<typeof createDb>;
 

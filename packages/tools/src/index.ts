@@ -236,7 +236,7 @@ export const serviceStatus = tool(
     ...sshArgs,
     service: z
       .string()
-      .regex(/^[A-Za-z0-9@._:-]{1,100}$/, "A systemd unit name, e.g. nginx or nginx.service")
+      .regex(/^[A-Za-z0-9@._:][A-Za-z0-9@._:-]{0,99}$/, "A systemd unit name, e.g. nginx or nginx.service")
       .describe("The systemd unit, e.g. nginx"),
   }),
 );
@@ -656,7 +656,8 @@ export const adguardClients = tool(
 // Everything below changes something, so the gate only runs a call that exactly matches a step of an
 // approved change request, inside its window. Arguments are strict so the plan a human approves is the
 // exact request that runs.
-const unitName = z.string().regex(/^[A-Za-z0-9@._:-]{1,100}$/, "A systemd unit name, e.g. nginx or nginx.service");
+// Never a leading "-": systemctl would read the name as an option.
+const unitName = z.string().regex(/^[A-Za-z0-9@._:][A-Za-z0-9@._:-]{0,99}$/, "A systemd unit name, e.g. nginx or nginx.service");
 const containerName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/, "A Docker container name");
 const dnsName = z
   .string()
@@ -1049,7 +1050,7 @@ export const pagerdutyEvent = tool(
   z
     .object({
       routingKey: pdRoutingKey,
-      action: z.enum(["trigger", "acknowledge", "resolve"]),
+      action: z.enum(["trigger", "resolve"]),
       dedupKey: z.uuid(),
       summary: z.string().min(1).max(1024).optional(),
       severity: z.enum(["critical", "error", "warning", "info"]).default("error"),
@@ -1091,14 +1092,8 @@ export const oidcExchange = tool(
     .strict(),
 );
 
-export const oidcKeys = tool(
-  { name: "oidc_keys", class: "read", targetArgs: [] },
-  "Fetch Microsoft's or Google's published keys for checking sign-in tokens.",
-  z.object({ provider: ssoProvider, tenantId: z.guid().optional(), timeoutMs }).strict(),
-);
-
 export const SYSTEM_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map(
-  [homeassistantNotify, homeassistantPublish, oidcExchange, oidcKeys, pagerdutyEvent, pagerdutyChange, pagerdutyIncidents].map((t) => [t.manifest.name, t as unknown as ToolDefinition]),
+  [homeassistantNotify, homeassistantPublish, oidcExchange, pagerdutyEvent, pagerdutyChange, pagerdutyIncidents].map((t) => [t.manifest.name, t as unknown as ToolDefinition]),
 );
 
 /** The JSON Schema handed to the LLM for a tool's input. */

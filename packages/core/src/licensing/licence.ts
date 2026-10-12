@@ -39,9 +39,17 @@ export type LicencePayload = z.infer<typeof licencePayloadSchema>;
 
 const b64url = (b: Buffer) => b.toString("base64url");
 
+/**
+ * A setting that only tests may use (another licence key, a stand-in sign-in page). MOSS's images set MOSS_IMAGE,
+ * so an installed MOSS ignores them whatever its environment says.
+ */
+export function testOverride(name: string, env: Record<string, string | undefined> = process.env): string | undefined {
+  return env.MOSS_IMAGE ? undefined : env[name]?.trim() || undefined;
+}
+
 /** The public keys MOSS accepts: the built-in ones, plus MOSS_LICENCE_EXTRA_PUBLIC_KEY ("kid:base64") for tests. */
 export function licencePublicKeys(env: Record<string, string | undefined> = process.env): Record<string, string> {
-  const extra = env.MOSS_LICENCE_EXTRA_PUBLIC_KEY?.trim();
+  const extra = testOverride("MOSS_LICENCE_EXTRA_PUBLIC_KEY", env);
   const m = extra ? /^([a-z0-9-]{1,40}):([A-Za-z0-9+/=]+)$/.exec(extra) : null;
   // It can add a key, never replace a built-in one.
   return m && !(m[1]! in LICENCE_PUBLIC_KEYS) ? { ...LICENCE_PUBLIC_KEYS, [m[1]!]: m[2]! } : LICENCE_PUBLIC_KEYS;

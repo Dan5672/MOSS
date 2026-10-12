@@ -4,31 +4,22 @@
 //   moss-cli runs [agentId]                          show recent runs
 //   moss-cli incidents                               list open incidents
 //   moss-cli changes                                 list recent change requests
-//   moss-cli approve <changeId> <userEmail> [note]   approve a change as that user
-//   moss-cli reject <changeId> <userEmail> [note]    reject a change as that user
-import { approveChange, changeRef, incidentRef, listChanges, listIncidents, rejectChange } from "@moss/core";
+// Approving and rejecting are done by people in MOSS: the worker's database role can't.
+import { changeRef, incidentRef, listChanges, listIncidents } from "@moss/core";
 import { agentRuns, agents, createDb, users } from "@moss/db";
 import { desc, eq } from "drizzle-orm";
-import { PgBoss } from "pg-boss";
-import { enqueueRun, ensureQueues } from "@moss/agent";
+import { enqueueRun, ensureQueues, openQueue } from "@moss/agent";
 
 const [command, ...args] = process.argv.slice(2);
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("Set DATABASE_URL");
 const db = createDb(databaseUrl);
 
-async function userByEmail(email: string | undefined) {
-  if (!email) throw new Error("A user email is required");
-  const [user] = await db.select().from(users).where(eq(users.email, email.toLowerCase()));
-  if (!user) throw new Error(`No user ${email}`);
-  return user;
-}
-
 switch (command) {
   case "run": {
     const [agentId, task] = args;
     if (!agentId || !task) throw new Error('Usage: moss-cli run <agentId> "<task>"');
-    const boss = new PgBoss(databaseUrl);
+    const boss = openQueue(process.env.QUEUE_DATABASE_URL ?? databaseUrl);
     await boss.start();
     await ensureQueues(boss);
     const jobId = await enqueueRun(boss, { agentId, task, trigger: "manual" });
@@ -66,20 +57,7 @@ switch (command) {
     }
     break;
   }
-  case "approve":
-  case "reject": {
-    const [changeId, email, ...note] = args;
-    if (!changeId) throw new Error(`Usage: moss-cli ${command} <changeId> <userEmail> [note]`);
-    const user = await userByEmail(email);
-    const comment = note.join(" ") || undefined;
-    const c =
-      command === "approve"
-        ? await approveChange(db, user.orgId, changeId, user.id, { comment })
-        : await rejectChange(db, user.orgId, changeId, user.id, comment);
-    console.log(`${changeRef(c.number)} is now ${c.status}`);
-    break;
-  }
   default:
-    console.log('Commands: run <agentId> "<task>" | agents | runs [agentId] | incidents | changes | approve|reject <changeId> <email> [note]');
+    console.log('Commands: run <agentId> "<task>" | agents | runs [agentId] | incidents | changes');
 }
 process.exit(0);

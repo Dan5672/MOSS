@@ -1,6 +1,6 @@
 # MOSS's backup service: Postgres 17's client tools (matching the database) and Node to run
 # deploy/backup/moss-backup.mjs. Build context: repo root.
-FROM postgres:17-alpine
+FROM postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
 RUN apk add --no-cache nodejs openssl tar
 # The release and commit this image was built from (set by deploy/upgrade.sh), written into each backup's
 # manifest so restore.sh --checkout can go back to the right code.

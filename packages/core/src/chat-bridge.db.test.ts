@@ -3,8 +3,8 @@ import { agents, changeRequests, chatLinks, chatOutbox, conversationMessages, mo
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { chatApprovalBlocked, createLinkCode, handleButton, handleIncoming, queueChatMessages, wantsNotification, chatConfigSchema } from "./chat-bridge/chat.js";
-import { createChangeRequest } from "./services/changes.js";
+import { chatApprovalBlocked, createLinkCode, describePlan, handleButton, handleIncoming, queueChatMessages, wantsNotification, chatConfigSchema } from "./chat-bridge/chat.js";
+import { assessRisk, createChangeRequest } from "./services/changes.js";
 import { postMessage } from "./services/conversations.js";
 import { saveModule } from "./services/modules.js";
 import { bootstrapOrg } from "./store/bootstrap.js";
@@ -24,6 +24,26 @@ describe("what goes to the chat app", () => {
     expect(chatApprovalBlocked({ ...base, type: "emergency" })).toMatch(/Emergency/);
     expect(chatApprovalBlocked({ ...base, risk: "high" })).toMatch(/High-risk/);
     expect(chatApprovalBlocked({ ...base, accessGrant: { tools: ["x"] } as never })).toMatch(/Access/);
+    // A plan that can take something offline, whatever risk was stored with it.
+    expect(chatApprovalBlocked({ ...base, risk: "low", plannedCalls: [{ tool: "host_shutdown", args: {} }] })).toMatch(/High-risk/);
+    // What the owner allows from chat (Settings, Safety).
+    expect(chatApprovalBlocked(base, { level: "low_risk", totp: false })).toMatch(/Only low-risk/);
+    expect(chatApprovalBlocked({ ...base, risk: "low" }, { level: "low_risk", totp: false })).toBeNull();
+    expect(chatApprovalBlocked({ ...base, risk: "low" }, { level: "off", totp: false })).toMatch(/approved in MOSS/);
+    expect(chatApprovalBlocked({ ...base, risk: "low" }, { level: "standard", totp: true })).toMatch(/two-factor/);
+  });
+
+  it("shows approvers the planned steps, not just the agent's description", () => {
+    const plan = describePlan([{ tool: "service_restart", args: { target: "10.0.0.5", unitName: "cups" } }]);
+    expect(plan).toContain("Planned steps:\n1. service_restart");
+    expect(plan).toContain('"target":"10.0.0.5"');
+    expect(describePlan([])).toBe("");
+    expect(describePlan(Array.from({ length: 12 }, () => ({ tool: "wake_on_lan", args: {} })))).toMatch(/and 2 more$/);
+  });
+
+  it("rates a change high risk when it can take something offline, whatever the agent says", () => {
+    expect(assessRisk("low", [{ tool: "host_shutdown", args: {} }])).toBe("high");
+    expect(assessRisk("low", [{ tool: "service_restart", args: {} }])).toBe("low");
   });
 });
 

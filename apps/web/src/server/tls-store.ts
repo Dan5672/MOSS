@@ -48,8 +48,8 @@ async function readOrNull(path: string) {
 }
 
 async function writeAtomic(path: string, text: string) {
-  // Readable by the https service, which runs as a different user; nothing else mounts this folder.
-  await writeFile(`${path}.new`, text, { mode: 0o644 });
+  // Readable by the https service through the group they share (see docker-compose.yml); closed to everyone else.
+  await writeFile(`${path}.new`, text, { mode: 0o640 });
   await rename(`${path}.new`, path);
 }
 
@@ -121,7 +121,7 @@ export async function setLetsEncrypt(next: { hostname: string; token?: string } 
   if (next && !next.token && !before.token) throw new Error("Enter the Cloudflare API token.");
   try {
     if (next) {
-      await mkdir(SITES, { recursive: true, mode: 0o755 });
+      await mkdir(SITES, { recursive: true, mode: 0o750 });
       if (next.token) await writeAtomic(CF_TOKEN, next.token);
       await writeAtomic(LE_SITE, site(next.hostname));
     } else {

@@ -1,21 +1,67 @@
 "use server";
 
-import { generateTotpSecret, getPasswordPolicy, mustEnrolTotp, setSetting, verifyTotp, writeAudit, type SettingKey } from "@moss/core";
+import { generateTotpSecret, getPasswordPolicy, getSetting, mustEnrolTotp, setSetting, verifyTotp, writeAudit, type SettingKey } from "@moss/core";
 import { roles, userRoles, users } from "@moss/db";
 import { eq } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { act, type ActionState } from "@/server/action";
-import { confirmPassword, requirePermission, requireUser, sealTotpSecret } from "@/server/auth";
+import { confirmPassword, requirePermission, requireUser, sealTotpSecret, verifyUserTotp, type CurrentUser } from "@/server/auth";
 import { db } from "@/server/db";
+import { rulesWeaken, weakens } from "./hardening";
 
-const TOGGLES: SettingKey[] = ["agents.kill_switch", "tools.allow_dangerous", "changes.allow_emergency", "changes.require_separate_approver"];
+const TOGGLES: SettingKey[] = [
+  "agents.kill_switch",
+  "tools.allow_dangerous",
+  "changes.allow_emergency",
+  "changes.require_separate_approver",
+  "tools.allow_vulners",
+  "agents.allow_internet",
+  "tools.pin_hosts",
+  "tools.verify_tls",
+  "changes.approval_totp",
+  "knowledge.agent_drafts",
+  "agents.credentials_need_manager",
+  "auth.sso_require_totp",
+];
 
-export async function toggleSettingAction(key: SettingKey, value: boolean, _: ActionState): Promise<ActionState> {
+/**
+ * Weakening a protection asks for the person's two-factor code. Without two-factor set up, it's refused while
+ * approvals need a code (otherwise a stolen session could switch that off first).
+ */
+async function stepUp(user: CurrentUser, form: FormData | undefined, what: string) {
+  if (!user.totpEnabled) {
+    if (await getSetting(db(), user.orgId, "changes.approval_totp")) throw new Error("Set up two-factor sign-in first: weakening a protection needs your code.");
+    return;
+  }
+  if (!(await verifyUserTotp(user.id, String(form?.get("code") ?? "")))) {
+    await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "setting.update_denied", targetType: "setting", targetId: what, details: { reason: "totp" } });
+    throw new Error("That two-factor code didn't match.");
+  }
+}
+
+/** Which changes chat apps may approve, and the tools emergency changes may use (Settings, Safety). */
+export async function saveApprovalRulesAction(_: ActionState, form: FormData): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("settings.manage");
+    const level = z.enum(["standard", "low_risk", "off"]).parse(form.get("chatApprovals"));
+    const tools = [...new Set(String(form.get("emergencyTools") ?? "").split(/[\s,]+/).filter(Boolean))];
+    for (const t of tools) if (!/^[a-z][a-z0-9_]{0,63}$/.test(t)) throw new Error(`"${t}" isn't a tool name`);
+    const before = { level: await getSetting(db(), user.orgId, "changes.chat_approvals"), tools: await getSetting(db(), user.orgId, "changes.emergency_tools") };
+    if (rulesWeaken(before, { level, tools })) await stepUp(user, form, "changes.chat_approvals");
+    await setSetting(db(), user.orgId, "changes.chat_approvals", level);
+    await setSetting(db(), user.orgId, "changes.emergency_tools", tools);
+    await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "setting.update", targetType: "setting", targetId: "changes.chat_approvals", details: { chatApprovals: level, emergencyTools: tools } });
+    return "Approval rules saved.";
+  });
+}
+
+export async function toggleSettingAction(key: SettingKey, value: boolean, _: ActionState, form?: FormData): Promise<ActionState> {
   return act(async () => {
     if (!TOGGLES.includes(key)) throw new Error("Unknown setting");
     // The kill switch has its own permission so operators can stop agents without full settings access.
     const user = await requirePermission(key === "agents.kill_switch" ? "killswitch.use" : "settings.manage");
+    if (weakens(key, value)) await stepUp(user, form, key);
     await setSetting(db(), user.orgId, key, value as never);
     await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "setting.update", targetType: "setting", targetId: key, details: { value } });
     if (key === "agents.kill_switch") return value ? "Kill switch on: all agents are stopped." : "Kill switch off: agents may run again.";

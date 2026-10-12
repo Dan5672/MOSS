@@ -1,12 +1,12 @@
 // Worker against Postgres + pg-boss with a scripted LLM and a fake gate. Run with MOSS_TEST_DATABASE_URL set.
-import { chatSnapshot, unansweredConversations, hireCustom, hireFromTemplate, loadLibrary, pauseAgent, type GateClient } from "@moss/agent";
+import { chatSnapshot, unansweredConversations, hireCustom, hireFromTemplate, loadLibrary, openQueue, pauseAgent, syncBuiltInSkills, type GateClient } from "@moss/agent";
 import { addChangeComment, addIncidentComment, createChannel, openDm, postMessage, approveChange, bootstrapOrg, createChangeRequest, createIncident, createMonitor, type CheckResult } from "@moss/core";
-import { agentRuns, agents, conversationMessages, incidentComments, incidents, models, monitors, providers, skills, type Database } from "@moss/db";
+import { agentRuns, agents, applyServiceRoles, conversationMessages, createDb, incidentComments, incidents, models, monitors, providers, SERVICE_ROLES, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { MockAdapter } from "@moss/llm";
 import { and, desc, eq } from "drizzle-orm";
 import { fileURLToPath } from "node:url";
-import { PgBoss } from "pg-boss";
+import type { PgBoss } from "pg-boss";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { enqueueRun, SCHEDULE_QUEUE, startWorker, syncSchedules, unansweredIncidentComments } from "./worker.js";
 
@@ -22,10 +22,13 @@ async function waitFor<T>(fn: () => Promise<T | undefined>, timeoutMs = 15_000):
   }
 }
 
-describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
+// Runs go through pg-boss polling, so a test with several runs can take ~10s on a busy machine.
+describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", { timeout: 30_000 }, () => {
   let db: Database;
   let close: () => Promise<void>;
   let boss: PgBoss;
+  let workerDb: Database;
+  const logged: string[] = [];
   let worker: { stop: () => Promise<unknown> };
   let actor: { orgId: string; userId: string };
   let modelId: string;
@@ -41,19 +44,33 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
     const [provider] = await db.insert(providers).values({ orgId: actor.orgId, kind: "ollama", name: "Local" }).returning();
     [{ id: modelId }] = await db.insert(models).values({ orgId: actor.orgId, providerId: provider!.id, modelId: "llama", displayName: "Llama" }).returning();
 
-    boss = new PgBoss(url);
+    // The gate keeps the library's skills in step (apps/gate/src/library-sync.ts); here, as it would at boot.
+    await syncBuiltInSkills(db, actor.orgId, (await loadLibrary(LIBRARY_DIR)).skills.values());
+
+    // The worker runs as it does in an install: its own database role, and the queue's.
+    const passwords = Object.fromEntries(SERVICE_ROLES.map((r) => [r, `test-${r}-password`])) as Record<(typeof SERVICE_ROLES)[number], string>;
+    await applyServiceRoles(db.$client, passwords);
+    const as = (role: "worker" | "queue") => {
+      const u = new URL(url);
+      u.username = `moss_${role}`;
+      u.password = passwords[role];
+      return u.toString();
+    };
+    workerDb = createDb(as("worker"));
+
+    boss = openQueue(as("queue"));
     await boss.start();
     // Clear queue state left over from a previous test run (pg-boss lives in its own schema).
     await boss.deleteAllJobs().catch(() => {});
     for (const s of await boss.getSchedules().catch(() => [])) await boss.unschedule(s.name, s.key);
 
     worker = await startWorker({
-      db,
+      db: workerDb,
       boss,
       gate,
       providerFor: () => new MockAdapter([{ text: "All good." }]),
       libraryDir: LIBRARY_DIR,
-      log: () => {},
+      log: (msg, extra) => logged.push(JSON.stringify({ msg, ...extra })),
       eventIntervalMs: 200,
       monitorIntervalMs: 200,
       checkMonitor: async (id) => {
@@ -65,36 +82,6 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
   afterAll(async () => {
     await worker?.stop();
     await close?.();
-  });
-
-  it("syncs built-in skills on startup", async () => {
-    const rows = await db.select().from(skills).where(eq(skills.orgId, actor.orgId));
-    expect(rows.map((s) => s.key).sort()).toEqual([
-      "asset-inventory",
-      "aws-account",
-      "change-management",
-      "config-backups",
-      "device-power",
-      "firewall-actions",
-      "home-assistant",
-      "home-dns-actions",
-      "homelab-integrations",
-      "incident-management",
-      "monitoring-response",
-      "moss-expert",
-      "network-discovery",
-      "network-insight",
-      "network-wiki",
-      "security-baseline",
-      "server-actions",
-      "server-checks",
-      "service-desk",
-      "service-health",
-      "team-memory",
-      "unifi-actions",
-      "vulnerability-scanning",
-      "workplace-directory",
-    ]);
   });
 
   it("mirrors agent schedules into the queue and removes them when the agent is paused", async () => {
@@ -275,5 +262,9 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", () => {
     expect((await unansweredIncidentComments(db, ivy!.id)).map((x) => x.comment.body)).toEqual(["Was it me?"]);
     await db.insert(agentRuns).values({ orgId: actor.orgId, agentId: ivy!.id, trigger: "ticket", triggerRef: inc!.id });
     expect(await unansweredIncidentComments(db, ivy!.id)).toEqual([]); // worked on since
+  });
+
+  it("never hits a write its database role refuses", () => {
+    expect(logged.filter((l) => /permission denied|moss: /.test(l))).toEqual([]);
   });
 });

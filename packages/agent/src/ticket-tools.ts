@@ -212,6 +212,7 @@ export const TICKET_TOOLS: PlatformTool[] = [
     name: "change_execute",
     description:
       "Execute an approved change you raised: runs its planned calls in order through the policy gate and stops at the first failure. " +
+      "Run it again after fixing the cause and it continues from the failed step; steps that ran are never repeated. " +
       "Afterwards, verify the result and call change_complete, or change_rollback if it went wrong.",
     permission: "changes.create",
     args: z.object({ changeId: z.uuid() }),
@@ -222,7 +223,13 @@ export const TICKET_TOOLS: PlatformTool[] = [
       else if (change.status !== "in_progress") throw new Error(`${changeRef(change.number)} is ${change.status}; only approved changes can be executed`);
 
       const results = [];
+      // Run again after a failed step, it picks up where it stopped: the steps that ran aren't repeated (the gate refuses them).
+      const done = new Set(change.executedCalls);
       for (const [i, call] of change.plannedCalls.entries()) {
+        if (done.has(i)) {
+          results.push({ step: i + 1, tool: call.tool, ok: true, result: "already ran" });
+          continue;
+        }
         const res = await gate.callTool({ agentId, tool: call.tool, args: call.args, changeId, runId });
         const ok = res.allowed && res.ok;
         const summary = !res.allowed ? `denied: ${res.reason}` : res.ok ? "ok" : `failed: ${res.error}`;

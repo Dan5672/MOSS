@@ -68,17 +68,23 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   if (!row || row.user.status !== "active") return null;
   // A Microsoft or Google session ends once signing in that way stops (switched off, licence lapsed).
   if (row.authMethod !== "password" && !(await ssoAvailable(db(), row.user.orgId, row.authMethod))) return null;
-  const [policy, roleRows] = await Promise.all([
+  const sso = row.authMethod !== "password";
+  const [policy, roleRows, ssoTotp] = await Promise.all([
     getPasswordPolicy(db(), row.user.orgId),
     db().select({ key: roles.key }).from(userRoles).innerJoin(roles, eq(roles.id, userRoles.roleId)).where(eq(userRoles.userId, row.user.id)),
+    sso ? getSetting(db(), row.user.orgId, "auth.sso_require_totp") : false,
   ]);
   const hasPassword = !!row.user.passwordHash;
-  // Signed in with Microsoft or Google: the provider checked MFA, and there's no MOSS password to expire.
-  const blocker = row.authMethod !== "password" ? null : mustEnrolTotp(policy, { totpEnabled: !!row.user.totpSecretRef, hasPassword, roles: roleRows.map((r) => r.key) })
-    ? "enrol_totp"
-    : hasPassword && passwordExpired(policy, row.user.passwordChangedAt)
-      ? "change_password"
-      : null;
+  // Signed in with Microsoft or Google: the provider's own checks are trusted and there's no MOSS password to expire,
+  // unless the owner wants the two-factor rule for them too (Settings, Safety).
+  const blocker =
+    sso && !ssoTotp
+      ? null
+      : mustEnrolTotp(policy, { totpEnabled: !!row.user.totpSecretRef, hasPassword: hasPassword || sso, roles: roleRows.map((r) => r.key) })
+        ? "enrol_totp"
+        : !sso && hasPassword && passwordExpired(policy, row.user.passwordChangedAt)
+          ? "change_password"
+          : null;
   return {
     blocker,
     session: { method: row.authMethod, createdAt: row.sessionCreatedAt },
@@ -157,6 +163,8 @@ export async function endSession() {
 
 // --- Login throttling: per email+IP for signing in, per person for re-checks. ---
 const attempts = createThrottle();
+// Per account too, whatever address the guesses claim to come from (X-Forwarded-For is easy to forge).
+const accountAttempts = createThrottle(20);
 const TOO_MANY = "Too many attempts. Try again in a few minutes.";
 
 function throttleKey(email: string, ip: string | null) {
@@ -168,7 +176,16 @@ export type LoginResult = { ok: true } | { ok: false; error: string; needTotp?: 
 export async function login(email: string, password: string, totpCode?: string): Promise<LoginResult> {
   const ip = await clientIp();
   const key = throttleKey(email, ip);
+  const account = email.toLowerCase();
   if (!attempts.take(key)) return { ok: false, error: TOO_MANY };
+  if (!accountAttempts.take(account)) {
+    attempts.refund(key);
+    return { ok: false, error: TOO_MANY };
+  }
+  const refund = () => {
+    attempts.refund(key);
+    accountAttempts.refund(account);
+  };
   const fail = async (orgId: string | null, userId: string | null, reason: string): Promise<LoginResult> => {
     if (orgId) await writeAudit(db(), { orgId, actorType: "user", actorId: userId, action: "auth.login_failed", details: { email, ip, reason } });
     return { ok: false, error: "Incorrect email, password or code." };
@@ -182,13 +199,13 @@ export async function login(email: string, password: string, totpCode?: string):
   // Single sign-on only: owners keep their password (and two-factor) in case sign-in breaks.
   // Only while signing in with Microsoft or Google works: a lapsed licence or a switched-off integration can't lock people out.
   if ((await getSetting(db(), user.orgId, "auth.sso_only")) && !(await isOwner(user.id)) && (await anySsoAvailable(db(), user.orgId))) {
-    attempts.refund(key);
+    refund();
     return { ok: false, error: "Sign in with Microsoft or Google: your organisation doesn't use MOSS passwords." };
   }
 
   if (user.totpSecretRef) {
     if (!totpCode) {
-      attempts.refund(key);
+      refund();
       return { ok: false, error: "Enter the code from your authenticator app.", needTotp: true };
     }
     const secret = decryptSecret(config.appKey(), user.id, JSON.parse(user.totpSecretRef));
@@ -199,6 +216,7 @@ export async function login(email: string, password: string, totpCode?: string):
   }
 
   attempts.clear(key);
+  accountAttempts.clear(account);
   await startSession(user.id);
   await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "auth.login", details: { ip } });
   return { ok: true };

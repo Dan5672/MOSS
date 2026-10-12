@@ -5,6 +5,7 @@
 import { createHash } from "node:crypto";
 import { Client } from "ssh2";
 import { clean } from "./parsers.js";
+import { checkPin, PinMismatch } from "./pins.js";
 
 export class ServerError extends Error {}
 
@@ -34,7 +35,7 @@ export const sshRun: SshRun = (t, command) =>
   new Promise((resolve, reject) => {
     const conn = new Client();
     let seen = "";
-    let mismatch = false;
+    let mismatch: string | null = null;
     const timer = setTimeout(() => {
       conn.end();
       reject(new ServerError(`No answer from ${t.target} within ${t.timeoutMs} ms`));
@@ -60,7 +61,7 @@ export const sshRun: SshRun = (t, command) =>
       })
       .on("error", (err) => {
         clearTimeout(timer);
-        if (mismatch) return reject(new ServerError(`Host key mismatch for ${t.target}: the server presented ${seen}, not the pinned fingerprint. Refusing to log in.`));
+        if (mismatch) return reject(new ServerError(mismatch));
         const msg = /authentication/i.test(err.message) ? `${t.user}@${t.target} refused the key` : err.message;
         reject(new ServerError(`SSH to ${t.target} failed: ${msg}`));
       })
@@ -75,7 +76,14 @@ export const sshRun: SshRun = (t, command) =>
         hostVerifier: (key: Buffer) => {
           seen = fingerprint(key);
           if (t.hostKeySha256 && seen !== normalizePin(t.hostKeySha256)) {
-            mismatch = true;
+            mismatch = `Host key mismatch for ${t.target}: the server presented ${seen}, not the pinned fingerprint. Refusing to log in.`;
+            return false;
+          }
+          try {
+            checkPin("ssh", t.target, t.port, seen);
+          } catch (err) {
+            if (!(err instanceof PinMismatch)) throw err;
+            mismatch = err.message;
             return false;
           }
           return true;
@@ -155,8 +163,8 @@ const SERVICE_PROPS = "LoadState,ActiveState,SubState,UnitFileState,ActiveEnterT
 
 export function serviceCommand(service: string) {
   // Belt and braces: the argument schema already allows only these characters.
-  if (!/^[A-Za-z0-9@._:-]{1,100}$/.test(service)) throw new ServerError("Invalid service name");
-  return `systemctl show '${service}' --property=${SERVICE_PROPS} --no-pager`;
+  if (!/^[A-Za-z0-9@._:][A-Za-z0-9@._:-]{0,99}$/.test(service)) throw new ServerError("Invalid service name");
+  return `systemctl show --property=${SERVICE_PROPS} --no-pager -- '${service}'`;
 }
 
 export function parseSystemctlShow(stdout: string) {

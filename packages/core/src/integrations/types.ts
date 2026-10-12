@@ -51,6 +51,11 @@ export interface IntegrationOp {
   args?: (c: IntegrationConfig) => Record<string, unknown>;
   /** Arguments the caller (the worker) may give, by name; nothing else it sends is used. */
   callerArgs?: string[];
+  /**
+   * The caller names a MOSS incident (incidentId) and the gate builds the arguments from its row, so a caller can't
+   * shape what is sent (a page's text, its severity) beyond the callerArgs given here.
+   */
+  fromIncident?: (inc: { id: string; number: number; title: string; priority: string }, callerArgs: Record<string, unknown>) => Record<string, unknown>;
   /** A different stored secret for this operation, instead of the integration's credential (PagerDuty's REST key). */
   secret?: { name: string; arg: string; label: string };
 }

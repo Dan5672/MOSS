@@ -1,7 +1,8 @@
 import "server-only";
 import { lookup } from "node:dns/promises";
 import { readFile } from "node:fs/promises";
-import { isIP } from "node:net";
+import { get } from "node:https";
+import { isIP, type LookupFunction } from "node:net";
 import { isPrivateRange, parseRange } from "@moss/policy";
 import { join } from "node:path";
 import { parse } from "yaml";
@@ -39,15 +40,25 @@ export interface CatalogEntry {
 
 const MAX_BYTES = 100_000;
 
-/** True for addresses that aren't on the public internet (the gate's own rule), and IPv4 multicast and broadcast. */
+/** True for addresses that aren't on the public internet: the gate's own rule. */
 export function isPrivateAddress(ip: string): boolean {
   const range = parseRange(ip);
-  return !range || isPrivateRange(range) || (range.version === 4 && range.start >= BigInt(0xe0000000));
+  return !range || isPrivateRange(range);
+}
+
+/** A DNS lookup that always answers with the address already checked, so a second lookup can't move the request. */
+export function pinnedLookup(address: string): LookupFunction {
+  const family = isIP(address);
+  return (_host, options, callback) => {
+    if (options.all) (callback as (err: null, addresses: { address: string; family: number }[]) => void)(null, [{ address, family }]);
+    else callback(null, address, family);
+  };
 }
 
 /**
  * Fetches a small text file from the public internet over HTTPS. The web server sits inside your network, so
- * anything that resolves to a private or local address is refused, and redirects aren't followed.
+ * anything that resolves to a private or local address is refused, the connection goes to the address that was
+ * checked (not a fresh lookup), and redirects aren't followed.
  */
 export async function fetchPublicText(raw: string): Promise<string> {
   let url: URL;
@@ -62,14 +73,23 @@ export async function fetchPublicText(raw: string): Promise<string> {
   const addresses = isIP(host) ? [host] : (await lookup(host, { all: true }).catch(() => [])).map((a) => a.address);
   if (!addresses.length) throw new Error(`Couldn't find ${host}`);
   if (addresses.some(isPrivateAddress)) throw new Error(`${host} is on a private or local network; only public addresses can be fetched`);
-  const res = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(10_000), headers: { Accept: "application/json, application/yaml, text/plain" } });
-  if (res.status >= 300 && res.status < 400) throw new Error("The address redirects elsewhere; give the final address");
-  if (!res.ok) throw new Error(`The address answered HTTP ${res.status}`);
-  const length = Number(res.headers.get("content-length") ?? 0);
-  if (length > MAX_BYTES) throw new Error("That file is too large");
-  const text = await res.text();
-  if (text.length > MAX_BYTES) throw new Error("That file is too large");
-  return text;
+  return new Promise((resolve, reject) => {
+    const req = get(url, { lookup: pinnedLookup(addresses[0]!), timeout: 10_000, headers: { Accept: "application/json, application/yaml, text/plain" } }, (res) => {
+      const status = res.statusCode ?? 0;
+      if (status >= 300 && status < 400) return req.destroy(new Error("The address redirects elsewhere; give the final address"));
+      if (status < 200 || status >= 300) return req.destroy(new Error(`The address answered HTTP ${status}`));
+      const chunks: Buffer[] = [];
+      let size = 0;
+      res.on("data", (chunk: Buffer) => {
+        size += chunk.length;
+        if (size > MAX_BYTES) req.destroy(new Error("That file is too large"));
+        else chunks.push(chunk);
+      });
+      res.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    });
+    req.on("timeout", () => req.destroy(new Error("The address took too long to answer")));
+    req.on("error", reject);
+  });
 }
 
 function describe(entry: Omit<CatalogEntry, "key" | "kind" | "description" | "problem">): CatalogEntry {
@@ -95,8 +115,19 @@ export async function bundledCatalog(dir = libraryDir()): Promise<CatalogEntry[]
   );
 }
 
+// Remote catalogs, kept an hour: the Custom tools page shows one on every visit.
+const remoteCache = new Map<string, { at: number; entries: CatalogEntry[] }>();
+
 /** A remote catalog's entries (each with the https URL of its definition). Definitions are fetched on install. */
-export async function remoteCatalog(url: string): Promise<CatalogEntry[]> {
+export async function remoteCatalog(url: string, now = Date.now()): Promise<CatalogEntry[]> {
+  const cached = remoteCache.get(url);
+  if (cached && now - cached.at < 3_600_000) return cached.entries;
+  const entries = await readRemoteCatalog(url);
+  remoteCache.set(url, { at: now, entries });
+  return entries;
+}
+
+async function readRemoteCatalog(url: string): Promise<CatalogEntry[]> {
   const text = await fetchPublicText(url);
   let raw: unknown;
   try {

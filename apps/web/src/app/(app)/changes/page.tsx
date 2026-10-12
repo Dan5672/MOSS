@@ -1,4 +1,4 @@
-import { changeRef, incidentRef, listChanges, listIncidents, type ChangeStatus } from "@moss/core";
+import { changeRef, getSetting, incidentRef, listChanges, listIncidents, type ChangeStatus } from "@moss/core";
 import { agents, assets } from "@moss/db";
 import { and, asc, eq, ne } from "drizzle-orm";
 import Link from "next/link";
@@ -118,6 +118,7 @@ export default async function ChangesPage({ searchParams }: PageProps<"/changes"
       {board ? (
         <ChangesBoard
           canApprove={user.permissions.has("changes.approve")}
+          approvalCode={await getSetting(db(), user.orgId, "changes.approval_totp")}
           cards={unsorted
             // Finished changes stay on the board for 30 days.
             .filter((c) => !["succeeded", "failed", "rolled_back", "rejected", "cancelled"].includes(c.status) || c.updatedAt.getTime() >= Date.now() - 30 * 86_400_000)

@@ -48,12 +48,16 @@ export interface ChangeContext {
   rollbackCalls?: { tool: string; args: Record<string, unknown> }[];
   /** The agent that raised the change (or a person raised it for); only that agent may carry it out. */
   agentId?: string | null;
+  /** Planned calls (by position) that have already run successfully; each runs once. */
+  executedCalls?: number[];
 }
 
 export interface PolicyContext {
   now: Date;
   killSwitch: boolean;
   allowDangerousTools: boolean;
+  /** Whether agents may reach the internet: light checks of public addresses, and DNS names outside the LAN. On unless the owner turns it off. */
+  allowInternet?: boolean;
   agent: {
     id: string;
     status: "active" | "paused" | "fired";
@@ -80,6 +84,7 @@ export type DenyCode =
   | "change_not_executable"
   | "change_outside_window"
   | "call_not_in_change_plan"
+  | "call_already_run"
   | "secret_not_granted"
   | "secret_scope"
   | "secret_required"
@@ -88,7 +93,7 @@ export type DenyCode =
   | "setting_disabled";
 
 export type PolicyDecision =
-  | { allow: true; targets: string[]; secretHandles: string[] }
+  | { allow: true; targets: string[]; secretHandles: string[]; /** The planned call this is, to record once it has run. */ plannedIndex?: number }
   | { allow: false; code: DenyCode; reason: string };
 
 /** Statuses under which a change's planned calls may execute. */
@@ -106,6 +111,17 @@ export function executableCalls(change: { status: string; plannedCalls: ChangeCo
 }
 
 const SECRET_HANDLE = /^secret:([A-Za-z0-9_.-]+)$/;
+
+// shortcut: split-horizon names under a real domain (nas.example.com) count as internet names; add an org list of local domains if people need them.
+const LOCAL_SUFFIXES = /(^|\.)(local|lan|home|home\.arpa|internal|localdomain|localhost|corp|intranet)$/i;
+
+/** A name a DNS lookup can answer without asking the internet: a private IP, a single label, or a local suffix. */
+export function isLocalName(name: string): boolean {
+  const ip = parseRange(name);
+  if (ip) return ip.start === ip.end && isPrivateRange(ip);
+  const n = name.replace(/\.$/, "");
+  return !n.includes(".") || LOCAL_SUFFIXES.test(n);
+}
 
 function deny(code: DenyCode, reason: string): PolicyDecision {
   return { allow: false, code, reason };
@@ -145,13 +161,15 @@ export function canonicalJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function checkTarget(range: IpRange, raw: string, networks: { rule: NetworkRule; range: IpRange }[], publicOk: boolean): PolicyDecision | null {
+function checkTarget(range: IpRange, raw: string, networks: { rule: NetworkRule; range: IpRange }[], publicOk: boolean, internet: boolean): PolicyDecision | null {
   const offLimits = networks.find((n) => n.rule.status === "off_limits" && overlaps(n.range, range));
   if (offLimits) return deny("target_off_limits", `Target ${raw} overlaps off-limits network ${offLimits.rule.cidr}`);
   const allowed = networks.some((n) => n.rule.status === "allowed" && contains(n.range, range));
   if (allowed) return null;
   // A single public address is fine for a light check; never a range (that would be a sweep).
-  if (publicOk && range.start === range.end && !isPrivateRange(range)) return null;
+  if (publicOk && range.start === range.end && !isPrivateRange(range)) {
+    return internet ? null : deny("setting_disabled", `Target ${raw} is on the internet, and agents may not reach the internet (Settings, Safety)`);
+  }
   return deny("target_not_allowed", `Target ${raw} is not inside an allowed network`);
 }
 
@@ -160,7 +178,7 @@ export type ScopeDecision =
   | { allow: false; code: DenyCode; reason: string };
 
 /** Target scope: every target must be inside an allowed network; unknown is denied, off-limits always wins. */
-export function checkScope(manifest: ToolManifest, args: Record<string, unknown>, rules: NetworkRule[]): ScopeDecision {
+export function checkScope(manifest: ToolManifest, args: Record<string, unknown>, rules: NetworkRule[], internet = true): ScopeDecision {
   const networks = rules.flatMap((rule) => {
     const range = parseRange(rule.cidr);
     return range ? [{ rule, range }] : [];
@@ -171,7 +189,7 @@ export function checkScope(manifest: ToolManifest, args: Record<string, unknown>
     if (typeof t !== "string") return { allow: false, code: "invalid_target", reason: "Targets must be IP or CIDR strings" };
     const range = parseRange(t);
     if (!range) return { allow: false, code: "invalid_target", reason: `Target ${JSON.stringify(t)} is not a resolved IP or CIDR` };
-    const denied = checkTarget(range, t, networks, !!manifest.publicTargets);
+    const denied = checkTarget(range, t, networks, !!manifest.publicTargets, internet);
     if (denied && !denied.allow) return denied;
     targets.push(t);
     ranges.push(range);
@@ -194,6 +212,7 @@ export function evaluateMonitorCheck(call: ToolCall, manifest: ToolManifest, net
 
 export function evaluate(call: ToolCall, manifest: ToolManifest, ctx: PolicyContext): PolicyDecision {
   if (manifest.name !== call.tool) return deny("tool_not_granted", "Manifest does not match the requested tool");
+  let plannedIndex = -1;
 
   // 1. Global and agent state
   if (ctx.killSwitch) return deny("kill_switch", "All agents are paused by the kill switch");
@@ -204,7 +223,13 @@ export function evaluate(call: ToolCall, manifest: ToolManifest, ctx: PolicyCont
   if (!ctx.agent.toolGrants.has(call.tool)) return deny("tool_not_granted", `Agent is not granted tool ${call.tool}`);
 
   // 3. Target scope — unknown subnets are denied by default; off-limits always wins.
-  const scope = checkScope(manifest, call.args, ctx.networks);
+  const internet = ctx.allowInternet !== false;
+  if (call.tool === "dns_lookup" && !internet && !isLocalName(String(call.args.name))) {
+    return deny("setting_disabled", `${String(call.args.name)} isn't a local name, and agents may not reach the internet (Settings, Safety)`);
+  }
+  // A query string turns a read into a request that can change things or carry data out. Monitors keep it.
+  if (call.tool === "http_probe" && String(call.args.path ?? "").includes("?")) return deny("invalid_target", "Agents' HTTP probes can't carry a query string");
+  const scope = checkScope(manifest, call.args, ctx.networks, internet);
   if (!scope.allow) return scope;
   const { targets, ranges: targetRanges } = scope;
 
@@ -224,8 +249,15 @@ export function evaluate(call: ToolCall, manifest: ToolManifest, ctx: PolicyCont
       return deny("change_outside_window", `Change ${change.id} is outside its scheduled window`);
     }
     const actual = canonicalJson({ tool: call.tool, args: call.args });
-    const planned = executableCalls(change).some((p) => canonicalJson({ tool: p.tool, args: p.args }) === actual);
-    if (!planned) return deny("call_not_in_change_plan", `This exact call is not in the plan of change ${change.id}`);
+    const same = (p: { tool: string; args: Record<string, unknown> }) => canonicalJson({ tool: p.tool, args: p.args }) === actual;
+    const done = new Set(change.executedCalls ?? []);
+    // The first matching planned step that hasn't run yet; a step that ran can't be replayed (rollback steps can repeat).
+    plannedIndex = PLAN_STATUSES.has(change.status) ? change.plannedCalls.findIndex((p, i) => !done.has(i) && same(p)) : -1;
+    const rollback = ROLLBACK_STATUSES.has(change.status) && (change.rollbackCalls ?? []).some(same);
+    if (plannedIndex < 0 && !rollback) {
+      if (PLAN_STATUSES.has(change.status) && change.plannedCalls.some(same)) return deny("call_already_run", `This step of change ${change.id} has already run`);
+      return deny("call_not_in_change_plan", `This exact call is not in the plan of change ${change.id}`);
+    }
   }
 
   // 5. Secret handles. Credential arguments must be handles: a literal value would be a credential the
@@ -240,7 +272,7 @@ export function evaluate(call: ToolCall, manifest: ToolManifest, ctx: PolicyCont
   const secretDenied = checkSecrets(secretHandles, call.tool, targets, targetRanges, ctx);
   if (secretDenied) return secretDenied;
 
-  return { allow: true, targets, secretHandles };
+  return { allow: true, targets, secretHandles, ...(plannedIndex >= 0 ? { plannedIndex } : {}) };
 }
 
 /**
@@ -248,19 +280,27 @@ export function evaluate(call: ToolCall, manifest: ToolManifest, ctx: PolicyCont
  * every target within its host scope. Used for handles in arguments, and by the gate for a custom tool's
  * declared secret. Returns a denial, or null when every secret may be used.
  */
+/**
+ * Whether a stored secret's own scope (the tools and hosts its owner allowed) lets this call use it: why not, or
+ * null. The one rule for agents' calls, MOSS's own calls (integrations) and monitor checks.
+ */
+export function secretScopeError(secret: Pick<SecretPolicy, "name" | "allowedHosts" | "allowedTools">, tool: string, targets: string[], targetRanges: IpRange[]): string | null {
+  if (secret.allowedTools.length > 0 && !secret.allowedTools.includes(tool)) return `Secret ${secret.name} may not be used with ${tool}`;
+  if (secret.allowedHosts.length > 0) {
+    const hostRanges = secret.allowedHosts.map(parseRange).filter((r): r is IpRange => r !== null);
+    if (targetRanges.length === 0) return `Secret ${secret.name} is host-scoped but the call has no target`;
+    const outside = targetRanges.findIndex((t) => !hostRanges.some((h) => contains(h, t)));
+    if (outside !== -1) return `Secret ${secret.name} may not be used against ${targets[outside]}`;
+  }
+  return null;
+}
+
 export function checkSecrets(names: string[], tool: string, targets: string[], targetRanges: IpRange[], ctx: PolicyContext): PolicyDecision | null {
   for (const name of names) {
     const secret = ctx.secrets.get(name);
     if (!secret || !ctx.agent.secretGrants.has(name)) return deny("secret_not_granted", `Agent has no grant for secret ${name}`);
-    if (secret.allowedTools.length > 0 && !secret.allowedTools.includes(tool)) {
-      return deny("secret_scope", `Secret ${name} may not be used with ${tool}`);
-    }
-    if (secret.allowedHosts.length > 0) {
-      const hostRanges = secret.allowedHosts.map(parseRange).filter((r): r is IpRange => r !== null);
-      if (targetRanges.length === 0) return deny("secret_scope", `Secret ${name} is host-scoped but the call has no target`);
-      const outside = targetRanges.findIndex((t) => !hostRanges.some((h) => contains(h, t)));
-      if (outside !== -1) return deny("secret_scope", `Secret ${name} may not be used against ${targets[outside]}`);
-    }
+    const error = secretScopeError(secret, tool, targets, targetRanges);
+    if (error) return deny("secret_scope", error);
   }
   return null;
 }

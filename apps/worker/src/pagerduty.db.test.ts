@@ -41,7 +41,7 @@ describe.skipIf(!TEST_DATABASE_URL)("PagerDuty (worker)", () => {
     );
     await saveLicence(db, orgId, lic, owner());
     await pagerdutyIncident(db, call, p1.id, "trigger");
-    expect(calls).toEqual([{ op: "event", args: { action: "trigger", dedupKey: p1.id, summary: `INC-${String(p1.number).padStart(4, "0")} NAS web is down`, severity: "critical", source: "MOSS" } }]);
+    expect(calls).toEqual([{ op: "event", args: { incidentId: p1.id, action: "trigger" } }]);
     expect(await comments(p1.id)).toEqual(["Paged the on-call person in PagerDuty."]);
 
     const p3 = await createIncident(db, orgId, { type: "break_fix", title: "Printer low on toner", priority: "P3" }, owner());
@@ -49,7 +49,7 @@ describe.skipIf(!TEST_DATABASE_URL)("PagerDuty (worker)", () => {
     expect(calls).toHaveLength(1);
 
     await pagerdutyIncident(db, call, p1.id, "resolve");
-    expect(calls.at(-1)).toMatchObject({ op: "event", args: { action: "resolve", dedupKey: p1.id } });
+    expect(calls.at(-1)).toMatchObject({ op: "event", args: { incidentId: p1.id, action: "resolve" } });
 
     // Paging failed: the incident says so, so nobody assumes the on-call person knows.
     reply = { ok: false, error: "PagerDuty refused the event: Invalid routing key" };

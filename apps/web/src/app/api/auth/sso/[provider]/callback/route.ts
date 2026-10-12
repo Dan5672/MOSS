@@ -5,7 +5,7 @@ import { cookies } from "next/headers";
 import { getCurrentUser, startSession } from "@/server/auth";
 import { config } from "@/server/config";
 import { db } from "@/server/db";
-import { isSsoProvider, openSsoCookie, requestOrigin, SSO_COOKIE, ssoOrgId } from "@/server/sso";
+import { isSsoProvider, openSsoCookie, requestOrigin, sealSsoCookie, SSO_2FA_COOKIE, SSO_2FA_SECONDS, SSO_COOKIE, ssoOrgId } from "@/server/sso";
 
 export async function GET(req: Request, ctx: RouteContext<"/api/auth/sso/[provider]/callback">) {
   const { provider } = await ctx.params;
@@ -58,6 +58,17 @@ export async function GET(req: Request, ctx: RouteContext<"/api/auth/sso/[provid
 
   try {
     const user = await ssoUser(db(), orgId, body.claims);
+    // Two-factor in MOSS still applies: the provider may not ask for a second factor at all.
+    if (user.totpSecretRef) {
+      jar.set(SSO_2FA_COOKIE, sealSsoCookie({ userId: user.id, provider, next: saved.next }, SSO_2FA_SECONDS), {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: origin.startsWith("https:"),
+        path: "/login",
+        maxAge: SSO_2FA_SECONDS,
+      });
+      return Response.redirect(`${origin}/login?sso_2fa=1`, 303);
+    }
     await startSession(user.id, provider);
     await writeAudit(db(), { orgId, actorType: "user", actorId: user.id, action: "auth.login", details: { method: provider } });
     return Response.redirect(`${origin}${saved.next}`, 303);

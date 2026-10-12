@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./library": {
+      "types": "./dist/library-sync.d.ts",
+      "default": "./dist/library-sync.js"
     }
   },
   "scripts": {

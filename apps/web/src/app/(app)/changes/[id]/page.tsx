@@ -1,11 +1,11 @@
-import { changeRef, getChange, incidentRef, isManualChange } from "@moss/core";
+import { changeRef, getChange, getSetting, incidentRef, isManualChange } from "@moss/core";
 import { incidents, secrets } from "@moss/db";
 import { and, eq, inArray } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
 import { Pill, StatusBadge } from "@/components/badges";
-import { SelectField, TextAreaField } from "@/components/field";
+import { SelectField, TextAreaField, TextField } from "@/components/field";
 import { PageHeader, Section, timeAgo, NoPermission } from "@/components/page";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CommentText, MentionTextarea } from "@/components/mention-textarea";
@@ -36,6 +36,7 @@ export default async function ChangePage({ params }: PageProps<"/changes/[id]">)
   if (!user.permissions.has("changes.read")) return <NoPermission />;
   const change = await getChange(db(), user.orgId, id);
   if (!change) notFound();
+  const approvalCode = await getSetting(db(), user.orgId, "changes.approval_totp");
   const [name, [incident], mentions, secretRows] = await Promise.all([
     nameLookup(user.orgId),
     change.incidentId ? db().select().from(incidents).where(eq(incidents.id, change.incidentId)) : Promise.resolve([]),
@@ -176,6 +177,7 @@ export default async function ChangePage({ params }: PageProps<"/changes/[id]">)
             <CardContent className="space-y-6">
               <ActionForm action={approveAction.bind(null, id)} submitLabel="Approve">
                 <TextAreaField label="Comment (optional)" name="comment" rows={2} />
+                {approvalCode && <TextField label="Your two-factor code" name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9 ]{6,7}" required />}
                 <label className="flex items-center gap-2 text-sm">
                   <input type="checkbox" name="force" /> Approve even if it conflicts with another change
                 </label>

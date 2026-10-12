@@ -188,6 +188,10 @@ describe.skipIf(!TEST_DATABASE_URL)("incidents and changes (postgres)", () => {
       await expect(createChangeRequest(db, orgId, input, agent(), opts)).rejects.toThrow(/Emergency changes are disabled/);
       await setSetting(db, orgId, "changes.allow_emergency", true);
       expect(await createChangeRequest(db, orgId, input, agent(), opts)).toMatchObject({ status: "approved", postReviewRequired: true });
+      // Only the tools the owner listed for emergencies, once they list any.
+      await setSetting(db, orgId, "changes.emergency_tools", ["service_restart"]);
+      await expect(createChangeRequest(db, orgId, input, agent(), opts)).rejects.toThrow(/restart_service isn't one of the tools/);
+      await setSetting(db, orgId, "changes.emergency_tools", []);
       await setSetting(db, orgId, "changes.allow_emergency", false);
     });
 
@@ -375,6 +379,15 @@ describe.skipIf(!TEST_DATABASE_URL)("incidents and changes (postgres)", () => {
       const other = await requestAccess(db, orgId, otherAgentId, { tools: ["ping"], reason: "x" }, known);
       await rejectChange(db, orgId, other.id, ownerId, "Not needed");
       expect(await agentToolGrants(db, otherAgentId)).not.toContain("ping");
+    });
+
+    it("never offers MOSS's own secrets: provider keys, chat tokens", async () => {
+      const [key] = await db.insert(secrets).values({ orgId, name: "llm-x-api-key", type: "api_token", ciphertext: "x", wrappedDataKey: "y" }).returning();
+      await db.insert(providers).values({ orgId, kind: "openai", name: "X", apiKeySecretId: key!.id });
+      await db.insert(secrets).values({ orgId, name: "telegram-bot-token", type: "api_token", ciphertext: "x", wrappedDataKey: "y", allowedTools: ["chat_bridge"] });
+      const known = new Set(["ping"]);
+      await expect(requestAccess(db, orgId, agentId, { secrets: ["llm-x-api-key"], reason: "x" }, known)).rejects.toThrow(/for MOSS itself/);
+      await expect(requestAccess(db, orgId, agentId, { secrets: ["telegram-bot-token"], reason: "x" }, known)).rejects.toThrow(/for MOSS itself/);
     });
   });
 });

@@ -1,6 +1,7 @@
 // End-to-end gate tests against Postgres with a fake toolbox. Run with MOSS_TEST_DATABASE_URL set.
 import { approveChange, bootstrapOrg, createChangeRequest, encryptSecret, generateMasterKey, setSetting, verifyAuditLog } from "@moss/core";
 import {
+  agentRuns,
   agents,
   agentSkills,
   agentToolOverrides,
@@ -8,6 +9,7 @@ import {
   configBackups,
   customToolGrants,
   customTools,
+  hostPins,
   budgets,
   changeRequests,
   models,
@@ -17,11 +19,13 @@ import {
   secrets,
   skills,
   tokenUsage,
+  userRoles,
+  users,
   type Database,
 } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { BUILT_IN_TOOLS, type ToolDefinition } from "@moss/tools";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -164,6 +168,97 @@ describe.skipIf(!TEST_DATABASE_URL)("policy gate (postgres)", () => {
     expect(audit.details).toMatchObject({ secretsUsed: ["switch-snmp"] });
   });
 
+  it("pins a device's certificate the first time it gets a credential, and flags a changed one", async () => {
+    const trusts: unknown[] = [];
+    let presented = "AA:11";
+    const pinning = createGate({
+      db,
+      masterKey,
+      tools: TOOLS,
+      toolbox: {
+        call: async (_tool, _args, _signal, trust) => {
+          trusts.push(trust);
+          const key = "tls:192.168.1.2:443";
+          const pinned = trust?.pins?.[key];
+          const seen = { [key]: presented };
+          return pinned && pinned !== presented ? { ok: false, error: "different TLS certificate", seen } : { ok: true, result: {}, seen };
+        },
+      },
+    });
+    const call = () => pinning.handleToolCall({ agentId, tool: "snmp_get", args: { target: "192.168.1.2", community: "secret:switch-snmp" } });
+    expect(await call()).toMatchObject({ ok: true });
+    expect(trusts[0]).toEqual({ pins: {} });
+    expect(await call()).toMatchObject({ ok: true });
+    expect(trusts[1]).toEqual({ pins: { "tls:192.168.1.2:443": "AA:11" } });
+
+    presented = "BB:22";
+    expect(await call()).toMatchObject({ ok: false, error: "different TLS certificate" });
+    const [pin] = await db.select().from(hostPins).where(eq(hostPins.host, "192.168.1.2"));
+    expect(pin).toMatchObject({ fingerprint: "AA:11", changedTo: "BB:22" });
+    expect((await db.select().from(auditLog).where(eq(auditLog.action, "host_pin.mismatch"))).length).toBe(1);
+
+    // Calls without a credential aren't pinned; the owner can turn pinning off, or ask for trusted certificates.
+    await pinning.handleToolCall({ agentId, tool: "nmap_scan", args: { targets: ["192.168.1.0/24"], profile: "ping" } });
+    expect(trusts).toHaveLength(4);
+    expect(trusts[3]).toBeUndefined();
+    await setSetting(db, orgId, "tools.pin_hosts", false);
+    await setSetting(db, orgId, "tools.verify_tls", true);
+    expect(await call()).toMatchObject({ ok: true });
+    expect(trusts[4]).toEqual({ verifyTls: true });
+    await setSetting(db, orgId, "tools.pin_hosts", true);
+    await setSetting(db, orgId, "tools.verify_tls", false);
+    await db.delete(hostPins);
+  });
+
+  it("accepts a renewed certificate a trusted authority signed, and holds a new port's key for a person", async () => {
+    let presented: Record<string, string> = { "tls:192.168.1.2:443": "AA:11" };
+    const pinning = createGate({
+      db,
+      masterKey,
+      tools: TOOLS,
+      toolbox: { call: async () => ({ ok: true, result: {}, seen: presented }) },
+    });
+    const call = () => pinning.handleToolCall({ agentId, tool: "snmp_get", args: { target: "192.168.1.2", community: "secret:switch-snmp" } });
+    await call();
+    await setSetting(db, orgId, "tools.verify_tls", true);
+    presented = { "tls:192.168.1.2:443": "CC:33" };
+    await call();
+    expect((await db.select().from(hostPins).where(eq(hostPins.port, 443)))[0]).toMatchObject({ fingerprint: "CC:33", changedTo: null });
+    await setSetting(db, orgId, "tools.verify_tls", false);
+
+    // A port not used before, with a key the device hasn't shown: waits for a person (and the toolbox refused it).
+    presented = { "tls:192.168.1.2:8443": "DD:44" };
+    await call();
+    expect((await db.select().from(hostPins).where(eq(hostPins.port, 8443)))[0]).toMatchObject({ fingerprint: "", changedTo: "DD:44" });
+    // Only the call's own devices are recorded.
+    presented = { "tls:10.9.9.9:443": "EE:55" };
+    await call();
+    expect(await db.select().from(hostPins).where(eq(hostPins.host, "10.9.9.9"))).toHaveLength(0);
+    await db.delete(hostPins);
+  });
+
+  it("lets work a person started use credentials only if they can manage them, when the owner says so", async () => {
+    const [viewer] = await db.insert(users).values({ orgId, email: "viewer@h.test", displayName: "V" }).returning();
+    const [viewerRole] = await db.execute<{ id: string }>(sql`select id from roles where org_id = ${orgId} and key = 'viewer'`);
+    await db.insert(userRoles).values({ userId: viewer!.id, roleId: viewerRole!.id });
+    const [byViewer] = await db.insert(agentRuns).values({ orgId, agentId, trigger: "chat", requestedByUserId: viewer!.id }).returning();
+    const [byOwner] = await db.insert(agentRuns).values({ orgId, agentId, trigger: "chat", requestedByUserId: ownerId }).returning();
+    const call = (runId: string) => gate.handleToolCall({ agentId, runId, tool: "snmp_get", args: { target: "192.168.1.2", community: "secret:switch-snmp" } });
+    expect(await call(byViewer!.id)).toMatchObject({ allowed: true });
+    await setSetting(db, orgId, "agents.credentials_need_manager", true);
+    expect(await call(byViewer!.id)).toMatchObject({ allowed: false, code: "setting_disabled" });
+    expect(await call(byOwner!.id)).toMatchObject({ allowed: true });
+    // Carrying out a change someone approved is fine, whoever asked for it.
+    const args = { target: "192.168.1.2", community: "secret:switch-snmp" };
+    const cr = await createChangeRequest(db, orgId, { type: "normal", title: "t", description: "d", rollbackPlan: "r", verificationPlan: "v", plannedCalls: [{ tool: "snmp_get", args }] }, { type: "agent", id: agentId }, { tools: TOOLS });
+    await approveChange(db, orgId, cr.id, ownerId);
+    const [forChange] = await db.insert(agentRuns).values({ orgId, agentId, trigger: "event", triggerRef: cr.id, requestedByUserId: viewer!.id }).returning();
+    expect(await gate.handleToolCall({ agentId, runId: forChange!.id, changeId: cr.id, tool: "snmp_get", args })).toMatchObject({ allowed: true });
+    // ...but not by naming that change from another run.
+    expect(await gate.handleToolCall({ agentId, runId: byViewer!.id, changeId: cr.id, tool: "snmp_get", args })).toMatchObject({ allowed: false, code: "setting_disabled" });
+    await setSetting(db, orgId, "agents.credentials_need_manager", false);
+  });
+
   it("refuses secrets that are ungranted or out of scope", async () => {
     expect(
       await gate.handleToolCall({ agentId, tool: "snmp_get", args: { target: "192.168.1.2", community: "secret:router-admin" } }),
@@ -203,6 +298,16 @@ describe.skipIf(!TEST_DATABASE_URL)("policy gate (postgres)", () => {
     ).toMatchObject({ code: "call_not_in_change_plan" });
     expect(await gate.handleToolCall({ agentId, tool: "restart_service", args, changeId: cr!.id })).toMatchObject({ allowed: true });
     expect(toolboxCalls).toEqual([{ tool: "restart_service", args }]);
+    // Each step runs once: approving a change doesn't approve doing it again and again.
+    expect(await gate.handleToolCall({ agentId, tool: "restart_service", args, changeId: cr!.id })).toMatchObject({ code: "call_already_run" });
+    expect(toolboxCalls).toHaveLength(1);
+
+    // Without a window of its own, a change may run for 24 hours from its approval.
+    const [late] = await db
+      .insert(changeRequests)
+      .values({ ...cr!, id: undefined, number: undefined, status: "approved", executedCalls: [], createdAt: new Date(Date.now() - 25 * 3_600_000) } as never)
+      .returning();
+    expect(await gate.handleToolCall({ agentId, tool: "restart_service", args, changeId: late!.id })).toMatchObject({ code: "change_outside_window" });
   });
 
   it("applies per-agent tool overrides: removing a skill's tool and adding one", async () => {
@@ -229,6 +334,18 @@ describe.skipIf(!TEST_DATABASE_URL)("policy gate (postgres)", () => {
     expect(await gate.handleToolCall(call)).toMatchObject({ code: "kill_switch" });
     await setSetting(db, orgId, "agents.kill_switch", false);
     expect(await gate.handleToolCall(call)).toMatchObject({ allowed: true });
+
+    // A call already running stops when the kill switch goes on.
+    const slow = createGate({
+      db,
+      masterKey,
+      toolbox: { call: (_tool, _args, signal) => new Promise((_resolve, reject) => signal?.addEventListener("abort", () => reject(signal.reason))) },
+    });
+    const running = slow.handleToolCall(call);
+    await new Promise((r) => setTimeout(r, 200));
+    await setSetting(db, orgId, "agents.kill_switch", true);
+    expect(await running).toMatchObject({ allowed: true, ok: false, error: "Stopped: the kill switch was turned on" });
+    await setSetting(db, orgId, "agents.kill_switch", false);
   });
 
   it("lists only granted tools, with JSON schemas, over an authenticated API", async () => {

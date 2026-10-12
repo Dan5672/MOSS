@@ -16,7 +16,7 @@ async function enqueue(f: Fetch, path: string, body: unknown, timeoutMs: number)
 }
 
 export async function pagerdutyEvent(
-  a: { routingKey: string; action: "trigger" | "acknowledge" | "resolve"; dedupKey: string; summary?: string; severity: string; source: string; timeoutMs: number },
+  a: { routingKey: string; action: "trigger" | "resolve"; dedupKey: string; summary?: string; severity: string; source: string; timeoutMs: number },
   f: Fetch = fetch as unknown as Fetch,
 ) {
   return enqueue(

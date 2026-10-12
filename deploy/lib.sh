@@ -82,3 +82,12 @@ wait_healthy() {
     info "$svc is up"
   done
 }
+
+# The checksum of every file in a backup's folder (except the list itself), one "<sha256>  ./<path>" line each,
+# sorted. deploy/backup/moss-backup.mjs writes the same. It catches a damaged archive, not a forged one: an archive
+# holds the master key, so no key in it could prove who made it.
+backup_checksums() {
+  (cd "$1" && find . -type f ! -name checksums | LC_ALL=C sort | while IFS= read -r f; do
+    printf '%s  %s\n' "$(openssl dgst -sha256 -r "$f" | cut -d' ' -f1)" "$f"
+  done)
+}

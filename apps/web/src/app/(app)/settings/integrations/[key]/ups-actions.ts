@@ -99,7 +99,10 @@ export async function approveUpsPlanAction(_: ActionState, form: FormData): Prom
   return act(async () => {
     const user = await requirePermission("changes.approve");
     if (!user.totpEnabled) throw new Error("Approving in advance needs two-factor sign-in. Turn it on in Settings → General first.");
-    if (!(await verifyUserTotp(user.id, String(form.get("code") ?? "")))) throw new Error("That code didn't match.");
+    if (!(await verifyUserTotp(user.id, String(form.get("code") ?? "")))) {
+      await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "ups.plan_approve_denied", targetType: "setting", targetId: "ups.shutdown_plan", details: { reason: "totp" } });
+      throw new Error("That code didn't match.");
+    }
     await approveUpsPlan(db(), user.orgId, user.id);
     await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "ups.plan_approved", targetType: "setting", targetId: "ups.shutdown_plan", details: {} });
     revalidatePath(PAGE);

@@ -3,18 +3,13 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   chatSnapshot,
-  ensureMoss,
-  MOSS_TEMPLATE,
   enqueueRun,
   ensureQueues,
   HttpGateClient,
-  loadLibrary,
   recordChatReply,
   RUN_QUEUE,
   runAgent,
   SCHEDULE_QUEUE,
-  syncBuiltInSkills,
-  ensureCoreSkills,
   welcomeFromMoss,
   announceWhatsNew,
   remindCertificateExpiry,
@@ -29,7 +24,6 @@ import {
   backupDue,
   changeRef,
   dispatchEvents,
-  ensureBuiltInRoles,
   getSetting,
   incidentRef,
   parseBackupSchedule,
@@ -273,28 +267,10 @@ export async function startWorker(cfg: WorkerConfig) {
   const { db, boss } = cfg;
   const log = cfg.log ?? ((msg, extra) => console.log(JSON.stringify({ msg, ...extra })));
 
-  // Built-in roles are re-synced on every boot so upgrades can add permissions.
-  for (const org of await db.select({ id: orgs.id }).from(orgs)) await ensureBuiltInRoles(db, org.id);
-
-  const lib = cfg.libraryDir ? await loadLibrary(cfg.libraryDir) : null;
+  // The library's skills, core skills and Moss itself are kept in step by the gate (apps/gate/src/library-sync.ts):
+  // they decide which tools agents get, which the worker's database role may not change.
   const welcome = cfg.libraryDir ? await readFile(join(cfg.libraryDir, "docs", "welcome.md"), "utf8").catch(() => null) : null;
   const changelog = cfg.libraryDir ? await readFile(join(cfg.libraryDir, "docs", "changelog.md"), "utf8").catch(() => null) : null;
-  if (lib) {
-    for (const org of await db.select({ id: orgs.id }).from(orgs)) {
-      await syncBuiltInSkills(db, org.id, lib.skills.values());
-      const added = await ensureCoreSkills(db, org.id);
-      if (added) log("core skills given", { orgId: org.id, added });
-    }
-    log("library synced", { skills: lib.skills.size, templates: lib.templates.size });
-  }
-  // Every install has a Moss, the expert on MOSS itself, once there is a model to run it on.
-  const mossTemplate = lib?.templates.get(MOSS_TEMPLATE);
-  const hireMoss = async () => {
-    for (const org of await db.select({ id: orgs.id }).from(orgs)) {
-      const id = await ensureMoss(db, org.id, mossTemplate);
-      if (id) log("hired Moss", { orgId: org.id, agentId: id });
-    }
-  };
 
   await ensureQueues(boss);
 
@@ -329,10 +305,7 @@ export async function startWorker(cfg: WorkerConfig) {
 
   const sync = async () => {
     try {
-      await hireMoss();
-      // Agents hired since the last sync get the core skills too (hiring adds them; this is the backstop).
       for (const org of await db.select({ id: orgs.id }).from(orgs)) {
-        await ensureCoreSkills(db, org.id);
         // Everyone gets Moss's welcome once (new installs, new people, and existing people after an upgrade).
         if (welcome) {
           const n = await welcomeFromMoss(db, org.id, welcome);

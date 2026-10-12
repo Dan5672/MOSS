@@ -21,7 +21,12 @@ const providerSchema = z
     message: "This provider needs an API key (for a Claude subscription, the token from claude setup-token)",
     path: ["apiKey"],
   })
-  .refine((p) => (p.kind !== "ollama" && p.kind !== "openai_compatible") || p.baseUrl, { message: "This provider needs a base URL", path: ["baseUrl"] });
+  .refine((p) => (p.kind !== "ollama" && p.kind !== "openai_compatible") || p.baseUrl, { message: "This provider needs a base URL", path: ["baseUrl"] })
+  // Cloud providers have a fixed address (the gate ignores any other), so their key can't be sent elsewhere.
+  .refine((p) => p.kind === "ollama" || p.kind === "openai_compatible" || !p.baseUrl, {
+    message: "Only local and OpenAI-compatible providers take a base URL",
+    path: ["baseUrl"],
+  });
 
 export async function addProviderAction(_: ActionState, form: FormData): Promise<ActionState> {
   return act(async () => {
@@ -32,7 +37,7 @@ export async function addProviderAction(_: ActionState, form: FormData): Promise
       const slug = p.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || p.kind;
       // Stored via the gate: the web app never holds the encryption key, and the value is never read back.
       const what = p.kind === "claude_code" ? "Claude subscription token" : "API key";
-      apiKeySecretId = await storeSecret({ userId: user.id, name: `llm-${slug}-api-key`, type: "api_token", value: p.apiKey, description: `${what} for ${p.name}` });
+      apiKeySecretId = await storeSecret({ userId: user.id, name: `llm-${slug}-api-key`, type: "api_token", value: p.apiKey, description: `${what} for ${p.name}`, allowedTools: ["llm_proxy"] });
     }
     const [row] = await db()
       .insert(providers)

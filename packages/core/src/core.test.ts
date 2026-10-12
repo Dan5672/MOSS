@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { chainAuditEntry, GENESIS_HASH, verifyAuditChain, type AuditEntryInput } from "./audit.js";
 import { decryptSecret, encryptSecret, generateMasterKey, parseMasterKey, rewrapDataKey } from "./crypto.js";
-import { redactSecrets } from "./redact.js";
+import { containsPrivateKey, redactSecrets } from "./redact.js";
 
 describe("envelope encryption", () => {
   const key = generateMasterKey();
@@ -58,6 +58,17 @@ describe("redactSecrets", () => {
     const secret = 'pa"ss\\1';
     const out = redactSecrets(JSON.stringify({ banner: `hello ${secret}` }), [secret]);
     expect(JSON.parse(out)).toEqual({ banner: "hello [REDACTED]" });
+  });
+
+  it("removes hex, unpadded base64 and Basic auth forms, and each line of a key", () => {
+    const secret = "s3cret-token";
+    const basic = Buffer.from(`admin:${secret}`).toString("base64");
+    const out = redactSecrets(`hex=${Buffer.from(secret).toString("hex")} b64=${Buffer.from(secret).toString("base64").replace(/=+$/, "")} auth=Basic ${basic}`, [secret, `admin:${secret}`]);
+    expect(out).toBe("hex=[REDACTED] b64=[REDACTED] auth=Basic [REDACTED]");
+    const key = "-----BEGIN KEY-----\nAAAAB3NzaC1yc2EAAAADAQABAAABAQ\nC7vbqajDjF1R2Xo8Uq5w9pZ3LZ6p\n-----END KEY-----";
+    expect(redactSecrets("got C7vbqajDjF1R2Xo8Uq5w9pZ3LZ6p back", [key])).toBe("got [REDACTED] back");
+    expect(containsPrivateKey("x -----BEGIN OPENSSH PRIVATE KEY----- y")).toBe(true);
+    expect(containsPrivateKey("-----BEGIN CERTIFICATE-----")).toBe(false);
   });
 });
 

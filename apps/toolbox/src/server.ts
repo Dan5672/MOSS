@@ -2,6 +2,7 @@
 import { BUILT_IN_TOOLS, toolInputSchema } from "@moss/tools";
 import Fastify from "fastify";
 import { createHash, timingSafeEqual } from "node:crypto";
+import { pinScope, type PinScope } from "./pins.js";
 import { defaultExec, runTool, ToolError, type Exec } from "./runners.js";
 
 function sameToken(a: string, b: string): boolean {
@@ -29,13 +30,18 @@ export function buildToolboxServer(opts: { token: string; exec?: Exec; logger?: 
     tools: [...BUILT_IN_TOOLS.values()].map((d) => ({ ...d.manifest, description: d.description, inputSchema: toolInputSchema(d) })),
   }));
 
-  app.post<{ Params: { name: string }; Body: { args?: unknown } }>("/v1/tools/:name", async (req, reply) => {
+  // pins: the fingerprints this call's devices must present (sent by the gate when a credential is used); verifyTls: check every certificate.
+  app.post<{ Params: { name: string }; Body: { args?: unknown; pins?: Record<string, string>; verifyTls?: boolean } }>("/v1/tools/:name", async (req, reply) => {
     const started = Date.now();
+    const pins = req.body?.pins;
+    const scope: PinScope | undefined = pins || req.body?.verifyTls ? { known: pins ?? {}, seen: {}, verifyTls: req.body?.verifyTls === true } : undefined;
+    const run = () => runTool(req.params.name, req.body?.args, opts.exec ?? defaultExec);
+    const seen = () => (scope && pins ? { seen: scope.seen } : {});
     try {
-      const result = await runTool(req.params.name, req.body?.args, opts.exec ?? defaultExec);
-      return { ok: true, result, durationMs: Date.now() - started };
+      const result = await (scope ? pinScope.run(scope, run) : run());
+      return { ok: true, result, durationMs: Date.now() - started, ...seen() };
     } catch (err) {
-      if (err instanceof ToolError) return reply.code(422).send({ ok: false, error: err.message, durationMs: Date.now() - started });
+      if (err instanceof ToolError) return reply.code(422).send({ ok: false, error: err.message, durationMs: Date.now() - started, ...seen() });
       req.log.error(err);
       return reply.code(500).send({ ok: false, error: "internal toolbox error" });
     }

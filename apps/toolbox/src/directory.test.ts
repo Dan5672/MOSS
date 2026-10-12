@@ -3,7 +3,7 @@ import { generateKeyPairSync, verify } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { gworkspaceAlerts, gworkspaceDevices, serviceAccountAssertion } from "./google.js";
 import { m365Devices, m365ServiceHealth } from "./microsoft.js";
-import { oidcExchange, oidcKeys } from "./oidc.js";
+import { oidcExchange } from "./oidc.js";
 
 type Reply = { status?: number; body: unknown };
 function api(routes: Record<string, Reply | ((body?: string) => Reply)>) {
@@ -117,7 +117,5 @@ describe("sign-in exchange", () => {
     const verifier = "v".repeat(43);
     expect(await oidcExchange({ provider: "google", clientId: "g", clientSecret: "gs", code: "c0de", redirectUri: "https://moss.acme.test/api/auth/sso/google/callback", codeVerifier: verifier, timeoutMs: 5000 }, fetchImpl)).toEqual({ idToken: "a.b.c" });
     expect(Object.fromEntries(new URLSearchParams(calls[0]!.body))).toMatchObject({ grant_type: "authorization_code", code: "c0de", code_verifier: verifier, client_secret: "gs" });
-    const keys = api({ [`https://login.microsoftonline.com/${TENANT}/discovery/v2.0/keys`]: { body: { keys: [{ kid: "k1" }] } } });
-    expect(await oidcKeys({ provider: "microsoft", tenantId: TENANT, timeoutMs: 5000 }, keys.fetchImpl)).toEqual({ keys: [{ kid: "k1" }] });
   });
 });

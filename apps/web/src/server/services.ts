@@ -1,6 +1,6 @@
 import "server-only";
-import { ensureQueues, enqueueRun, loadLibrary, type Library, type RunInput } from "@moss/agent";
-import { PgBoss } from "pg-boss";
+import { ensureQueues, enqueueRun, loadLibrary, openQueue, type Library, type RunInput } from "@moss/agent";
+import type { PgBoss } from "pg-boss";
 import { config } from "./config";
 
 const g = globalThis as { __mossBoss?: Promise<PgBoss>; __mossLibrary?: Promise<Library> };
@@ -8,7 +8,7 @@ const g = globalThis as { __mossBoss?: Promise<PgBoss>; __mossLibrary?: Promise<
 /** Queue producer (the worker consumes). */
 async function boss(): Promise<PgBoss> {
   g.__mossBoss ??= (async () => {
-    const b = new PgBoss(process.env.DATABASE_URL!);
+    const b = openQueue(process.env.QUEUE_DATABASE_URL ?? process.env.DATABASE_URL!);
     b.on("error", (err) => console.error("queue error", err));
     await b.start();
     await ensureQueues(b);

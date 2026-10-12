@@ -34,6 +34,7 @@ import {
   type TurnInput,
 } from "@moss/llm";
 import { and, eq } from "drizzle-orm";
+import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { runClaudeCodeLoop, type ClaudeCodeConfig } from "./claude-code.js";
 import type { GateClient } from "./gate-client.js";
@@ -108,6 +109,11 @@ function stableKey(value: unknown): string {
       .join(",")}}`;
   }
   return JSON.stringify(value);
+}
+
+/** A tool result as the model sees it: inside markers carrying the run's random id (see OPERATING_RULES). */
+export function toolData(boundary: string, tool: string, text: string): string {
+  return `<tool-data run="${boundary}" tool="${tool}">\n${text}\n</tool-data run="${boundary}">`;
 }
 
 function truncate(text: string): string {
@@ -248,6 +254,9 @@ async function prepareRun(deps: RunDeps, input: RunInput): Promise<PreparedRun |
 
   const callCounts = new Map<string, number>();
 
+  // A random id per run marks where each tool result starts and ends, so text from a device can't pretend to close it.
+  const boundary = randomBytes(8).toString("hex");
+
   async function execute(call: ToolCallRequest): Promise<ToolResult> {
     await step("tool_call", { id: call.id, name: call.name, input: call.input });
     const key = `${call.name}:${stableKey(call.input)}`;
@@ -297,7 +306,7 @@ async function prepareRun(deps: RunDeps, input: RunInput): Promise<PreparedRun |
     }
     const text = truncate(typeof content === "string" ? content : JSON.stringify(content));
     await step("tool_result", { id: call.id, name: call.name, isError, content: text.slice(0, 10_000) });
-    return { id: call.id, content: text, isError };
+    return { id: call.id, content: toolData(boundary, call.name, text), isError };
   }
 
   return {

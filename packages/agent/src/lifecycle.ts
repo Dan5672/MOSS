@@ -1,6 +1,6 @@
 // Agent lifecycle: hire (from a template or custom), pause, resume, fire and upskill. Every action is audited.
 import { writeAudit } from "@moss/core";
-import { agents, agentSchedules, agentSkills, models, roles, secretGrants, skills, type Database } from "@moss/db";
+import { agents, agentSchedules, agentSkills, budgets, models, roles, secretGrants, skills, type Database } from "@moss/db";
 import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import type { AgentTemplate } from "./library.js";
 
@@ -63,6 +63,8 @@ interface HireSpec extends Pick<AgentTemplate, "title" | "systemPrompt" | "effor
   modelId: string;
 }
 
+export const DEFAULT_DAILY_TOKENS = 50_000_000;
+
 async function hire(db: Database, actor: Actor, spec: HireSpec) {
   const [agentRole] = await db.select().from(roles).where(and(eq(roles.orgId, actor.orgId), eq(roles.key, "agent")));
   // Report to an active agent hired from the manager template, if there is one.
@@ -103,6 +105,9 @@ async function hire(db: Database, actor: Actor, spec: HireSpec) {
     if (skillRows.length) {
       await tx.insert(agentSkills).values(skillRows.map((s) => ({ agentId: row!.id, skillId: s.id, grantedBy: actor.userId })));
     }
+    // Every agent starts with a hard daily limit, so a loop can't spend without end (local and subscription models
+    // cost nothing per token, so it's in tokens). Cache reads count, so it's generous; people change it on the agent.
+    await tx.insert(budgets).values({ orgId: actor.orgId, agentId: row!.id, period: "day", unit: "tokens", hardLimit: String(DEFAULT_DAILY_TOKENS) });
     if (spec.schedules.length) {
       await tx.insert(agentSchedules).values(spec.schedules.map((s) => ({ orgId: actor.orgId, agentId: row!.id, cron: s.cron, task: s.task, requestedByUserId: actor.userId })));
     }

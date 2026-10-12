@@ -3,6 +3,8 @@
 // operation; the gate reads the integration's config, checks it's on (and the feature for that operation), builds
 // the arguments, and makes the call under the same rules as agents' calls.
 import { getIntegration, integrationArgs, integrationConfigured, integrationLicensed, loadIntegration, writeAudit } from "@moss/core";
+import { incidents } from "@moss/db";
+import { and, eq } from "drizzle-orm";
 import { systemToolCall, type SystemCallDeps } from "./system-call.js";
 
 export type IntegrationOpResult = { ok: true; result: unknown } | { ok: false; error: string };
@@ -51,7 +53,13 @@ export async function runIntegrationOp(
     return a;
   };
   // Only the arguments this operation lets a caller give (never an address or a credential).
-  const callerArgs = Object.fromEntries(Object.entries(req.args ?? {}).filter(([k]) => op.callerArgs?.includes(k)));
+  let callerArgs = Object.fromEntries(Object.entries(req.args ?? {}).filter(([k]) => op.callerArgs?.includes(k)));
+  if (op.fromIncident) {
+    const id = typeof callerArgs.incidentId === "string" && /^[0-9a-f-]{36}$/.test(callerArgs.incidentId) ? callerArgs.incidentId : null;
+    const [inc] = id ? await deps.db.select().from(incidents).where(and(eq(incidents.id, id), eq(incidents.orgId, req.orgId))) : [];
+    if (!inc) return { ok: false, error: "No such incident" };
+    callerArgs = op.fromIncident(inc, callerArgs);
+  }
   const one = (at?: { host: string; port: number }) =>
     systemToolCall(deps, { orgId: req.orgId, tool: op.tool, args: { ...baseArgs(at), ...op.args?.(config), ...callerArgs }, secret, label: op.secret ? `${def.name} (${op.secret.label})` : def.name });
 
