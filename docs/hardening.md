@@ -71,9 +71,11 @@ So treat access to MOSS as access to every system it can change:
 | [15. Keep MOSS itself private](#15-keep-moss-itself-private) | Your network | Not exposed | Tailscale from away | VPN only, on a machine used for nothing else |
 | [16. Protect backups and upgrades](#16-protect-backups-and-upgrades) | `deploy/` | Release tags are checked | Archives off the machine | Encrypted archives off the machine; signed release tags only |
 
-**Turning a protection off asks for your two-factor code** (for example switching off "Two-factor code to
-approve", or allowing more from chat), so a stolen session can't quietly undo what you set here. Set up
-two-factor sign-in before you harden.
+**Turning a Safety switch off, or loosening the Approval rules, asks for your two-factor code**, so a
+stolen session can't quietly undo them. Set up two-factor sign-in before you harden. Other admin pages
+(people and roles, the password policy, single sign-on, device keys, networks and secrets) don't ask for a
+code yet, so an owner's or admin's session is still worth protecting: two-factor for everyone (step 9),
+and few owners and admins.
 
 ## 1. Keep agents off the internet
 
@@ -150,8 +152,9 @@ you trusting it by hand (the Device keys list just updates).
 
 - include the device's IP address (not only a name), and
 - be signed by an authority MOSS trusts. That's the public authorities, plus your own: put its
-  certificate (never its key) in `deploy/device-ca/ca.pem` and restart MOSS. MOSS trusts it only for
-  your devices, not for its cloud or sign-in traffic.
+  certificate (never its key) in `deploy/device-ca/ca.pem` and restart MOSS. MOSS trusts your authority
+  only for your devices, not for its cloud or sign-in traffic. (Public authorities stay trusted for
+  devices too, but they don't issue certificates for private addresses.)
 
 With this on, a device certificate your authority signed is trusted even when it replaces a remembered one
 (that's how renewals pass). So guard that authority's key: whoever holds it can stand in for any device.
@@ -187,6 +190,10 @@ certificates as above. Turn it on when that's done, not before.
 authenticator code, so someone with your browser session or your chat account can't approve, and can't
 switch the requirement off without the code either. Everyone who approves needs two-factor sign-in. Chat
 apps can't ask for a code, so their Approve button goes away.
+
+One gap remains: someone holding an **owner's or admin's** session could add a new person with the
+approver role and approve as them. Keep owners and admins few, with two-factor sign-in, and watch the
+audit log for new people and role changes.
 
 **Settings, Approval rules: "Approve from Telegram, Discord and Slack".**
 
@@ -274,7 +281,9 @@ don't own or administer may be illegal where you live.
 ## 11. Choose where your data goes
 
 **Agents, Models.** With a hosted model (Anthropic, OpenAI and others), what an agent reads goes to that
-provider: device names, addresses, logs and your messages. Credential values never do. A local model
+provider: device names, addresses, logs and your messages. Stored credentials aren't sent, and MOSS
+removes them from anything a device echoes back before an agent sees it, though that scrubbing only
+catches the forms it knows (plain, Base64, hex). A local model
 (Ollama) keeps that at home. With step 1 as well, agents can't send it to the internet themselves.
 
 Some features send data out by design, and you choose them: chat apps (Telegram, Discord, Slack),
@@ -290,6 +299,8 @@ the backup service refuses downloads to anyone, so even someone who took over th
 archive out. You copy backups from `deploy/backups` on the host instead.
 
 **What it costs.** No download button. Backups still run, on schedule or with **Back up now**.
+
+**Good to know.** The web app can still delete backups, so also copy them off the machine (step 16).
 
 ## 13. Fence in the toolbox
 
@@ -317,7 +328,9 @@ own firewall, apart from what you use.
 **Why.** Sign-in with Microsoft or Google sends you back to MOSS at an address MOSS works out from the
 request. With this set, only your addresses are used, whatever a request claims.
 
-**What it costs.** Update it when MOSS's address changes (Settings, HTTPS, Change addresses).
+**What it costs.** It's read from `deploy/.env` only. When MOSS's address changes (for example in
+Settings, HTTPS, Change addresses), update it there too and restart MOSS, or Microsoft and Google sign-in
+will send people back to the old address.
 
 ## 15. Keep MOSS itself private
 
