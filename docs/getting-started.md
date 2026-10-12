@@ -23,7 +23,8 @@ before you give any agent credentials or the ability to change things.**
 
 **You need:** a computer that stays on (a mini PC, a NAS that runs Docker, or a spare desktop), Docker
 with the Compose plugin, `git` and `openssl`. A Linux host is recommended. MOSS uses about 2 GB of
-memory, plus whatever your AI model needs if you run one locally.
+memory, plus whatever your AI model needs if you run one locally. On Windows, run the commands below in
+WSL or Git Bash, not PowerShell.
 
 ```sh
 git clone https://github.com/Dan5672/MOSS.git
@@ -42,12 +43,17 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 > **Back up `deploy/secrets/master.key` somewhere safe, away from this machine.** Without it, the
 > credentials stored in MOSS can't be decrypted, even from a backup.
 
-The first build takes several minutes.
+- `deploy/secrets/setup.code`: a one-time code, also printed by `init.sh`, that you enter when you
+  create your account, so nobody else on your network can claim MOSS before you do.
+
+The first build takes a while: 10 to 20 minutes on a typical mini PC.
 
 ## 2. Open MOSS over HTTPS
 
 New installs come with HTTPS switched on, so every device on your network gets an encrypted
-connection. `init.sh` prints the addresses MOSS answers to, for example `https://192.168.1.20`.
+connection. `init.sh` prints the addresses MOSS answers to, for example `https://192.168.1.20`. If it
+didn't find your computer's network address, open https://localhost on that computer and add the
+address in **Settings → HTTPS → Change addresses**.
 
 MOSS uses **its own certificate authority** for this. That means nothing to buy, register or open
 to the internet, but your devices don't know it yet: the first time, your browser warns that the
