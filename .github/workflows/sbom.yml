@@ -1,0 +1,68 @@
+# On every release tag: a software bill of materials (every npm package MOSS ships, at the exact version in
+# pnpm-lock.yaml) in SPDX and CycloneDX, attached to the GitHub release with the source archive it describes.
+# The SBOM is attested (signed by GitHub for this repository), so anyone can check where it came from:
+#   gh attestation verify moss-<tag>-source.tar.gz --repo Dan5672/MOSS --predicate-type https://spdx.dev/Document/v2.3
+# It covers the source, not the images: those are built on each install, from base images pinned in deploy/docker.
+name: SBOM
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to make the SBOM for (e.g. v0.5.1)
+        required: true
+
+permissions: {}
+
+jobs:
+  sbom:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release if needed, and upload to it
+      id-token: write # sign the attestation
+      attestations: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+
+      - name: Source archive
+        run: git archive --format=tar.gz --prefix="moss-$TAG/" -o "moss-$TAG-source.tar.gz" "$TAG"
+
+      - name: SBOM (SPDX)
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          path: .
+          format: spdx-json
+          output-file: moss-${{ env.TAG }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: SBOM (CycloneDX)
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: moss-${{ env.TAG }}.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Attest the SBOM
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-path: moss-${{ env.TAG }}-source.tar.gz
+          sbom-path: moss-${{ env.TAG }}.spdx.json
+
+      - name: Attach to the release
+        run: |
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "MOSS ${TAG#v}" \
+              --notes "What's new is in [the changelog](https://github.com/$GITHUB_REPOSITORY/blob/$TAG/library/docs/changelog.md)."
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            "moss-$TAG-source.tar.gz" "moss-$TAG.spdx.json" "moss-$TAG.cdx.json"

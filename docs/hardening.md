@@ -352,6 +352,9 @@ will send people back to the old address.
   you trust (`git verify-tag`). It can't check a branch or a commit, which is what it upgrades to when no
   release tag exists, so prefer tags and pass `--allow-unsigned` only when you know why.
 - **Keep MOSS updated.** Settings, About checks for new releases.
+- **Check what you're running.** Each release on GitHub has a software bill of materials (SPDX and CycloneDX)
+  listing every package at its exact version, for your vulnerability scanner. It's signed by GitHub for this
+  repository: `gh attestation verify moss-<tag>-source.tar.gz --repo Dan5672/MOSS --predicate-type https://spdx.dev/Document/v2.3`.
 
 ## What hardening doesn't cover
 
