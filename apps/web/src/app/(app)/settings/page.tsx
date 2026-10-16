@@ -1,4 +1,4 @@
-import { CHAT_NAMES, CHAT_PLATFORMS, getSetting, listChatLinks, loadChatModule, totpUri, type SettingKey } from "@moss/core";
+import { CHAT_NAMES, CHAT_PLATFORMS, getSetting, listChatLinks, loadChatModule, serverTimeZone, totpUri, type SettingKey } from "@moss/core";
 import { cookies } from "next/headers";
 import QRCode from "qrcode";
 import { ActionForm } from "@/components/action-form";
@@ -8,7 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
-import { confirmTotpAction, disableTotpAction, saveApprovalRulesAction, setMotionAction, setSetupChecklistHiddenAction, startTotpAction, toggleSettingAction } from "./actions";
+import { confirmTotpAction, disableTotpAction, saveApprovalRulesAction, saveTimeZoneAction, setMotionAction, setSetupChecklistHiddenAction, startTotpAction, toggleSettingAction } from "./actions";
 import { ConnectChat } from "./chat-connect";
 import { weakens } from "./hardening";
 import { HttpsCard } from "./https-card";
@@ -102,7 +102,11 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
   const user = await requireUser({ unblocks: "enrol_totp" });
   const q = await searchParams;
   const values = Object.fromEntries(await Promise.all(TOGGLES.map(async (t) => [t.key, await getSetting(db(), user.orgId, t.key)] as const)));
-  const [chatApprovals, emergencyTools] = await Promise.all([getSetting(db(), user.orgId, "changes.chat_approvals"), getSetting(db(), user.orgId, "changes.emergency_tools")]);
+  const [chatApprovals, emergencyTools, timeZone] = await Promise.all([
+    getSetting(db(), user.orgId, "changes.chat_approvals"),
+    getSetting(db(), user.orgId, "changes.emergency_tools"),
+    getSetting(db(), user.orgId, "general.time_zone"),
+  ]);
   const pendingSecret = (await cookies()).get("moss_totp_pending")?.value;
   const qr = pendingSecret ? await QRCode.toDataURL(totpUri(pendingSecret, user.email), { margin: 1, width: 200 }) : null;
   const [chatApps, myLinks] = await Promise.all([
@@ -206,6 +210,26 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
             })}
           </CardContent>
         </Card>
+
+        {user.permissions.has("settings.manage") && (
+          <Card id="time-zone">
+            <CardHeader>
+              <CardTitle>Time zone</CardTitle>
+              <CardDescription>When recurring tasks run, and the times MOSS shows for them.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ActionForm action={saveTimeZoneAction} submitLabel="Save">
+                <SelectField
+                  label="Time zone"
+                  name="timeZone"
+                  defaultValue={timeZone}
+                  options={[{ value: "", label: `This computer's (${serverTimeZone()})` }, ...Intl.supportedValuesOf("timeZone").map((z) => ({ value: z, label: z.replaceAll("_", " ") }))]}
+                  hint="This computer's is the one MOSS runs on (TZ in deploy/.env, set from the host when MOSS was installed)."
+                />
+              </ActionForm>
+            </CardContent>
+          </Card>
+        )}
 
         {user.permissions.has("settings.manage") && (
           <Card id="approvals">

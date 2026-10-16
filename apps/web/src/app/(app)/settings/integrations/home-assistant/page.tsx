@@ -14,6 +14,7 @@ import { blockedByRole, homeAssistantPage } from "@/server/home-assistant";
 import {
   revokeHomeAssistantTokenAction,
   saveHomeAssistantConnectionAction,
+  reviewHomeAssistantLogNowAction,
   saveHomeAssistantLogReviewAction,
   saveHomeAssistantNotifyAction,
   saveHomeAssistantSelfHealAction,
@@ -349,6 +350,12 @@ export default async function HomeAssistantModulePage() {
             </div>
             <p className="text-xs text-muted-foreground">Saving gives the agent the Home Assistant skill and the token, and adds a recurring task to its page.</p>
           </ActionForm>
+          {p.enabled && connected && (
+            <ActionForm action={reviewHomeAssistantLogNowAction} submitLabel="Review the log now">
+              <SelectField label="Agent" name="agentId" defaultValue={c.logReview.agentId ?? ""} options={[{ value: "", label: "Choose an agent" }, ...agentOptions]} />
+              <p className="text-xs text-muted-foreground">A one-off review of the last 24 hours. It gives the agent the Home Assistant skill and the token, as the daily review does.</p>
+            </ActionForm>
+          )}
           {logAgent && <RoleWarning agent={logAgent.name} tools={logBlocked} />}
           {p.schedule && c.logReview.enabled && (
             <p className="text-sm text-muted-foreground">

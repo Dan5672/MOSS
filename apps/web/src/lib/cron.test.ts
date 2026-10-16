@@ -21,4 +21,15 @@ describe("cronOccurrences", () => {
     expect(cronOccurrences("* * * * *", at("2026-03-02T00:00"), at("2026-03-03T00:00"), 5)).toHaveLength(5);
     expect(cronOccurrences("bad", at("2026-03-02T00:00"), at("2026-03-03T00:00"))).toEqual([]);
   });
+  it("in a given time zone, across a DST change", () => {
+    const utc = (d: Date) => d.toISOString().slice(0, 16);
+    // 07:30 in New York is 12:30 UTC in winter and 11:30 UTC after clocks go forward (8 March 2026).
+    expect(cronOccurrences("30 7 * * *", new Date("2026-03-07T00:00Z"), new Date("2026-03-10T00:00Z"), 10, "America/New_York").map(utc)).toEqual([
+      "2026-03-07T12:30",
+      "2026-03-08T11:30",
+      "2026-03-09T11:30",
+    ]);
+    // Monday 09:00 in Sydney is still Sunday in UTC.
+    expect(cronOccurrences("0 9 * * 1", new Date("2026-03-01T00:00Z"), new Date("2026-03-03T00:00Z"), 10, "Australia/Sydney").map(utc)).toEqual(["2026-03-01T22:00"]);
+  });
 });

@@ -99,7 +99,7 @@ export async function PageForm({
         defaultValue={page?.body}
         required
         className="font-mono text-sm"
-        hint="Markdown: # headings, - lists, **bold**, `code`, ``` code blocks, [[Another page]] to link a page."
+        hint="Markdown: # headings, - lists, **bold**, *italic*, | tables |, `code`, ``` code blocks, [[Another page]] to link a page."
       />
     </ActionForm>
   );

@@ -1,6 +1,6 @@
 "use server";
 
-import { generateTotpSecret, getPasswordPolicy, getSetting, mustEnrolTotp, setSetting, verifyTotp, writeAudit, type SettingKey } from "@moss/core";
+import { generateTotpSecret, getPasswordPolicy, getSetting, mustEnrolTotp, serverTimeZone, setSetting, verifyTotp, writeAudit, type SettingKey } from "@moss/core";
 import { roles, userRoles, users } from "@moss/db";
 import { eq } from "drizzle-orm";
 import { cookies } from "next/headers";
@@ -53,6 +53,17 @@ export async function saveApprovalRulesAction(_: ActionState, form: FormData): P
     await setSetting(db(), user.orgId, "changes.emergency_tools", tools);
     await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "setting.update", targetType: "setting", targetId: "changes.chat_approvals", details: { chatApprovals: level, emergencyTools: tools } });
     return "Approval rules saved.";
+  });
+}
+
+export async function saveTimeZoneAction(_: ActionState, form: FormData): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("settings.manage");
+    const zone = String(form.get("timeZone") ?? "");
+    if (zone && !Intl.supportedValuesOf("timeZone").includes(zone)) throw new Error("Choose a time zone from the list");
+    await setSetting(db(), user.orgId, "general.time_zone", zone);
+    await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "setting.update", targetType: "setting", targetId: "general.time_zone", details: { value: zone } });
+    return `Time zone saved: ${zone || `this computer's (${serverTimeZone()})`}. Recurring tasks follow it within a minute.`;
   });
 }
 

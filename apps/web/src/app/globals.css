@@ -341,4 +341,13 @@
   html {
     @apply font-sans;
   }
+  /* Native controls (date pickers, scrollbars, the select popup) follow the theme. */
+  .dark {
+    color-scheme: dark;
+  }
+  /* A transparent select's options otherwise inherit its text colour on the browser's own popup background. */
+  option,
+  optgroup {
+    @apply bg-popover text-popover-foreground;
+  }
 }

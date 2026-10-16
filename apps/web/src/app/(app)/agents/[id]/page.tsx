@@ -1,4 +1,4 @@
-import { getBudgetStatus, incidentRef } from "@moss/core";
+import { getBudgetStatus, incidentRef, orgTimeZone } from "@moss/core";
 import { agentRuns, agents, agentSchedules, agentSkills, budgets, incidents, models, monitors, skills } from "@moss/db";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import Link from "next/link";
@@ -73,8 +73,8 @@ export default async function AgentPage({ params }: PageProps<"/agents/[id]">) {
     downMonitors,
   });
   const lastRunOf = (scheduleId: string) => lastScheduledRuns.find((r) => r.scheduleId === scheduleId)?.startedAt;
-  // The worker runs schedules in its time zone; web and worker share TZ in the stack.
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  // The worker runs schedules in the install's time zone (Settings).
+  const timeZone = await orgTimeZone(db(), user.orgId);
   const canManage = user.permissions.has("agents.manage") && agent.status !== "fired";
   const canBudget = user.permissions.has("agents.budget") && agent.status !== "fired";
   const missingSkills = allSkills.filter((s) => !s.core && !agentSkillRows.some((a) => a.key === s.key));

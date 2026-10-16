@@ -22,7 +22,9 @@ const TYPES = [
 ];
 
 /** Tools that take a credential, offered first when scoping a secret. */
-const CREDENTIAL_TOOLS = [...BUILT_IN_TOOLS.values()].filter((t) => t.manifest.secretArgs?.length).map((t) => t.manifest.name);
+const CREDENTIAL_TOOLS = [...BUILT_IN_TOOLS.values()]
+  .filter((t) => t.manifest.secretArgs?.length)
+  .map((t) => ({ name: t.manifest.name, description: t.description }));
 
 function ScopeFields({
   hosts = [],
@@ -120,7 +122,7 @@ export default async function SecretsPage() {
         <TextField label="Username" name="username" autoComplete="off" maxLength={128} hint="For a password: the account it belongs to. Agents see this, never the password." />
         <CheckboxField label="Save it even if it looks unusual" name="allowOdd" hint="Only if the value really has spaces at either end, or reads like a sentence." />
         <TextField label="Description" name="description" maxLength={500} placeholder="Read-only API key for the UniFi console" />
-        <ScopeFields team={team} tools={CREDENTIAL_TOOLS.slice(0, 1)} />
+        <ScopeFields team={team} tools={CREDENTIAL_TOOLS.slice(0, 1).map((t) => t.name)} />
       </ActionForm>
             </FormDialog>
           )

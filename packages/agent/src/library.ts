@@ -108,15 +108,21 @@ export async function syncBuiltInSkills(db: Database, orgId: string, defs: Itera
 }
 
 /**
- * Gives every working agent the core skills: how MOSS's own tickets, inventory, wiki and monitoring work.
- * Moss (the MOSS expert) is left out: it isn't a day-to-day admin. Returns how many were added.
+ * Core skills Moss doesn't get: their network probes would let a consulted Moss carry the install's
+ * configuration (which it can read) out of the network, e.g. inside a DNS name.
+ */
+export const MOSS_WITHOUT = ["monitoring-response", "network-insight"];
+
+/**
+ * Gives every agent, Moss included (less MOSS_WITHOUT), the core skills: how MOSS's own tickets, changes, inventory, wiki and
+ * monitoring work, so any agent can be tagged into them. Returns how many were added.
  */
 export async function ensureCoreSkills(db: Database, orgId: string): Promise<number> {
   const rows = await db.execute(sql`
     insert into ${agentSkills} (agent_id, skill_id)
     select a.id, s.id from ${agents} a cross join ${skills} s
     where a.org_id = ${orgId} and s.org_id = ${orgId} and s.core and a.status <> 'fired'
-      and (a.template_key is null or a.template_key <> 'moss')
+      and not (coalesce(a.template_key, '') = 'moss' and s.key in (${sql.join(MOSS_WITHOUT.map((k) => sql`${k}`), sql`, `)}))
     on conflict do nothing
     returning agent_id`);
   return rows.length;

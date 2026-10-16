@@ -1,7 +1,7 @@
 // The data behind the Home Assistant integration: one snapshot of MOSS's state, a feed of things that
 // happened (for Home Assistant's event entities), and a calendar of change windows and recurring tasks.
 import "server-only";
-import { changeRef, getSetting, incidentRef, listMonitors, periodStart } from "@moss/core";
+import { changeRef, getSetting, incidentRef, listMonitors, orgTimeZone, periodStart } from "@moss/core";
 import { agentRuns, agents, agentSchedules, assets, budgets, changeRequests, configBackups, events, incidents, monitors, tokenUsage } from "@moss/db";
 import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lte, ne, notInArray, or, sql } from "drizzle-orm";
 import { spritePixels } from "@/components/mascots";
@@ -243,8 +243,9 @@ export async function haCalendar(orgId: string, start: Date, end: Date) {
       start: c.windowStart!,
       end: c.windowEnd ?? new Date(c.windowStart!.getTime() + 60 * 60_000),
     }));
+  const timeZone = await orgTimeZone(d, orgId);
   for (const { s, agentName } of tasks) {
-    for (const at of cronOccurrences(s.cron, start, end, 100)) {
+    for (const at of cronOccurrences(s.cron, start, end, 100, timeZone)) {
       items.push({ uid: `task-${s.id}-${at.getTime()}`, summary: `${agentName}: ${s.task.slice(0, 80)}`, description: s.task, start: at, end: new Date(at.getTime() + 15 * 60_000) });
     }
   }
