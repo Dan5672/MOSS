@@ -250,7 +250,12 @@ export async function agentList(orgId: string) {
     .where(eq(agents.orgId, orgId))
     .orderBy(agents.hiredAt);
   const spend = await db()
-    .select({ agentId: tokenUsage.agentId, usd: sum(tokenUsage.costUsd), tokens: sql<string>`sum(${tokenUsage.inputTokens} + ${tokenUsage.outputTokens})` })
+    // Tokens counted as a token budget counts them: cache reads and writes included.
+    .select({
+      agentId: tokenUsage.agentId,
+      usd: sum(tokenUsage.costUsd),
+      tokens: sql<string>`sum(${tokenUsage.inputTokens} + ${tokenUsage.outputTokens} + ${tokenUsage.cacheReadTokens} + ${tokenUsage.cacheWriteTokens})`,
+    })
     .from(tokenUsage)
     .where(and(eq(tokenUsage.orgId, orgId), gte(tokenUsage.createdAt, monthStart)))
     .groupBy(tokenUsage.agentId);

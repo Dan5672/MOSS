@@ -9,10 +9,13 @@ import {
   monitorTargetWarning,
   setMonitorEnabled,
   setMonitorSourceEnabled,
+  setSetting,
   updateMonitor,
+  writeAudit,
 } from "@moss/core";
 import { monitors } from "@moss/db";
 import { and, eq } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { act, formObject, type ActionState } from "@/server/action";
@@ -34,6 +37,9 @@ function parseResponder(value: string | undefined) {
   const uuid = z.uuid().parse(id);
   return kind === "agent" ? { responderAgentId: uuid, responderUserId: null } : { responderAgentId: null, responderUserId: uuid };
 }
+
+/** "Depends on": a monitor id, null for nothing, or undefined when the form didn't have the field (keep what's set). */
+const parentFromForm = (form: FormData) => (form.has("parentMonitorId") ? String(form.get("parentMonitorId")) || null : undefined);
 
 /** Form fields -> monitor input. Only the fields that apply to the kind are sent; core validates the rest. */
 function monitorFromForm(form: FormData) {
@@ -85,6 +91,7 @@ function monitorFromForm(form: FormData) {
     priority: f.priority as "P1" | "P2" | "P3" | "P4" | undefined,
     autoResolve: f.autoResolve === "on",
     agentInstructions: f.agentInstructions ?? null,
+    parentMonitorId: parentFromForm(form),
     ...parseResponder(f.responder),
   };
 }
@@ -111,7 +118,15 @@ export async function updateMonitorAction(monitorId: string, external: boolean, 
     const input = external
       ? (() => {
           const f = formObject(form);
-          return { name: f.name, assetId: f.assetId ?? null, priority: f.priority, autoResolve: f.autoResolve === "on", agentInstructions: f.agentInstructions ?? null, ...parseResponder(f.responder) };
+          return {
+            name: f.name,
+            assetId: f.assetId ?? null,
+            priority: f.priority,
+            autoResolve: f.autoResolve === "on",
+            agentInstructions: f.agentInstructions ?? null,
+            parentMonitorId: parentFromForm(form),
+            ...parseResponder(f.responder),
+          };
         })()
       : monitorFromForm(form);
     const [current] = await db().select({ text: monitors.agentInstructions }).from(monitors).where(and(eq(monitors.id, monitorId), eq(monitors.orgId, user.orgId)));
@@ -119,6 +134,17 @@ export async function updateMonitorAction(monitorId: string, external: boolean, 
     const m = await updateMonitor(db(), user.orgId, monitorId, input, { type: "user", id: user.id });
     const warning = await monitorTargetWarning(db(), user.orgId, m.target, m.kind);
     return warning ? `Saved. Warning: ${warning}, so checks will be refused until it is allowed.` : "Monitor saved.";
+  });
+}
+
+/** Monitor dependencies on or off. Off, dependencies stay set but nothing is held back, and the Map tab goes. */
+export async function setDependenciesAction(on: boolean): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("monitoring.manage");
+    await setSetting(db(), user.orgId, "monitoring.dependencies", on);
+    await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "setting.update", targetType: "setting", targetId: "monitoring.dependencies", details: { value: on } });
+    revalidatePath("/monitoring", "layout");
+    return on ? "Dependencies are on. Set what each monitor depends on when you edit it; the Map tab shows the tree." : "Dependencies are off: every monitor raises its own alarm again.";
   });
 }
 

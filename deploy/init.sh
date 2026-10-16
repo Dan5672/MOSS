@@ -37,6 +37,19 @@ if [ ! -f .env ]; then
 fi
 mkdir -p certs backups
 
+# The host's time zone, so recurring tasks run on this computer's clock (Settings → Time zone can change it).
+host_time_zone() {
+  { timedatectl show -p Timezone --value 2>/dev/null || cat /etc/timezone 2>/dev/null || readlink /etc/localtime 2>/dev/null | sed 's|.*/zoneinfo/||'; } |
+    head -n 1 | grep -E '^[A-Za-z_]+(/[A-Za-z0-9_+-]+)*$' || true
+}
+if ! grep -q "^TZ=" .env; then
+  tz=$(host_time_zone)
+  if [ -n "$tz" ]; then
+    echo "TZ=$tz" >> .env
+    echo "Time zone: $tz (this computer's)."
+  fi
+fi
+
 # Each service signs in to Postgres as its own role, with its own password.
 for role in GATE WEB WORKER BRIDGE BACKUP QUEUE; do
   if ! grep -q "^MOSS_DB_PASSWORD_$role=" .env; then

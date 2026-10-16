@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { loadLibrary, syncBuiltInSkills } from "./library.js";
+import { ensureCoreSkills, loadLibrary, syncBuiltInSkills } from "./library.js";
 import { ensureMoss, fireAgent, MOSS_TEMPLATE } from "./lifecycle.js";
 import { loadDocs, searchDocs } from "./moss-tools.js";
 import { PLATFORM_TOOL_MAP } from "./platform-tools.js";
@@ -45,7 +45,7 @@ describe.skipIf(!TEST_DATABASE_URL)("Moss (postgres)", () => {
   });
   afterAll(() => close?.());
 
-  it("is hired once there's a model, with only the MOSS expert skill, and only once", async () => {
+  it("is hired once there's a model, with the MOSS expert skill and the core skills, and only once", async () => {
     const template = (await loadLibrary(LIBRARY_DIR)).templates.get(MOSS_TEMPLATE)!;
     expect(await ensureMoss(db, orgId, template)).toBeNull(); // no model yet
     const [p] = await db.insert(providers).values({ orgId, kind: "ollama", name: "Local" }).returning();
@@ -55,7 +55,12 @@ describe.skipIf(!TEST_DATABASE_URL)("Moss (postgres)", () => {
     const [moss] = await db.select().from(agents).where(eq(agents.id, mossId));
     expect(moss).toMatchObject({ name: "Moss", templateKey: "moss", status: "active" });
     const granted = await db.select({ key: skills.key }).from(agentSkills).innerJoin(skills, eq(skills.id, agentSkills.skillId)).where(eq(agentSkills.agentId, mossId));
-    expect(granted.map((g) => g.key)).toEqual(["moss-expert"]);
+    // Core skills too, so Moss can work tickets and changes it's tagged in.
+    expect(granted.map((g) => g.key)).toEqual(expect.arrayContaining(["moss-expert", "incident-management", "change-management", "service-desk"]));
+    // ...but no network probes: Moss reads the install's config, and must not be able to send it anywhere.
+    expect(granted.map((g) => g.key)).not.toContain("monitoring-response");
+    expect(granted.map((g) => g.key)).not.toContain("network-insight");
+    expect(await ensureCoreSkills(db, orgId)).toBe(0);
     expect(await ensureMoss(db, orgId, template)).toBeNull();
     await expect(fireAgent(db, { orgId, userId: ownerId }, mossId)).rejects.toThrow(/can't be fired/);
   });

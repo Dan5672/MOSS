@@ -1,3 +1,4 @@
+import { orgTimeZone } from "@moss/core";
 import { agentRuns, agents, agentSchedules } from "@moss/db";
 import { and, asc, desc, eq, ne } from "drizzle-orm";
 import Link from "next/link";
@@ -21,10 +22,10 @@ import { ScheduleFields } from "../[id]/schedule-fields";
 export const metadata = { title: "Recurring tasks" };
 
 /** When a task runs next (within the coming year), or null when it's off. */
-function nextRun(cron: string, enabled: boolean): Date | null {
+function nextRun(cron: string, enabled: boolean, timeZone: string): Date | null {
   if (!enabled) return null;
   const now = new Date();
-  return cronOccurrences(cron, now, new Date(now.getTime() + 366 * 86_400_000), 1)[0] ?? null;
+  return cronOccurrences(cron, now, new Date(now.getTime() + 366 * 86_400_000), 1, timeZone)[0] ?? null;
 }
 
 const inDays = (d: Date | null) => {
@@ -60,9 +61,11 @@ export default async function RecurringTasksPage({ searchParams }: PageProps<"/a
       .orderBy(agentRuns.triggerRef, desc(agentRuns.startedAt)),
   ]);
   const agentOf = (id: string) => team.find((a) => a.id === id);
+  // Tasks run in the install's time zone (Settings); the worker schedules them in the same one.
+  const timeZone = await orgTimeZone(db(), user.orgId);
   const rows = tasks
     .filter((t) => agentOf(t.agentId))
-    .map((t) => ({ ...t, agent: agentOf(t.agentId)!, next: nextRun(t.cron, t.enabled), last: lastRuns.find((r) => r.taskId === t.id)?.startedAt ?? null }))
+    .map((t) => ({ ...t, agent: agentOf(t.agentId)!, next: nextRun(t.cron, t.enabled, timeZone), last: lastRuns.find((r) => r.taskId === t.id)?.startedAt ?? null }))
     .filter((t) => (!agentFilter || t.agentId === agentFilter) && (!statusFilter || (statusFilter === "on") === t.enabled) && (!q || t.task.toLowerCase().includes(q)));
   const sort = readSort(sp, ["task", "agent", "schedule", "next", "last", "status"] as const);
   const sorted = sortRows(rows, sort.key ? sort : { key: "next", dir: "asc" }, {
@@ -74,8 +77,6 @@ export default async function RecurringTasksPage({ searchParams }: PageProps<"/a
     status: (t) => (t.enabled ? 0 : 1),
   });
   const head = (label: string, key: string) => <SortableHead label={label} sortKey={key} state={sort} path="/agents/recurring" sp={sp} />;
-  // The worker runs tasks in its time zone; web and worker share TZ in the stack.
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const agentOptions = team.map((a) => ({ value: a.id, label: `${a.name} (${a.title})` }));
 
   return (

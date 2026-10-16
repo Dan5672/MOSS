@@ -224,7 +224,7 @@ export function evaluate(call: ToolCall, manifest: ToolManifest, ctx: PolicyCont
 
   // 3. Target scope — unknown subnets are denied by default; off-limits always wins.
   const internet = ctx.allowInternet !== false;
-  if (call.tool === "dns_lookup" && !internet && !isLocalName(String(call.args.name))) {
+  if ((call.tool === "dns_lookup" || call.tool === "dns_txt_lookup") && !internet && !isLocalName(String(call.args.name))) {
     return deny("setting_disabled", `${String(call.args.name)} isn't a local name, and agents may not reach the internet (Settings, Safety)`);
   }
   // A query string turns a read into a request that can change things or carry data out. Monitors keep it.

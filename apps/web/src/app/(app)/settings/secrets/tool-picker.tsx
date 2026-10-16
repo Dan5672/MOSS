@@ -3,8 +3,11 @@
 import { useState } from "react";
 import { groupTools, toolGroup } from "@/lib/tool-groups";
 
-/** Tool checkboxes (name="tools") in collapsible groups, each with a tick-all box. */
-export function ToolPicker({ tools, initial }: { tools: string[]; initial: string[] }) {
+/** The first sentence of a tool's description, shown under its name. */
+const summary = (d: string) => d.match(/^.*?\.(?=\s|$)/)?.[0] ?? d;
+
+/** Tool checkboxes (name="tools") in collapsible groups, each with a tick-all box and what each tool does. */
+export function ToolPicker({ tools, initial }: { tools: { name: string; description: string }[]; initial: string[] }) {
   const [picked, setPicked] = useState(() => new Set(initial));
   const toggle = (names: string[], on: boolean) =>
     setPicked((prev) => {
@@ -18,9 +21,10 @@ export function ToolPicker({ tools, initial }: { tools: string[]; initial: strin
 
   return (
     <div className="grid gap-2">
-      {groupTools(tools, (t) => toolGroup(t)).map((g) => {
-        const all = g.items.every((t) => picked.has(t));
-        const some = g.items.filter((t) => picked.has(t)).length;
+      {groupTools(tools, (t) => toolGroup(t.name)).map((g) => {
+        const names = g.items.map((t) => t.name);
+        const all = names.every((t) => picked.has(t));
+        const some = names.filter((t) => picked.has(t)).length;
         return (
           <details key={g.key} open={some > 0} className="border-2 px-3 py-2">
             <summary className="cursor-pointer text-sm">
@@ -28,14 +32,24 @@ export function ToolPicker({ tools, initial }: { tools: string[]; initial: strin
             </summary>
             <div className="mt-2 grid gap-2">
               <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                <input type="checkbox" className="size-4 accent-primary" checked={all} onChange={(e) => toggle(g.items, e.target.checked)} />
+                <input type="checkbox" className="size-4 accent-primary" checked={all} onChange={(e) => toggle(names, e.target.checked)} />
                 All {g.label.toLowerCase()} tools
               </label>
               <div className="grid gap-2 sm:grid-cols-2">
-                {g.items.map((t) => (
-                  <label key={t} className="flex items-center gap-2 font-mono text-sm">
-                    <input type="checkbox" name="tools" value={t} className="size-4 accent-primary" checked={picked.has(t)} onChange={(e) => toggle([t], e.target.checked)} />
-                    {t}
+                {g.items.map(({ name, description }) => (
+                  <label key={name} title={description} className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      name="tools"
+                      value={name}
+                      className="mt-0.5 size-4 shrink-0 accent-primary"
+                      checked={picked.has(name)}
+                      onChange={(e) => toggle([name], e.target.checked)}
+                    />
+                    <span className="grid">
+                      <span className="font-mono text-sm">{name}</span>
+                      <span className="text-xs text-muted-foreground">{summary(description)}</span>
+                    </span>
                   </label>
                 ))}
               </div>

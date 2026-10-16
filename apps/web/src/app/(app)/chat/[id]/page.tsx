@@ -8,6 +8,7 @@ import { Pill } from "@/components/badges";
 import { SelectField } from "@/components/field";
 import { LiveRefresh } from "@/components/live-refresh";
 import { MascotSvg } from "@/components/mascot-svg";
+import { Markdown } from "@/components/markdown";
 import { CommentText, MentionTextarea } from "@/components/mention-textarea";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { timeAgo } from "@/components/page";
@@ -135,7 +136,8 @@ export default async function ConversationPage({ params }: PageProps<"/chat/[id]
                     )}
                   </div>
                   <div className={failed ? "text-alarm" : undefined}>
-                    <CommentText text={m.body} names={names} />
+                    {/* Agents write Markdown (tables, lists); people's messages keep their @mentions highlighted. */}
+                    {m.authorAgentId ? <Markdown text={m.body} links={(title) => `/wiki?q=${encodeURIComponent(title)}`} /> : <CommentText text={m.body} names={names} />}
                   </div>
                 </div>
               </li>

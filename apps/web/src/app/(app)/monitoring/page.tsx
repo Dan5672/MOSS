@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components
 import { readSort, sortRows } from "@/lib/sort";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
-import { createMonitorAction } from "./actions";
+import { createMonitorAction, setDependenciesAction } from "./actions";
 import { MonitorFields, type MonitorDefaults, type MonitorKind } from "./monitor-fields";
 import { describeTarget, formatUptime, monitorFormOptions } from "./shared";
 
@@ -54,6 +54,14 @@ export default async function MonitoringPage({ searchParams }: PageProps<"/monit
         description="Keep watch on the services that matter. When one goes down, MOSS raises an incident and its responder agent starts working it."
         actions={
           <>
+            {canManage && options && !options.parents && (
+              <ActionForm
+                action={setDependenciesAction.bind(null, true)}
+                submitLabel="Turn on dependencies"
+                submitVariant="outline"
+                confirm="Turn on monitor dependencies? You can then say what each monitor depends on (a VM on its host); while that is down, the VM raises no alarm of its own. A Map tab shows the tree."
+              />
+            )}
             {canManage && options && (
               <FormDialog
                 label="Add a monitor"
@@ -63,7 +71,7 @@ export default async function MonitoringPage({ searchParams }: PageProps<"/monit
                 defaultOpen={sp.new === "1"}
               >
                 <ActionForm action={createMonitorAction} submitLabel="Add monitor">
-                  <MonitorFields defaults={defaults ?? undefined} assets={options.assets} responders={options.responders} secrets={options.secrets} />
+                  <MonitorFields defaults={defaults ?? undefined} assets={options.assets} responders={options.responders} secrets={options.secrets} parents={options.parents} />
                 </ActionForm>
               </FormDialog>
             )}

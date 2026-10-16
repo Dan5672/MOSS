@@ -124,6 +124,7 @@ export const monitorInputSchema = z
     responderUserId: optionalId,
     autoResolve: z.boolean().default(false),
     agentInstructions,
+    parentMonitorId: optionalId,
   })
   .superRefine((m, ctx) => {
     const issue = (path: string[], message: string) => ctx.addIssue({ code: "custom", path, message });
@@ -167,6 +168,7 @@ export const externalMonitorPatchSchema = z.object({
   responderUserId: optionalId,
   autoResolve: z.boolean().optional(),
   agentInstructions: agentInstructions.optional(),
+  parentMonitorId: optionalId,
 });
 
 function formatZod(err: z.ZodError) {
@@ -206,6 +208,61 @@ async function assertRefs(db: Database, orgId: string, refs: { assetId?: string 
   }
 }
 
+/** Most levels of dependency followed: deeper chains (or a cycle that slipped in) stop here. */
+const MAX_DEPTH = 20;
+
+/** A parent must be one of the org's monitors and not one that (in)directly depends on this one. */
+async function assertParent(db: Pick<Database, "select">, orgId: string, monitorId: string | null, parentId: string | null | undefined) {
+  if (!parentId) return;
+  if (parentId === monitorId) throw new MonitorValidationError("A monitor can't depend on itself");
+  let id: string | null = parentId;
+  for (let depth = 0; id && depth <= MAX_DEPTH; depth++) {
+    const [p]: { parent: string | null }[] = await db
+      .select({ parent: monitors.parentMonitorId })
+      .from(monitors)
+      .where(and(eq(monitors.id, id), eq(monitors.orgId, orgId)));
+    if (!p) throw new MonitorValidationError("Unknown monitor to depend on");
+    if (monitorId && p.parent === monitorId) throw new MonitorValidationError("That monitor already depends on this one");
+    id = p.parent;
+  }
+  if (id) throw new MonitorValidationError(`Dependencies go at most ${MAX_DEPTH} levels deep`);
+}
+
+/**
+ * The first monitor this one depends on (directly or not) that is down or has started failing, if any. Its
+ * dependents wait for it: a host and its VMs fail together, and only the host should raise the alarm.
+ */
+async function unhealthyAncestor(db: Pick<Database, "select">, m: Monitor): Promise<string | null> {
+  const seen = new Set([m.id]);
+  let id = m.parentMonitorId;
+  for (let depth = 0; id && !seen.has(id) && depth < MAX_DEPTH; depth++) {
+    seen.add(id);
+    const [p] = await db.select().from(monitors).where(eq(monitors.id, id));
+    if (!p) return null;
+    if (p.enabled && (p.state === "down" || p.consecutiveFailures > 0)) return p.name;
+    id = p.parentMonitorId;
+  }
+  return null;
+}
+
+/** Monitors that depend on this one, directly or further down. */
+async function dependentsOf(db: Pick<Database, "select">, m: Monitor): Promise<Monitor[]> {
+  const all = await db.select().from(monitors).where(eq(monitors.orgId, m.orgId));
+  const out: Monitor[] = [];
+  let level = [m.id];
+  for (let depth = 0; level.length && depth < MAX_DEPTH; depth++) {
+    const next = all.filter((c) => c.parentMonitorId && level.includes(c.parentMonitorId) && c.id !== m.id && !out.includes(c));
+    out.push(...next);
+    level = next.map((c) => c.id);
+  }
+  return out;
+}
+
+async function dependenciesOn(db: Pick<Database, "select">, orgId: string): Promise<boolean> {
+  const [row] = await db.select({ value: settings.value }).from(settings).where(and(eq(settings.orgId, orgId), eq(settings.key, "monitoring.dependencies")));
+  return row?.value === true;
+}
+
 function parseInput(input: unknown) {
   const parsed = monitorInputSchema.safeParse(input);
   if (!parsed.success) throw new MonitorValidationError(formatZod(parsed.error));
@@ -228,6 +285,7 @@ export async function monitorTargetWarning(db: Database, orgId: string, target: 
 export async function createMonitor(db: Database, orgId: string, input: MonitorInput, actor: Actor) {
   const m = parseInput(input);
   await assertRefs(db, orgId, m);
+  await assertParent(db, orgId, null, m.parentMonitorId);
   await assertSecretUse(db, orgId, m, actor);
   const [row] = await db
     .insert(monitors)
@@ -238,6 +296,7 @@ export async function createMonitor(db: Database, orgId: string, input: MonitorI
       assetId: m.assetId ?? null,
       responderAgentId: m.responderAgentId ?? null,
       responderUserId: m.responderUserId ?? null,
+      parentMonitorId: m.parentMonitorId ?? null,
       agentInstructionsBy: m.agentInstructions && actor.type === "user" ? actor.id : null,
     })
     .returning();
@@ -255,7 +314,15 @@ export async function updateMonitor(db: Database, orgId: string, monitorId: stri
   } else {
     const m = parseInput(input);
     await assertSecretUse(db, orgId, m, actor, existing);
-    set = { ...m, config: m.config as MonitorConfig, assetId: m.assetId ?? null, responderAgentId: m.responderAgentId ?? null, responderUserId: m.responderUserId ?? null };
+    set = {
+      ...m,
+      config: m.config as MonitorConfig,
+      assetId: m.assetId ?? null,
+      responderAgentId: m.responderAgentId ?? null,
+      responderUserId: m.responderUserId ?? null,
+      // Left out (the form had no "Depends on", e.g. while dependencies are off): keep what it was.
+      parentMonitorId: m.parentMonitorId === undefined ? undefined : m.parentMonitorId,
+    };
     // A changed check starts fresh.
     if (m.kind !== existing.kind || m.target !== existing.target) {
       Object.assign(set, { state: existing.enabled ? "pending" : "paused", consecutiveFailures: 0, consecutiveSuccesses: 0, stateChangedAt: new Date() });
@@ -268,6 +335,7 @@ export async function updateMonitor(db: Database, orgId: string, monitorId: stri
     set.agentInstructionsBy = set.agentInstructions && actor.type === "user" ? actor.id : null;
   }
   await assertRefs(db, orgId, set);
+  if (set.parentMonitorId !== undefined) await assertParent(db, orgId, monitorId, set.parentMonitorId);
   const [row] = await db.update(monitors).set({ ...set, updatedAt: new Date() }).where(eq(monitors.id, monitorId)).returning();
   await writeAudit(db, { orgId, actorType: actor.type, actorId: actor.id, action: "monitor.update", targetType: "monitor", targetId: monitorId, details: set as Record<string, unknown> });
   return row!;
@@ -421,8 +489,10 @@ export async function recordMonitorResult(db: Database, monitorId: string, resul
     if (!m || !m.enabled) return null; // paused while the check was in flight
     const message = result.message.slice(0, 500);
     const t = nextState(m, result);
-    // Quiet during an approved change on its asset, or while maintenance mode is on (from Home Assistant).
-    const suppressed = (m.assetId ? await inMaintenance(tx, m.assetId) : false) || (await quietNow(tx, m.orgId, now));
+    // Quiet during an approved change on its asset, while maintenance mode is on (from Home Assistant), or while
+    // something it depends on is down or failing (when dependencies are on).
+    const parentDown = t.state === "down" && (await dependenciesOn(tx, m.orgId)) ? await unhealthyAncestor(tx, m) : null;
+    const suppressed = (m.assetId ? await inMaintenance(tx, m.assetId) : false) || (await quietNow(tx, m.orgId, now)) || !!parentDown;
 
     await tx.insert(monitorResults).values({
       monitorId,
@@ -455,6 +525,7 @@ export async function recordMonitorResult(db: Database, monitorId: string, resul
       at: now.toISOString(),
       ...(flapping ? { flapping } : {}),
       ...(suppressed ? { suppressed } : {}),
+      ...(parentDown ? { parentDown } : {}),
       ...(result.policyDenied ? { policyDenied: true } : {}),
       ...(result.value !== undefined ? { value: result.value } : {}),
       ...(result.values ? { values: result.values } : {}),
@@ -476,8 +547,10 @@ export async function recordMonitorResult(db: Database, monitorId: string, resul
 
     if (t.changed) {
       if (t.state === "down" && !suppressed) await emitEvent(tx, m.orgId, { type: "monitor.down", payload: { monitorId } });
+      // A recovery nobody was told about the outage of (what it depends on was down) needs no notice either.
+      const silentOutage = !!m.lastResult?.parentDown && !m.openIncidentId;
       if (m.state === "down" && (t.state === "up" || t.state === "degraded")) {
-        await emitEvent(tx, m.orgId, { type: "monitor.up", payload: { monitorId, downSince: m.stateChangedAt.toISOString() } });
+        if (!silentOutage) await emitEvent(tx, m.orgId, { type: "monitor.up", payload: { monitorId, downSince: m.stateChangedAt.toISOString() } });
       } else if (t.state === "degraded") {
         await emitEvent(tx, m.orgId, { type: "monitor.degraded", payload: { monitorId } });
       }
@@ -569,9 +642,17 @@ export async function handleMonitorDown(db: Database, monitorId: string): Promis
       return { action: "commented", incidentId: inc.id, agentId: inc.assignedAgentId };
     }
   }
-  const headline = m.lastResult?.policyDenied
-    ? "This monitor's target is outside the allowed networks, so MOSS refused to check it."
-    : `Went down at ${m.stateChangedAt.toISOString()} after ${m.consecutiveFailures} failed check(s).`;
+  const dependents = (await dependenciesOn(db, m.orgId)) ? await dependentsOf(db, m) : [];
+  const affected = dependents.length
+    ? ` ${dependents.length} monitor(s) depend on it and stay quiet while it's down: ${dependents
+        .slice(0, 20)
+        .map((d) => `${d.name}${d.state === "down" ? " (down)" : ""}`)
+        .join(", ")}${dependents.length > 20 ? ", ..." : ""}.`
+    : "";
+  const headline =
+    (m.lastResult?.policyDenied
+      ? "This monitor's target is outside the allowed networks, so MOSS refused to check it."
+      : `Went down at ${m.stateChangedAt.toISOString()} after ${m.consecutiveFailures} failed check(s).`) + affected;
   const inc = await createIncident(
     db,
     m.orgId,
@@ -589,10 +670,24 @@ export async function handleMonitorDown(db: Database, monitorId: string): Promis
   return { action: "created", incidentId: inc.id };
 }
 
+/**
+ * A monitor is back: dependents that stayed quiet because of it and are still down are outages of their own, so
+ * they raise their alarm now (a webhook monitor may not report again for a long time).
+ */
+async function releaseDependents(db: Database, m: Monitor) {
+  for (const d of await dependentsOf(db, m)) {
+    if (d.state !== "down" || !d.lastResult?.parentDown || d.openIncidentId || (await unhealthyAncestor(db, d))) continue;
+    const { suppressed: _s, parentDown: _p, ...rest } = d.lastResult;
+    await db.update(monitors).set({ lastResult: rest }).where(eq(monitors.id, d.id));
+    await emitEvent(db, d.orgId, { type: "monitor.down", payload: { monitorId: d.id } });
+  }
+}
+
 /** monitor.up: note the recovery; resolve the incident if the monitor says so, otherwise hand it back to the assignee. */
 export async function handleMonitorUp(db: Database, monitorId: string, downSince: Date): Promise<MonitorIncidentOutcome> {
   const [m] = await db.select().from(monitors).where(eq(monitors.id, monitorId));
   if (!m) return { action: "none" };
+  if (await dependenciesOn(db, m.orgId)) await releaseDependents(db, m);
   if (m.priority === "P1" || m.priority === "P2") {
     await notifyPermission(db, m.orgId, "monitoring.read", { kind: "monitor", title: `${m.name} recovered`, body: `Down for ${formatDuration(Date.now() - downSince.getTime())}.`, link: `/monitoring/${m.id}` });
   }

@@ -7,6 +7,7 @@ import { configBackup, type BackupArgs } from "./backups.js";
 import { customHttp, sendRequest, type RawRequest } from "./custom-http.js";
 import { homeassistantDevices, homeassistantHealth, homeassistantLogs, homeassistantNotify, homeassistantPublish } from "./home-assistant.js";
 import { cloudflareDns, cloudflareDnsRecord, cloudflareTunnels, mossReleases, tailscaleDevices } from "./cloud.js";
+import { DnsError, dnsTxtLookup, type RecordType } from "./dns-records.js";
 import { dockerApiContainers } from "./docker-api.js";
 import { fortigateStatus } from "./fortigate.js";
 import { gworkspaceAlerts, gworkspaceDevices, gworkspaceUsers } from "./google.js";
@@ -151,7 +152,7 @@ export async function runTool(
     return await runToolInner(name, rawArgs, exec, interfaces, get, send, ssh);
   } catch (err) {
     // Device-side problems (bad key, no answer, wrong port) are tool errors the agent can read, not crashes.
-    if (err instanceof DiscoveryError || err instanceof ServerError || err instanceof HomelabError || err instanceof PinMismatch) throw new ToolError(err.message);
+    if (err instanceof DiscoveryError || err instanceof ServerError || err instanceof HomelabError || err instanceof PinMismatch || err instanceof DnsError) throw new ToolError(err.message);
     throw err;
   }
 }
@@ -242,6 +243,8 @@ async function runToolInner(
         throw new ToolError(`DNS lookup failed: ${code ?? String(err)}`);
       }
     }
+    case "dns_txt_lookup":
+      return dnsTxtLookup(args.name as string, args.type as RecordType);
     case "tcp_connect": {
       const target = args.target as string;
       assertHost(target);

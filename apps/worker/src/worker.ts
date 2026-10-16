@@ -25,6 +25,7 @@ import {
   changeRef,
   dispatchEvents,
   getSetting,
+  orgTimeZone,
   incidentRef,
   parseBackupSchedule,
   remindLicenceExpiry,
@@ -74,24 +75,28 @@ export function gateProviderFactory(gateUrl: string, gateToken: string): Provide
 /** Mirrors enabled agent schedules into pg-boss cron schedules, keyed by schedule id. */
 export async function syncSchedules(db: Database, boss: PgBoss): Promise<{ added: number; removed: number }> {
   const rows = await db
-    .select({ id: agentSchedules.id, cron: agentSchedules.cron })
+    .select({ id: agentSchedules.id, cron: agentSchedules.cron, orgId: agentSchedules.orgId })
     .from(agentSchedules)
     .innerJoin(agents, eq(agentSchedules.agentId, agents.id))
     .where(and(eq(agentSchedules.enabled, true), eq(agents.status, "active")));
-  const wanted = new Map(rows.map((r) => [r.id, r.cron]));
+  // Each org's tasks run in its time zone (Settings), so changing it reschedules them.
+  const zones = new Map<string, string>();
+  for (const orgId of new Set(rows.map((r) => r.orgId))) zones.set(orgId, await orgTimeZone(db, orgId));
+  const wanted = new Map(rows.map((r) => [r.id, { cron: r.cron, tz: zones.get(r.orgId)! }]));
+  const same = (s: { key: string; cron: string; timezone: string }) => wanted.get(s.key)?.cron === s.cron && wanted.get(s.key)?.tz === s.timezone;
   const existing = await boss.getSchedules(SCHEDULE_QUEUE);
   let added = 0;
   let removed = 0;
   for (const s of existing) {
-    if (!s.key || wanted.get(s.key) !== s.cron) {
+    if (!s.key || !same(s)) {
       await boss.unschedule(SCHEDULE_QUEUE, s.key);
       removed++;
     }
   }
-  const have = new Set(existing.filter((s) => s.key && wanted.get(s.key) === s.cron).map((s) => s.key));
-  for (const [id, cron] of wanted) {
+  const have = new Set(existing.filter((s) => s.key && same(s)).map((s) => s.key));
+  for (const [id, { cron, tz }] of wanted) {
     if (have.has(id)) continue;
-    await boss.schedule(SCHEDULE_QUEUE, cron, { scheduleId: id }, { key: id, tz: process.env.TZ ?? "UTC" });
+    await boss.schedule(SCHEDULE_QUEUE, cron, { scheduleId: id }, { key: id, tz });
     added++;
   }
   return { added, removed };

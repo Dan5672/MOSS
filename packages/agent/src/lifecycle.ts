@@ -2,7 +2,7 @@
 import { writeAudit } from "@moss/core";
 import { agents, agentSchedules, agentSkills, budgets, models, roles, secretGrants, skills, type Database } from "@moss/db";
 import { and, desc, eq, inArray, ne } from "drizzle-orm";
-import type { AgentTemplate } from "./library.js";
+import { MOSS_WITHOUT, type AgentTemplate } from "./library.js";
 
 export interface Actor {
   orgId: string;
@@ -82,7 +82,9 @@ async function hire(db: Database, actor: Actor, spec: HireSpec) {
   const missing = spec.skills.filter((k) => !chosen.some((s) => s.key === k));
   if (missing.length) throw new Error(`Skills not installed: ${missing.join(", ")}`);
   // Every agent knows how MOSS works (except Moss itself, which only explains it).
-  const core = spec.templateKey === MOSS_TEMPLATE ? [] : await db.select().from(skills).where(and(eq(skills.orgId, actor.orgId), eq(skills.core, true)));
+  const core = (await db.select().from(skills).where(and(eq(skills.orgId, actor.orgId), eq(skills.core, true)))).filter(
+    (s) => spec.templateKey !== MOSS_TEMPLATE || !MOSS_WITHOUT.includes(s.key),
+  );
   const skillRows = [...chosen, ...core.filter((c) => !chosen.some((s) => s.id === c.id))];
 
   const agent = await db.transaction(async (tx) => {
