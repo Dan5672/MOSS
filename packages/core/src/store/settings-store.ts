@@ -33,6 +33,8 @@ export const SETTING_DEFAULTS = {
   "auth.sso_require_totp": false,
   /** Until when (ISO time) monitors stay quiet: no new incidents. Set from Home Assistant's maintenance mode. */
   "monitoring.quiet_until": "" as string,
+  /** Monitor dependencies: a monitor whose parent is down or failing stays quiet, and Monitoring shows the dependency map. */
+  "monitoring.dependencies": false,
   /** Whether Home Assistant may resume agents (pausing them is always allowed). */
   "homeassistant.allow_resume": false,
   /** The newest changelog version Moss has announced in #general. */
@@ -116,6 +118,8 @@ export const SETTING_DESCRIPTIONS = {
   "tools.pin_hosts":
     "Remembers each device's certificate or SSH host key the first time MOSS sends it a credential, and refuses to send credentials if it changes. On by default; a changed key is shown in Settings, Security to trust or investigate.",
   "monitoring.quiet_until": "Maintenance mode: until this time, monitors keep checking but raise no incidents. Set from Home Assistant.",
+  "monitoring.dependencies":
+    "Monitor dependencies (Monitoring → Map). A monitor can depend on another, such as a VM on its Proxmox host. While a monitor it depends on is down or failing, its own outages raise no incident or notification, so one dead host is one alert. Off by default.",
   "homeassistant.allow_resume": "Whether the Home Assistant integration may resume paused agents (pausing is always allowed).",
   "moss.announced_version": "The newest version Moss has announced in #general (What's new, from library/docs/changelog.md).",
   "auth.sso_only": "Single sign-on only: everyone but owners must sign in with Microsoft or Google (owners keep their password and two-factor, in case sign-in breaks).",

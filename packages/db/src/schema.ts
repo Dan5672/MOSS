@@ -741,6 +741,8 @@ export interface MonitorResultSummary {
   at: string;
   flapping?: boolean;
   suppressed?: boolean;
+  /** Suppressed because a monitor this one depends on is down: that monitor's name. */
+  parentDown?: string;
   /** The gate refused the check (target outside allowed networks). */
   policyDenied?: boolean;
   /** Metric monitors: the main value, every value by name, and the unit. */
@@ -803,10 +805,16 @@ export const monitors = pgTable(
     openIncidentId: uuid("open_incident_id").references(() => incidents.id, { onDelete: "set null" }),
     sourceId: uuid("source_id").references(() => monitorSources.id, { onDelete: "cascade" }),
     externalKey: text("external_key"),
+    /**
+     * What this monitor depends on (e.g. the Proxmox host a VM runs on). While the setting monitoring.dependencies
+     * is on and an ancestor is down, this monitor's outages raise no incident or notification of their own.
+     */
+    parentMonitorId: uuid("parent_monitor_id").references((): AnyPgColumn => monitors.id, { onDelete: "set null" }),
     ...timestamps(),
   },
   (t) => [
     index("monitors_due_idx").on(t.enabled, t.nextCheckAt),
+    index("monitors_parent_idx").on(t.parentMonitorId),
     uniqueIndex("monitors_source_key_idx").on(t.sourceId, t.externalKey),
     index("monitors_asset_idx").on(t.assetId),
   ],

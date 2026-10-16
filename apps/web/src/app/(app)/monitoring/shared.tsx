@@ -1,12 +1,13 @@
 import "server-only";
-import { assets, secrets } from "@moss/db";
+import { getSetting } from "@moss/core";
+import { assets, monitors, secrets } from "@moss/db";
 import { and, asc, eq, ne } from "drizzle-orm";
 import { cn } from "@/lib/utils";
 import { db } from "@/server/db";
 import { assigneeOptions } from "@/server/people";
 
 export async function monitorFormOptions(orgId: string) {
-  const [assetRows, people, secretRows] = await Promise.all([
+  const [assetRows, people, secretRows, dependencies, monitorRows] = await Promise.all([
     db()
       .select({ id: assets.id, name: assets.name, ip: assets.primaryIp })
       .from(assets)
@@ -16,11 +17,15 @@ export async function monitorFormOptions(orgId: string) {
     assigneeOptions(orgId),
     // Names only: SNMP and host monitors name the secret with their credential.
     db().select({ name: secrets.name }).from(secrets).where(eq(secrets.orgId, orgId)).orderBy(asc(secrets.name)),
+    getSetting(db(), orgId, "monitoring.dependencies"),
+    db().select({ id: monitors.id, name: monitors.name }).from(monitors).where(eq(monitors.orgId, orgId)).orderBy(asc(monitors.name)),
   ]);
   return {
     assets: assetRows.map((a) => ({ value: a.id, label: a.ip ? `${a.name} (${a.ip})` : a.name })),
     responders: people.map((p) => (p.value === "" ? { ...p, label: "Nobody (incident is unassigned)" } : p)),
     secrets: secretRows.map((s) => ({ value: s.name, label: s.name })),
+    /** Monitors one can depend on; null while dependencies are off (the field isn't shown, and edits keep what's set). */
+    parents: dependencies ? monitorRows.map((m) => ({ value: m.id, label: m.name })) : null,
   };
 }
 
