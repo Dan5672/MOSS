@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { checkNowAction, deleteMonitorAction, setMonitorEnabledAction, updateMonitorAction } from "../actions";
-import { AgentInstructionsField, MonitorFields } from "../monitor-fields";
+import { AgentInstructionsField, DependsOnField, MonitorFields } from "../monitor-fields";
 import { describeTarget, formatUptime, latencyStats, monitorFormOptions, UptimeStrip } from "../shared";
 
 export default async function MonitorPage({ params }: PageProps<"/monitoring/[id]">) {
@@ -38,6 +38,7 @@ export default async function MonitorPage({ params }: PageProps<"/monitoring/[id
           <span className="flex flex-wrap items-center gap-2">
             <StatusBadge status={m.state} />
             {m.lastResult?.flapping && <Pill tone="orange">flapping</Pill>}
+            {m.state === "down" && m.lastResult?.parentDown && <Pill tone="blue">quiet: waiting on {m.lastResult.parentDown}</Pill>}
             <span className="uppercase">{m.kind}</span> ·{" "}
             <span className="font-mono">{external ? m.target || "webhook" : describeTarget(m)}</span> · since {timeAgo(m.stateChangedAt)}
           </span>
@@ -240,6 +241,7 @@ export default async function MonitorPage({ params }: PageProps<"/monitoring/[id
                       <SelectField label="Incident priority" name="priority" defaultValue={m.priority} options={["P1", "P2", "P3", "P4"].map((p) => ({ value: p, label: p }))} />
                       <CheckboxField label="Resolve the incident automatically on recovery" name="autoResolve" defaultChecked={m.autoResolve} />
                       <AgentInstructionsField defaultValue={m.agentInstructions} />
+                      {options.parents && <DependsOnField parents={options.parents} selfId={id} defaultValue={m.parentMonitorId} />}
                     </>
                   ) : (
                     <MonitorFields
@@ -247,7 +249,9 @@ export default async function MonitorPage({ params }: PageProps<"/monitoring/[id
                       assets={options.assets}
                       responders={options.responders}
                       secrets={options.secrets}
-                      defaults={{ ...m.config, name: m.name, kind: m.kind as "http", target: m.target, assetId: m.assetId, intervalSeconds: m.intervalSeconds, failureThreshold: m.failureThreshold, recoveryThreshold: m.recoveryThreshold, priority: m.priority, responder, autoResolve: m.autoResolve, agentInstructions: m.agentInstructions }}
+                      parents={options.parents}
+                      selfId={id}
+                      defaults={{ ...m.config, parentMonitorId: m.parentMonitorId, name: m.name, kind: m.kind as "http", target: m.target, assetId: m.assetId, intervalSeconds: m.intervalSeconds, failureThreshold: m.failureThreshold, recoveryThreshold: m.recoveryThreshold, priority: m.priority, responder, autoResolve: m.autoResolve, agentInstructions: m.agentInstructions }}
                     />
                   )}
                 </ActionForm>

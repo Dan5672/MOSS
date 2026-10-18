@@ -239,6 +239,13 @@
       "when": 1791762119983,
       "tag": "0033_hardening_options",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1792103852056,
+      "tag": "0034_monitor_dependencies",
+      "breakpoints": true
     }
   ]
 }

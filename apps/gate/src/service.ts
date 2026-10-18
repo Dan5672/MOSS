@@ -1,6 +1,6 @@
 // The Policy Gate: the only path from an agent's tool call to the toolbox, and the
 // only component that can decrypt secrets. Every decision is written to the audit log.
-import { businessIntegrationForTool, containsPrivateKey, decryptSecret, getSetting, integrationLicensed, isModuleEnabled, moduleForTool, redactSecrets, userPermissions, writeAudit } from "@moss/core";
+import { businessIntegrationForTool, containsPrivateKey, decryptSecret, getSetting, haConnectionArgs, integrationLicensed, isModuleEnabled, loadHomeAssistant, moduleForTool, redactSecrets, userPermissions, writeAudit } from "@moss/core";
 import { agentRuns, changeRequests, type Database } from "@moss/db";
 import { and, eq, sql } from "drizzle-orm";
 import { checkSecrets, contains, evaluate, EXECUTABLE_CHANGE_STATUSES, extractSecretHandles, parseRange, type DenyCode, type IpRange } from "@moss/policy";
@@ -117,7 +117,16 @@ export function createGate(deps: GateDeps) {
     if (business && !(await integrationLicensed(deps.db, agent.orgId, business))) {
       return deny("licence_required", `${req.tool} belongs to the ${business.name} integration, which needs a business licence (Settings → About)`);
     }
-    const parsed = parseToolArgs(def, req.args);
+    let rawArgs = req.args;
+    if (module === "home_assistant") {
+      // Agents reach the integration's Home Assistant: its saved address, port and scheme, not the tools' defaults (8123, http).
+      const { config } = await loadHomeAssistant(deps.db, agent.orgId);
+      if (config.host) {
+        const { token, ...connection } = haConnectionArgs(config);
+        rawArgs = { token, ...(req.args as Record<string, unknown>), ...connection };
+      }
+    }
+    const parsed = parseToolArgs(def, rawArgs);
     if (!parsed.ok) return deny("invalid_args", parsed.error);
     const args = parsed.args;
     // The CVE lookup sends service names and versions to vulners.com: only once the owner has allowed that.

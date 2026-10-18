@@ -177,6 +177,55 @@ describe.skipIf(!TEST_DATABASE_URL)("monitoring (postgres)", () => {
     await setSetting(db, orgId, "monitoring.quiet_until", "");
   });
 
+  it("with dependencies on, a dead host raises one alarm, not one per VM", async () => {
+    const host = await createMonitor(db, orgId, { name: "Proxmox", kind: "ping", target: "192.168.1.2", responderAgentId: agentId }, owner());
+    const vms = await Promise.all(
+      ["VM 1", "VM 2", "VM 3"].map((name, i) => createMonitor(db, orgId, { name, kind: "ping", target: `192.168.1.${20 + i}`, parentMonitorId: host.id }, owner())),
+    );
+    // A dependency must be one of the org's monitors and can't loop back.
+    await expect(updateMonitor(db, orgId, host.id, { name: "Proxmox", kind: "ping", target: "192.168.1.2", parentMonitorId: vms[0]!.id }, owner())).rejects.toThrow(/already depends on this one/);
+    await expect(updateMonitor(db, orgId, host.id, { name: "Proxmox", kind: "ping", target: "192.168.1.2", parentMonitorId: host.id }, owner())).rejects.toThrow(/itself/);
+
+    // Off (the default): every monitor alarms on its own.
+    for (let i = 0; i < 3; i++) await recordMonitorResult(db, vms[0]!.id, fail);
+    expect(await pendingEvents()).toEqual([{ type: "monitor.down", payload: { monitorId: vms[0]!.id } }]);
+    for (let i = 0; i < 3; i++) await recordMonitorResult(db, vms[0]!.id, pass);
+    await pendingEvents();
+
+    await setSetting(db, orgId, "monitoring.dependencies", true);
+    try {
+      // The VMs are checked first and cross their threshold before the host does: the host's failing already holds them.
+      await recordMonitorResult(db, host.id, fail);
+      for (let i = 0; i < 3; i++) for (const vm of vms) await recordMonitorResult(db, vm.id, fail);
+      for (let i = 0; i < 2; i++) await recordMonitorResult(db, host.id, fail);
+      expect(await pendingEvents()).toEqual([{ type: "monitor.down", payload: { monitorId: host.id } }]);
+      expect((await db.select().from(monitors).where(eq(monitors.id, vms[1]!.id)))[0]!.lastResult).toMatchObject({ suppressed: true, parentDown: "Proxmox" });
+      const created = await handleMonitorDown(db, host.id);
+      const [inc] = await db.select().from(incidents).where(eq(incidents.id, (created as { incidentId: string }).incidentId));
+      expect(inc!.description).toContain("3 monitor(s) depend on it");
+
+      // The host comes back; VM 3 comes back with it, VMs 1 and 2 stay down: those are outages of their own.
+      for (let i = 0; i < 2; i++) await recordMonitorResult(db, vms[2]!.id, pass);
+      for (let i = 0; i < 2; i++) await recordMonitorResult(db, host.id, pass);
+      const up = await pendingEvents();
+      expect(up.map((e) => e.type).filter((t) => t.startsWith("monitor."))).toEqual(["monitor.up"]); // the host's; VM 3's silent outage needs no recovery notice
+      await handleMonitorUp(db, host.id, new Date());
+      const released = await pendingEvents();
+      expect(released).toHaveLength(2);
+      expect(released).toEqual(
+        expect.arrayContaining([
+          { type: "monitor.down", payload: { monitorId: vms[0]!.id } },
+          { type: "monitor.down", payload: { monitorId: vms[1]!.id } },
+        ]),
+      );
+      // ...once: the next failed check doesn't raise them again.
+      await recordMonitorResult(db, vms[0]!.id, fail);
+      expect(await pendingEvents()).toEqual([]);
+    } finally {
+      await setSetting(db, orgId, "monitoring.dependencies", false);
+    }
+  });
+
   it("ignores results for paused monitors", async () => {
     const m = await newMonitor();
     await setMonitorEnabled(db, orgId, m.id, false, owner());

@@ -40,6 +40,20 @@ export interface MonitorDefaults {
   responder?: string;
   autoResolve?: boolean;
   agentInstructions?: string | null;
+  parentMonitorId?: string | null;
+}
+
+/** What a monitor depends on (only while dependencies are on). */
+export function DependsOnField({ parents, selfId, defaultValue }: { parents: { value: string; label: string }[]; selfId?: string; defaultValue?: string | null }) {
+  return (
+    <SelectField
+      label="Depends on"
+      name="parentMonitorId"
+      defaultValue={defaultValue ?? ""}
+      options={[{ value: "", label: "Nothing" }, ...parents.filter((p) => p.value !== selfId)]}
+      hint="Such as the Proxmox host a VM runs on. While that monitor is down or failing, this one raises no incident of its own."
+    />
+  );
 }
 
 /** Guidance for the agent that responds when the monitor fails. */
@@ -118,6 +132,8 @@ export function MonitorFields({
   assets,
   responders,
   secrets = [],
+  parents = null,
+  selfId,
   compact = false,
 }: {
   defaults?: MonitorDefaults;
@@ -125,6 +141,10 @@ export function MonitorFields({
   responders: { value: string; label: string }[];
   /** Stored secrets by name, for SNMP and host monitors' credentials. */
   secrets?: { value: string; label: string }[];
+  /** Monitors it may depend on, or null while dependencies are off. */
+  parents?: { value: string; label: string }[] | null;
+  /** The monitor being edited, which can't depend on itself. */
+  selfId?: string;
   compact?: boolean;
 }) {
   const [kind, setKind] = useState<MonitorKind>(defaults.kind ?? "http");
@@ -284,6 +304,7 @@ export function MonitorFields({
 
       <div className={grid}>
         <SelectField label="Asset" name="assetId" defaultValue={defaults.assetId ?? ""} options={[{ value: "", label: "None" }, ...assets]} />
+        {parents && <DependsOnField parents={parents} selfId={selfId} defaultValue={defaults.parentMonitorId} />}
         <TextField
           label="Check every (seconds)"
           name="intervalSeconds"

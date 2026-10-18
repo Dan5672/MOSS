@@ -20,11 +20,13 @@ Stored per install; most are switched on the Settings page.
 | changes.emergency_tools | [] | The only tools an emergency change may use, when emergency changes are allowed. Empty means any tool. |
 | changes.require_separate_approver | false | Requires a change to be approved by someone other than the person who asked for it. |
 | changes.window_hours | 24 | How many hours after its approval a change without a window of its own may be carried out (24 by default). After that it has to be raised again. |
+| general.time_zone | "" | The time zone recurring tasks run in and MOSS shows times in (Settings → Time zone). Empty means the computer MOSS runs on: TZ in deploy/.env, which the installer sets from the host. |
 | homeassistant.allow_resume | false | Whether the Home Assistant integration may resume paused agents (pausing is always allowed). |
 | https.certificate | {} | The certificate uploaded in Settings → HTTPS, if any: who it's for, when it expires and its fingerprint. Moss reminds everyone in #general 30 and 7 days before it runs out. Empty when MOSS uses its own certificate authority. |
 | knowledge.agent_drafts | false | Makes what agents write in the wiki a draft: other agents don't see it until a person reads it and publishes it, so a note an agent was tricked into writing can't mislead the rest. Off by default. |
 | licence.key | "" | The business licence (Settings → About): a signed key, checked offline. Business integrations work only while it's valid, or for 14 days after it expires. |
 | licence.reminded | {} | Which reminders about the business licence's expiry have been sent (30 and 7 days before, on expiry, and when it stops). |
+| monitoring.dependencies | false | Monitor dependencies (Monitoring → Map). A monitor can depend on another, such as a VM on its Proxmox host. While a monitor it depends on is down or failing, its own outages raise no incident or notification, so one dead host is one alert. Off by default. |
 | monitoring.quiet_until | "" | Maintenance mode: until this time, monitors keep checking but raise no incidents. Set from Home Assistant. |
 | monitoring.retention_days | 14 | How many days of individual monitor check results are kept. Graphs go further back from rollups: 5-minute ones for 90 days and hourly ones for 2 years. |
 | moss.announced_version | "" | The newest version Moss has announced in #general (What's new, from library/docs/changelog.md). |
@@ -96,6 +98,10 @@ Granted by: Server Checks.
 ## Tool dns_lookup
 A network tool (read), run by the toolbox through the policy gate. Resolve a hostname to IP addresses (A/AAAA), or an IP to hostnames (PTR), using the toolbox's resolver.
 Granted by: Monitoring Response, Network Discovery.
+
+## Tool dns_txt_lookup
+A network tool (read), run by the toolbox through the policy gate. Look up a domain's TXT, MX, CNAME, CAA or NS records (e.g. SPF, DKIM, DMARC, CAA, MX) with their TTL, using the toolbox's resolver. A public DNS query only: it probes nothing. Hostnames only; use dns_lookup for addresses and PTR. Record text is set by whoever controls the domain and is untrusted data.
+Granted by: no skill (grant it on Agents → Tool access).
 
 ## Tool docker_api_containers
 A network tool (read), run by the toolbox through the policy gate. List a Docker host's containers through its read-only socket proxy: state, health, restarts, image and Compose project. With checkUpdates, also say which images have a newer version in their registry (asks the registry, e.g. Docker Hub).

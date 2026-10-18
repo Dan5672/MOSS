@@ -61,6 +61,15 @@ with the name of whoever last changed them, kept apart from the monitored system
 who can manage monitors set them (never a webhook, an integration or an agent), and they can't widen what
 the agent may do: it still has only its own tools, and risky actions still need an approved change.
 
+## Dependencies
+Optional, off by default: Monitoring, "Turn on dependencies". Then each monitor's Edit has "Depends on",
+e.g. a VM's monitor depends on its Proxmox host's. While a monitor is down, or has started failing, the
+monitors that depend on it (directly or further down) raise no incident or notification of their own:
+one dead host is one alarm, and its incident lists what depends on it. Their outages still show on their
+pages, marked "quiet". When the host comes back, anything that depends on it and is still down raises its
+own alarm. The Map tab draws the dependency tree, coloured by state. Turning dependencies off keeps what
+you set but holds nothing back.
+
 ## Incidents
 Raise one with "Raise an incident" (top right of Incidents). Types: break/fix, security, request.
 Priorities P1 (critical) to P4. Assigning an agent starts work. Comments support @mentions.

@@ -31,7 +31,7 @@ import { act, formObject, type ActionState } from "@/server/action";
 import { requirePermission, type CurrentUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { homeAssistantCall } from "@/server/home-assistant";
-import { storeSecret } from "@/server/services";
+import { queueRun, storeSecret } from "@/server/services";
 
 type Feature = "alerts" | "health" | "notify" | "sensors" | "inventory" | "selfHeal" | "logReview";
 
@@ -139,9 +139,12 @@ export async function saveHomeAssistantConnectionAction(_: ActionState, form: Fo
       await db().update(secrets).set({ allowedHosts: [f.host], updatedAt: new Date() }).where(eq(secrets.id, existing.id));
       await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "secret.scope", targetType: "secret", targetId: existing.id, details: { allowedHosts: [f.host] } });
     }
-    await save(user, { ...config, host: f.host, port: f.port, scheme: f.scheme, verifyTls: on(form.get("verifyTls")), mossUrl: f.mossUrl?.replace(/\/+$/, "") });
+    // Connecting it for the first time switches it on; after that, on and off stay the owner's choice.
+    const firstTime = !config.host;
+    await save(user, { ...config, host: f.host, port: f.port, scheme: f.scheme, verifyTls: on(form.get("verifyTls")), mossUrl: f.mossUrl?.replace(/\/+$/, "") }, firstTime ? true : undefined);
+    if (firstTime) await syncSideEffects(user.orgId);
     if (config.selfHeal.enabled) await refreshSelfHealTemplate(user);
-    return f.token ? "Saved the connection and the token." : "Saved the connection.";
+    return `${f.token ? "Saved the connection and the token." : "Saved the connection."}${firstTime ? " The integration is on." : ""}`;
   });
 }
 
@@ -318,6 +321,33 @@ const LOG_REVIEW_TASK =
   "Review Home Assistant's error log for anomalies, following your Home Assistant skill: compare the last 24 hours with your " +
   "log baseline, raise or update incidents only for real anomalies, and update the baseline.";
 
+/** The agent that reviews the log, given the Home Assistant skill and the token it needs. */
+async function logReviewer(user: CurrentUser, config: HaConfig, agentId: string) {
+  if (!user.permissions.has("agents.manage")) throw new Error("Log review also needs permission to manage agents");
+  const agent = await ownAgent(user.orgId, agentId);
+  if (!config.host) throw new Error("Set up the connection first");
+  const [skill] = await db().select({ id: skills.id }).from(skills).where(and(eq(skills.orgId, user.orgId), eq(skills.key, HA_SKILL)));
+  if (!skill) throw new Error("The Home Assistant skill isn't installed yet; it appears once the worker has restarted after the upgrade");
+  await db().insert(agentSkills).values({ agentId: agent.id, skillId: skill.id, grantedBy: user.id }).onConflictDoNothing();
+  await grantToken(user, agent.id);
+  return agent;
+}
+
+/** Asks an agent to review the log now, whether or not the daily review is on. */
+export async function reviewHomeAssistantLogNowAction(_: ActionState, form: FormData): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("integrations.manage");
+    const { enabled, config } = await current(user.orgId);
+    if (!enabled) throw new Error("Switch the integration on first");
+    const agentId = z.uuid("Choose the agent that reviews the logs").parse(form.get("agentId"));
+    const agent = await logReviewer(user, config, agentId);
+    if (agent.status !== "active") throw new Error(`${agent.name} is ${agent.status}`);
+    const job = await queueRun({ agentId: agent.id, task: LOG_REVIEW_TASK, trigger: "manual", requestedByUserId: user.id });
+    await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "agent.run_requested", targetType: "agent", targetId: agent.id, details: { task: LOG_REVIEW_TASK } });
+    return job ? `${agent.name} is reviewing Home Assistant's log; the findings land on its run and as incidents.` : `${agent.name} already has a run waiting; this one was not queued.`;
+  });
+}
+
 export async function saveHomeAssistantLogReviewAction(_: ActionState, form: FormData): Promise<ActionState> {
   return act(async () => {
     const user = await requirePermission("integrations.manage");
@@ -328,14 +358,8 @@ export async function saveHomeAssistantLogReviewAction(_: ActionState, form: For
       await syncSideEffects(user.orgId);
       return "Log review switched off.";
     }
-    if (!user.permissions.has("agents.manage")) throw new Error("Log review also needs permission to manage agents");
     const f = z.object({ agentId: z.uuid("Choose the agent that reviews the logs"), hour: z.coerce.number().int().min(0).max(23) }).parse(formObject(form));
-    const agent = await ownAgent(user.orgId, f.agentId);
-    if (!config.host) throw new Error("Set up the connection first");
-    const [skill] = await db().select({ id: skills.id }).from(skills).where(and(eq(skills.orgId, user.orgId), eq(skills.key, HA_SKILL)));
-    if (!skill) throw new Error("The Home Assistant skill isn't installed yet; it appears once the worker has restarted after the upgrade");
-    await db().insert(agentSkills).values({ agentId: agent.id, skillId: skill.id, grantedBy: user.id }).onConflictDoNothing();
-    await grantToken(user, agent.id);
+    const agent = await logReviewer(user, config, f.agentId);
     const cron = `0 ${f.hour} * * *`;
     let scheduleId = config.logReview.scheduleId;
     const [existing] = scheduleId ? await db().select({ id: agentSchedules.id }).from(agentSchedules).where(and(eq(agentSchedules.id, scheduleId), eq(agentSchedules.orgId, user.orgId))) : [];

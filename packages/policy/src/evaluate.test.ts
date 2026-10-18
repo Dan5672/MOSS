@@ -266,6 +266,11 @@ describe("public addresses", () => {
     for (const n of ["nas", "nas.local", "printer.lan", "pi.home.arpa", "NAS.Internal.", "192.168.1.5"]) expect(lookup(n), n).toMatchObject({ allow: true });
     for (const n of ["secret-data.attacker.example", "google.com", "8.8.8.8"]) expect(lookup(n), n).toMatchObject({ allow: false, code: "setting_disabled" });
     expect(evaluate({ tool: "dns_lookup", args: { name: "google.com", type: "A" } }, dns, ctx({}, { toolGrants: new Set(["dns_lookup"]) }))).toMatchObject({ allow: true });
+    // TXT lookups query public DNS without a target, so no allowed network is needed, but the internet setting still holds.
+    const txt: ToolManifest = { name: "dns_txt_lookup", class: "read", targetArgs: [] };
+    const txtCall = { tool: "dns_txt_lookup", args: { name: "_dmarc.example.com", type: "TXT" } };
+    expect(evaluate(txtCall, txt, ctx({}, { toolGrants: new Set(["dns_txt_lookup"]) }))).toMatchObject({ allow: true });
+    expect(evaluate(txtCall, txt, ctx({ allowInternet: false }, { toolGrants: new Set(["dns_txt_lookup"]) }))).toMatchObject({ allow: false, code: "setting_disabled" });
     // A query string is never an agent's, internet or not.
     const get = (path: string) => evaluate({ tool: "http_probe", args: { target: "192.168.1.5", path } }, probe, off);
     expect(get("/health")).toMatchObject({ allow: true });

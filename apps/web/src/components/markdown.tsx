@@ -5,12 +5,12 @@ import type { ReactNode } from "react";
 // data) and by people, so it builds React elements only: no HTML is ever passed through, and links go only
 // to other wiki pages ([[Page title]]) or to http(s) addresses.
 //
-// Supported: # to ### headings, paragraphs, "- " / "* " and "1. " lists, ``` code blocks, `code`,
-// **bold**, [[Page title]] / [[Page title|text]] and [text](https://...).
+// Supported: # to ###### headings, paragraphs, "- " / "* " and "1. " lists, | pipe | tables |, ``` code blocks,
+// --- rules, `code`, **bold**, *italic*, [[Page title]] / [[Page title|text]] and [text](https://...).
 
 export type PageLinks = (title: string) => string | null;
 
-const INLINE = /(\[\[([^\]|]{1,120})(?:\|([^\]]{1,120}))?\]\]|\[([^\]]{1,200})\]\((https?:\/\/[^\s)]{1,500})\)|`([^`]{1,500})`|\*\*([^*]{1,500})\*\*)/g;
+const INLINE = /(\[\[([^\]|]{1,120})(?:\|([^\]]{1,120}))?\]\]|\[([^\]]{1,200})\]\((https?:\/\/[^\s)]{1,500})\)|`([^`]{1,500})`|\*\*([^*]{1,500})\*\*|(?<![\w*])\*(?![\s*])([^*\n]{1,500}?)\*(?![\w*]))/g;
 
 function inline(text: string, links: PageLinks, key: string): ReactNode[] {
   const out: ReactNode[] = [];
@@ -36,6 +36,8 @@ function inline(text: string, links: PageLinks, key: string): ReactNode[] {
       out.push(
         <a key={k} href={m[5]} rel="noopener noreferrer nofollow" target="_blank" className="underline underline-offset-2">
           {m[4]}
+          {/* Link text is the writer's (often a model's) choice: show where it really goes. */}
+          {URL.canParse(m[5]) && <span className="ml-1 font-mono text-[0.8em] text-muted-foreground">({new URL(m[5]).host})</span>}
         </a>,
       );
     } else if (m[6]) {
@@ -46,12 +48,27 @@ function inline(text: string, links: PageLinks, key: string): ReactNode[] {
       );
     } else if (m[7]) {
       out.push(<strong key={k}>{m[7]}</strong>);
+    } else if (m[8]) {
+      out.push(<em key={k}>{m[8]}</em>);
     }
     last = m.index! + m[0].length;
   }
   if (last < text.length) out.push(text.slice(last));
   return out;
 }
+
+const TABLE_DIVIDER = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/;
+const isTableRow = (line: string | undefined) => !!line && line.includes("|");
+/** A pipe-table row's cells; "\|" is a literal pipe inside a cell. */
+const cells = (line: string) =>
+  line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/(?<!\\)\|$/, "")
+    .split(/(?<!\\)\|/)
+    .map((c) => c.trim().replace(/\\\|/g, "|"));
+const startsTable = (lines: string[], i: number) => isTableRow(lines[i]) && TABLE_DIVIDER.test(lines[i + 1] ?? "") && lines[i + 1]!.includes("-");
+const BLOCK_START = /^(#{1,6}\s|```|\s*([-*]|\d+\.)\s+|\s*([-*_])(\s*\3){2,}\s*$)/;
 
 export function Markdown({ text, links }: { text: string; links: PageLinks }) {
   const blocks: ReactNode[] = [];
@@ -72,7 +89,45 @@ export function Markdown({ text, links }: { text: string; links: PageLinks }) {
       );
       continue;
     }
-    const heading = /^(#{1,3})\s+(.+)$/.exec(line);
+    if (startsTable(lines, i)) {
+      const head = cells(line);
+      const align = cells(lines[i + 1]!).map((c): "left" | "center" | "right" => (c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : "left"));
+      const rows: string[][] = [];
+      for (i += 2; i < lines.length && isTableRow(lines[i]) && lines[i]!.trim(); i++) rows.push(cells(lines[i]!));
+      blocks.push(
+        <div key={key} className="overflow-x-auto">
+          <table className="w-full border-collapse text-left text-sm">
+            <thead>
+              <tr>
+                {head.map((h, j) => (
+                  <th key={j} style={{ textAlign: align[j] }} className="border-2 bg-muted px-2 py-1 font-semibold">
+                    {inline(h, links, `${key}-h${j}`)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, ri) => (
+                <tr key={ri}>
+                  {head.map((_, j) => (
+                    <td key={j} style={{ textAlign: align[j] }} className="border-2 px-2 py-1 align-top">
+                      {inline(r[j] ?? "", links, `${key}-${ri}-${j}`)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>,
+      );
+      continue;
+    }
+    if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) {
+      blocks.push(<hr key={key} className="border-t-2" />);
+      i++;
+      continue;
+    }
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
     if (heading) {
       const level = heading[1]!.length;
       const content = inline(heading[2]!, links, key);
@@ -113,7 +168,7 @@ export function Markdown({ text, links }: { text: string; links: PageLinks }) {
       continue;
     }
     const para: string[] = [];
-    while (i < lines.length && lines[i]!.trim() && !/^(#{1,3}\s|```|\s*([-*]|\d+\.)\s+)/.test(lines[i]!)) para.push(lines[i++]!);
+    while (i < lines.length && lines[i]!.trim() && !BLOCK_START.test(lines[i]!) && !startsTable(lines, i)) para.push(lines[i++]!);
     blocks.push(
       <p key={key} className="whitespace-pre-wrap">
         {inline(para.join("\n"), links, key)}

@@ -1,4 +1,4 @@
-import { ensureGeneralChannel, listConversations, mentionables } from "@moss/core";
+import { ensureGeneralChannel, listConversations, mentionables, openDm } from "@moss/core";
 import { ActionForm } from "@/components/action-form";
 import { CheckboxField, SelectField, TextField } from "@/components/field";
 import { FormDialog } from "@/components/form-dialog";
@@ -14,7 +14,14 @@ import { ChatList } from "./chat-list";
 export default async function ChatLayout({ children }: LayoutProps<"/chat">) {
   const user = await requireUser();
   await ensureGeneralChannel(db(), user.orgId);
-  const [list, everyone] = await Promise.all([listConversations(db(), user.orgId, user.id), mentionables(db(), user.orgId)]);
+  let [list, everyone] = await Promise.all([listConversations(db(), user.orgId, user.id), mentionables(db(), user.orgId)]);
+  // Every agent you may chat with is in your list: a newly hired one gets a DM the first time you open Chat.
+  const dmAgents = new Set(list.map((c) => c.agentId));
+  const missing = user.permissions.has("agents.chat") ? everyone.filter((m) => m.type === "agent" && !dmAgents.has(m.id)) : [];
+  if (missing.length) {
+    for (const a of missing) await openDm(db(), user.orgId, user.id, a);
+    list = await listConversations(db(), user.orgId, user.id);
+  }
   const others = everyone.filter((m) => !(m.type === "user" && m.id === user.id)).filter((m) => m.type === "user" || user.permissions.has("agents.chat"));
   const options = others.map((m) => ({ value: `${m.type}:${m.id}`, label: `${m.name} (${m.type === "agent" ? "agent" : "person"})` }));
   const items = list.map((c) => ({ id: c.id, kind: c.kind, title: c.title, unread: c.unread }));

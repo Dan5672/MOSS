@@ -33,6 +33,8 @@ export const SETTING_DEFAULTS = {
   "auth.sso_require_totp": false,
   /** Until when (ISO time) monitors stay quiet: no new incidents. Set from Home Assistant's maintenance mode. */
   "monitoring.quiet_until": "" as string,
+  /** Monitor dependencies: a monitor whose parent is down or failing stays quiet, and Monitoring shows the dependency map. */
+  "monitoring.dependencies": false,
   /** Whether Home Assistant may resume agents (pausing them is always allowed). */
   "homeassistant.allow_resume": false,
   /** The newest changelog version Moss has announced in #general. */
@@ -53,6 +55,8 @@ export const SETTING_DEFAULTS = {
   "backups.schedule": {} as Record<string, unknown>,
   /** When the last scheduled MOSS backup was started (ISO time), or when the schedule was saved. */
   "backups.last_scheduled": "" as string,
+  /** The install's time zone (an IANA name such as Europe/London); empty means the server's own (TZ). */
+  "general.time_zone": "" as string,
   /** The UPS shutdown plan (integrations/ups-shutdown.ts); empty means off. */
   "ups.shutdown_plan": {} as Record<string, unknown>,
   /** The shutdown in progress, if any (its change). */
@@ -65,6 +69,14 @@ type SettingValue<K extends SettingKey> = (typeof SETTING_DEFAULTS)[K];
 export async function getSetting<K extends SettingKey>(db: Database, orgId: string, key: K): Promise<SettingValue<K>> {
   const [row] = await db.select().from(settings).where(and(eq(settings.orgId, orgId), eq(settings.key, key)));
   return (row?.value as SettingValue<K> | undefined) ?? SETTING_DEFAULTS[key];
+}
+
+/** The server's own time zone: TZ in deploy/.env, which the installer sets to the host computer's. */
+export const serverTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
+/** The time zone recurring tasks run in and times are shown in: Settings' choice, or the server's own. */
+export async function orgTimeZone(db: Database, orgId: string): Promise<string> {
+  return (await getSetting(db, orgId, "general.time_zone")) || serverTimeZone();
 }
 
 export async function setSetting<K extends SettingKey>(db: Database, orgId: string, key: K, value: SettingValue<K>) {
@@ -106,6 +118,8 @@ export const SETTING_DESCRIPTIONS = {
   "tools.pin_hosts":
     "Remembers each device's certificate or SSH host key the first time MOSS sends it a credential, and refuses to send credentials if it changes. On by default; a changed key is shown in Settings, Security to trust or investigate.",
   "monitoring.quiet_until": "Maintenance mode: until this time, monitors keep checking but raise no incidents. Set from Home Assistant.",
+  "monitoring.dependencies":
+    "Monitor dependencies (Monitoring → Map). A monitor can depend on another, such as a VM on its Proxmox host. While a monitor it depends on is down or failing, its own outages raise no incident or notification, so one dead host is one alert. Off by default.",
   "homeassistant.allow_resume": "Whether the Home Assistant integration may resume paused agents (pausing is always allowed).",
   "moss.announced_version": "The newest version Moss has announced in #general (What's new, from library/docs/changelog.md).",
   "auth.sso_only": "Single sign-on only: everyone but owners must sign in with Microsoft or Google (owners keep their password and two-factor, in case sign-in breaks).",
@@ -120,6 +134,8 @@ export const SETTING_DESCRIPTIONS = {
   "backups.schedule":
     "Scheduled MOSS backups (Settings → Backups): off, daily or weekly at an hour in the install's time zone, and how many archives to keep (10 by default). Archives go to deploy/backups on the host, the same as deploy/backup.sh makes.",
   "backups.last_scheduled": "When the last scheduled MOSS backup started (or the schedule was saved), so each slot runs once.",
+  "general.time_zone":
+    "The time zone recurring tasks run in and MOSS shows times in (Settings → Time zone). Empty means the computer MOSS runs on: TZ in deploy/.env, which the installer sets from the host.",
   "ups.shutdown_plan":
     "The UPS shutdown plan (Settings > Integrations > UPS): what to switch off, in order, when a UPS on battery runs low; who carries it out; and whether it asks for approval each time or was approved in advance with a two-factor code.",
   "ups.shutdown_run": "The shutdown MOSS raised in the current power cut, so it isn't raised twice and can be cancelled if the power comes back.",
