@@ -30,6 +30,7 @@ describe.skipIf(!TEST_DATABASE_URL)("library sync (gate)", () => {
       "aws-account",
       "change-management",
       "config-backups",
+      "device-logs",
       "device-power",
       "firewall-actions",
       "home-assistant",

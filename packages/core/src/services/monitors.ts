@@ -6,6 +6,7 @@ import {
   changeAssets,
   changeRequests,
   incidents,
+  logEntries,
   monitorResults,
   monitors,
   monitorSources,
@@ -19,7 +20,7 @@ import {
   type MonitorResultSummary,
 } from "@moss/db";
 import { evaluateMonitorCheck, isPrivateRange, parseRange } from "@moss/policy";
-import { and, asc, desc, eq, gt, inArray, lt, lte, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, lte, ne, sql, type SQL } from "drizzle-orm";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { isFlapping, nextState, FLAP_WINDOW_MS, type CheckResult } from "../monitoring/state.js";
@@ -562,14 +563,23 @@ export async function recordMonitorResult(db: Database, monitorId: string, resul
   });
 }
 
+const PRUNE_CHUNK = 10_000;
+
+/** Deletes in chunks (short locks, and no ids held in memory), for tables with millions of rows. */
+export async function deleteInChunks(db: Database, table: typeof monitorResults | typeof logEntries, where: SQL | undefined): Promise<number> {
+  let total = 0;
+  for (;;) {
+    const chunk = db.select({ id: table.id }).from(table).where(where).limit(PRUNE_CHUNK);
+    const { count } = await db.delete(table).where(inArray(table.id, chunk));
+    total += count;
+    if (count < PRUNE_CHUNK) return total;
+  }
+}
+
 export async function pruneMonitorResults(db: Database, orgId: string, retentionDays: number): Promise<number> {
   const cutoff = new Date(Date.now() - retentionDays * 86_400_000);
   const owned = db.select({ id: monitors.id }).from(monitors).where(eq(monitors.orgId, orgId));
-  const deleted = await db
-    .delete(monitorResults)
-    .where(and(inArray(monitorResults.monitorId, owned), lt(monitorResults.at, cutoff)))
-    .returning({ id: monitorResults.id });
-  return deleted.length;
+  return deleteInChunks(db, monitorResults, and(inArray(monitorResults.monitorId, owned), lt(monitorResults.at, cutoff)));
 }
 
 // --- Incidents ------------------------------------------------------------------------------

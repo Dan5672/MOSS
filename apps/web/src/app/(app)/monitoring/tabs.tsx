@@ -3,6 +3,7 @@ import { SectionTabs } from "@/components/section-tabs";
 export const MONITORING_TABS = [
   { href: "/monitoring", label: "Monitors" },
   { href: "/monitoring/dashboards", label: "Dashboards" },
+  { href: "/monitoring/logs", label: "Logs" },
   { href: "/monitoring/sources", label: "Webhook sources" },
 ] as const;
 

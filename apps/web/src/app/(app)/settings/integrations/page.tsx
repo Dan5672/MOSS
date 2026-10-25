@@ -5,6 +5,7 @@ import {
   getLicenceStatus,
   integrationAllowed,
   INTEGRATIONS,
+  isModuleEnabled,
   listChatLinks,
   loadChatModule,
   loadHomeAssistant,
@@ -13,23 +14,26 @@ import {
   type IntegrationDef,
 } from "@moss/core";
 import Link from "next/link";
+import { ActionForm } from "@/components/action-form";
 import { NoPermission, PageHeader } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
+import { setSyslogEnabledAction } from "./actions";
 
 export const metadata = { title: "Integrations" };
 
 export default async function ModulesPage() {
   const user = await requireUser();
   if (!user.permissions.has("integrations.manage")) return <NoPermission />;
-  const [ha, others, chats, links, licence] = await Promise.all([
+  const [ha, others, chats, links, licence, syslog] = await Promise.all([
     loadHomeAssistant(db(), user.orgId),
     Promise.all(INTEGRATIONS.map(async (def) => ({ def, it: await loadIntegration(db(), user.orgId, def) }))),
     Promise.all(CHAT_PLATFORMS.map(async (p) => ({ p, it: await loadChatModule(db(), user.orgId, p) }))),
     listChatLinks(db(), user.orgId),
     getLicenceStatus(db(), user.orgId),
+    isModuleEnabled(db(), user.orgId, "syslog"),
   ]);
   const business = others.filter(({ def }) => def.plan === "business");
   const c = ha.config;
@@ -68,6 +72,37 @@ export default async function ModulesPage() {
             <Link href="/settings/integrations/home-assistant" className="w-fit border-2 px-3 py-2 font-mono text-sm hover:bg-muted">
               {c.host ? "Configure" : "Set up"}
             </Link>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              Device logs <Badge variant={syslog ? "default" : "outline"}>{syslog ? "On" : "Off"}</Badge>
+            </CardTitle>
+            <CardDescription>
+              Syslog from your firewalls, switches and servers, through MOSS&apos;s collector on port 514, so agents with the Device Logs skill can read
+              what a device logged.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 text-sm">
+            <p>
+              {syslog ? (
+                <>
+                  On. Add a Device logs source in{" "}
+                  <Link href="/monitoring/sources" className="underline underline-offset-2">
+                    Monitoring → Webhook sources
+                  </Link>
+                  , and read them in{" "}
+                  <Link href="/monitoring/logs" className="underline underline-offset-2">
+                    Monitoring → Logs
+                  </Link>
+                  .
+                </>
+              ) : (
+                "Off: lines from the collector are refused."
+              )}
+            </p>
+            <ActionForm action={setSyslogEnabledAction.bind(null, !syslog)} submitLabel={syslog ? "Switch off" : "Switch on"} submitVariant="outline" />
           </CardContent>
         </Card>
         {chats

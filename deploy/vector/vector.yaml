@@ -1,0 +1,91 @@
+# Vector: receives syslog from your devices and hands it to MOSS in batches (the "syslog" compose profile).
+# MOSS stores lines only from senders inside an allowed network (Settings → Networks) or its accepted senders
+# (Monitoring → Logs); everything in a line except the sender's address is untrusted, and over UDP so is that. Set MOSS_SYSLOG_SOURCE and MOSS_SYSLOG_TOKEN in deploy/.env from the
+# syslog source made in Monitoring → Webhook sources.
+data_dir: /tmp/vector
+
+# MOSS_SYSLOG_SOURCE and MOSS_SYSLOG_TOKEN, as compose secrets.
+secret:
+  moss:
+    type: directory
+    path: /run/secrets
+    remove_trailing_whitespace: true
+
+sources:
+  syslog_udp:
+    type: syslog
+    mode: udp
+    address: 0.0.0.0:5514
+  syslog_tcp:
+    type: syslog
+    mode: tcp
+    address: 0.0.0.0:5514
+    connection_limit: 200
+    max_length: 8192
+
+transforms:
+  # Which listener a line came in on: MOSS links only TCP lines to a device, since a UDP sender is trivial to fake.
+  udp:
+    type: remap
+    inputs: [syslog_udp]
+    source: '.transport = "udp"'
+  tcp:
+    type: remap
+    inputs: [syslog_tcp]
+    source: '.transport = "tcp"'
+  # MOSS's shape. source_ip is the packet's sender; the rest is what the line says. Cut to what MOSS keeps
+  # (syslog.ts) so the buffer below holds small events: a UDP line can be ~100 KB.
+  shape:
+    type: remap
+    inputs: [udp, tcp]
+    source: |
+      . = {
+        "ip": .source_ip,
+        "transport": .transport,
+        "hostname": truncate(string(.hostname) ?? "", 255),
+        "app": truncate(string(.appname) ?? "", 100),
+        "severity": .severity,
+        "facility": .facility,
+        "at": .timestamp,
+        "message": truncate(string(.message) ?? "", 2000),
+      }
+  # Drops debug lines. To keep only warnings and worse:
+  #   condition: 'includes(["emerg", "alert", "crit", "err", "warning"], .severity)'
+  severity:
+    type: filter
+    inputs: [shape]
+    condition: '.severity != "debug"'
+  # At most 100 lines a second from one address, so one chatty device doesn't crowd out the rest.
+  per_sender:
+    type: throttle
+    inputs: [severity]
+    key_field: "{{ ip }}"
+    threshold: 100
+    window_secs: 1
+  # And 500 a second in all: a spoofer sending from many addresses can drown out real lines, but not fill the disk.
+  total:
+    type: throttle
+    inputs: [per_sender]
+    threshold: 500
+    window_secs: 1
+
+sinks:
+  moss:
+    type: http
+    inputs: [total]
+    uri: "http://web:3000/api/hooks/logs/SECRET[moss.syslog_source]"
+    method: post
+    auth:
+      strategy: bearer
+      token: "SECRET[moss.syslog_token]"
+    encoding:
+      codec: json
+    batch:
+      max_events: 1000
+      max_bytes: 900000
+      timeout_secs: 2
+    # In memory only: if MOSS is down for long, the newest lines are dropped rather than filling the disk.
+    buffer:
+      type: memory
+      max_events: 20000
+      when_full: drop_newest

@@ -8,7 +8,9 @@ core: true
 ---
 You are part of a team that remembers.
 
-- Before raising a finding, check `kb_search` for the device, IP or service. If a note explains it
+- Before you connect to, scan or raise a finding about a device, check `kb_search` for its IP or
+  hostname: the owner may already have told the team its port or role. Network tool results also
+  carry `teamNotes` about the hosts you named; follow them. If a note explains it
   (an expected open port, a device's role, a decision the owner made), don't report it again.
 - When you learn something that will still be true next week, write it down with `kb_write`, with
   the IP or hostname as the subject. Update an existing note rather than adding a near-copy. Don't

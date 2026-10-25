@@ -50,6 +50,37 @@ Monitoring > Webhook sources connects tools you already run: Uptime Kuma, Beszel
 Alertmanager, or any script that posts JSON. Each source has its own URL and token (shown once), and
 each alert becomes a monitor in MOSS. The Home Assistant module has its own source.
 
+## The Device logs integration
+Devices that can send syslog (firewalls, switches, NAS boxes, Proxmox, ESXi) can send it to MOSS, so
+agents can read what a device logged without holding a credential for it. It is off until someone with
+integrations.manage switches it on in Settings > Integrations > Device logs; while it's off, MOSS refuses
+the collector's lines, the Logs tab says so, and `logs_search` returns nothing (lines already stored are
+kept until they age out). Once it's on, add a "Device logs" source in
+Webhook sources, put the three lines it shows in deploy/.env, and run `docker compose up -d` in deploy:
+that starts the collector (Vector), which listens on port 514, UDP and TCP, of the MOSS host. Then point
+each device's remote syslog at that host. The Logs tab shows what arrived.
+- Lines are kept only from senders inside an allowed network (Settings > Networks), or listed under
+  "Accepted senders" on the Logs tab, and never from an off-limits network. Accepted senders don't let
+  agents scan or act on those addresses.
+- Syslog has no sign-in: anyone on your network can send a line that claims to be any device. Over UDP
+  even the sender's address can be faked, so those lines show as "unverified" and aren't linked to a
+  device. Over TCP the address is much harder to fake, and lines are linked to the inventory device at
+  that address: use TCP where the device offers it. The hostname, app and message are always the
+  device's own words, shown and given to agents as data, never as instructions.
+- Agents search logs with `logs_search`, in the Device Logs skill. It isn't given to agents by default:
+  add the skill on the page of each agent that should read logs. Log lines can hold user
+  names, and mistyped passwords in failed sign-ins; what an agent reads goes to its model provider.
+- Debug lines are dropped. The collector passes at most 100 lines a second from one address and 500 a
+  second in all; a flood (or someone faking many addresses) can drown out real lines while it lasts.
+  Logs are kept for 7 days (logs.retention_days), and at most 1,000,000 lines (logs.max_rows; the oldest
+  go first).
+- Syslog over UDP can lose lines, and a device that stops logging looks the same as a quiet one: keep
+  monitors for up and down.
+- Docker Desktop (Windows and Mac) shows every sender as Docker's own address (`docker compose logs web`
+  names refused senders). Add that one address to Accepted senders, not to
+  Networks; every device then looks the same, so none are linked to the inventory. On Linux, Docker
+  keeps the real sender's address.
+
 ## When something goes down
 After the failure threshold, MOSS opens an incident at the monitor's priority for its responder; an agent
 responder starts work straight away. A repeat while the incident is open adds a comment instead. On

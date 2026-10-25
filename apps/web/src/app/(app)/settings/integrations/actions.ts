@@ -25,6 +25,7 @@ import {
 } from "@moss/core";
 import { agents, agentSchedules, agentSkills, agentToolOverrides, monitors, monitorSources, secretGrants, secrets, skills, standardChangeTemplates } from "@moss/db";
 import { and, eq } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { describeCron } from "@/lib/schedule";
 import { act, formObject, type ActionState } from "@/server/action";
@@ -100,6 +101,16 @@ export async function setHomeAssistantEnabledAction(enabled: boolean): Promise<A
     await save(user, config, enabled);
     await syncSideEffects(user.orgId);
     return enabled ? "Home Assistant integration switched on." : "Home Assistant integration switched off: nothing of it runs, and agents can't use its tools.";
+  });
+}
+
+/** Device logs (syslog): while off, the collector's lines are refused and agents' logs_search returns nothing. */
+export async function setSyslogEnabledAction(enabled: boolean): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("integrations.manage");
+    await saveModule(db(), user.orgId, "syslog", { enabled }, actor(user));
+    revalidatePath("/settings/integrations");
+    return enabled ? "Device logs switched on. Add a Device logs source in Monitoring → Webhook sources." : "Device logs switched off: new lines are refused, and agents can't search them.";
   });
 }
 
