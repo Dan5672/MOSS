@@ -757,7 +757,7 @@ export const monitorSources = pgTable("monitor_sources", {
   id: id(),
   ...tenancy(),
   name: text("name").notNull(),
-  kind: text("kind", { enum: ["uptime_kuma", "beszel", "alertmanager", "generic", "home_assistant"] }).notNull(),
+  kind: text("kind", { enum: ["uptime_kuma", "beszel", "alertmanager", "generic", "home_assistant", "syslog"] }).notNull(),
   /** sha256 of the bearer token; the token itself is shown once on creation. */
   tokenHash: text("token_hash").notNull(),
   /** Applied to monitors this source creates; editable per monitor afterwards. */
@@ -923,6 +923,34 @@ export const monitorStateChanges = pgTable(
     at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("monitor_state_changes_monitor_at_idx").on(t.monitorId, t.at)],
+);
+
+/**
+ * Syslog lines from devices, forwarded by the Vector collector through a "syslog" source. Everything but
+ * sourceIp (the sender's address as Vector saw it) and receivedAt is what the device claims, so untrusted.
+ */
+export const logEntries = pgTable(
+  "log_entries",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    orgId: uuid("org_id").notNull(),
+    sourceId: uuid("source_id").notNull().references(() => monitorSources.id, { onDelete: "cascade" }),
+    /** The inventory device at sourceIp, when there is one. */
+    assetId: uuid("asset_id").references(() => assets.id, { onDelete: "set null" }),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+    /** The device's own timestamp: often without a year or zone, so for display only. */
+    loggedAt: timestamp("logged_at", { withTimezone: true }),
+    sourceIp: inet("source_ip").notNull(),
+    /** "tcp" or "udp". A UDP sender's address is trivial to fake, so only TCP lines are linked to a device. */
+    transport: text("transport").notNull().default("udp"),
+    hostname: text("hostname"),
+    app: text("app"),
+    /** 0 emergency … 7 debug. */
+    severity: integer("severity"),
+    facility: text("facility"),
+    message: text("message").notNull(),
+  },
+  (t) => [index("log_entries_org_received_idx").on(t.orgId, t.receivedAt), index("log_entries_asset_received_idx").on(t.assetId, t.receivedAt)],
 );
 
 // ---------------------------------------------------------------------------

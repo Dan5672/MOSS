@@ -125,7 +125,8 @@ services:
       - ./https:/caddy:ro
     ports:
       - "${MOSS_WEB_BIND:-127.0.0.1}:3000:3000"
-    networks: [backend]
+    # syslog: only so the log collector (vector) can post to it (internal: no route out).
+    networks: [backend, syslog]
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
@@ -200,6 +201,32 @@ services:
       - tailscale_state:/var/lib/tailscale
       - ./tailscale:/config:ro
     networks: [backend, egress]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on: [web]
+
+  # Syslog from your devices, so agents can read what a device logged without a credential for it. Enable with the
+  # syslog profile (add syslog to COMPOSE_PROFILES) and MOSS_SYSLOG_SOURCE and MOSS_SYSLOG_TOKEN from a syslog source
+  # (Monitoring → Webhook sources). Listens on port 514 (UDP and TCP) of this host: the one port MOSS opens to the LAN.
+  # Reaches the web app directly on the internal syslog network; no database, no secrets beyond that source's token.
+  # syslog_in only carries the published port (an internal network can't publish one); nothing else is on it.
+  vector:
+    image: timberio/vector:0.59.0-distroless-static@sha256:2138c72ef15477d3a60126da851407a198ec61d2ff4cd600a4e69db5f6a29ff7
+    profiles: [syslog]
+    restart: unless-stopped
+    command: ["--config", "/etc/vector/vector.yaml"]
+    # Read by vector.yaml's secret backend (the files in /run/secrets), not the environment.
+    secrets: [syslog_source, syslog_token]
+    volumes:
+      - ./vector:/etc/vector:ro
+    ports:
+      - "${MOSS_SYSLOG_BIND:-0.0.0.0}:${MOSS_SYSLOG_PORT:-514}:5514/udp"
+      - "${MOSS_SYSLOG_BIND:-0.0.0.0}:${MOSS_SYSLOG_PORT:-514}:5514/tcp"
+    networks: [syslog, syslog_in]
+    # Not read_only: compose can't hand environment secrets to a read-only container. As nobody it can't write
+    # the image's files anyway.
+    user: "65534:65534"
+    tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     depends_on: [web]
@@ -284,6 +311,10 @@ networks:
   tools: { internal: true }
   # Gives the toolbox a route to your network for scanning.
   egress: {}
+  # The log collector and the web app.
+  syslog: { internal: true }
+  # The collector's published syslog port.
+  syslog_in: {}
 
 secrets:
   master_key: { file: ./secrets/master.key }
@@ -296,6 +327,9 @@ secrets:
   backup_run_token: { file: ./secrets/backup-run.token }
   bridge_token: { file: ./secrets/bridge.token }
   setup_code: { file: ./secrets/setup.code }
+  # From deploy/.env, for the syslog profile.
+  syslog_source: { environment: MOSS_SYSLOG_SOURCE }
+  syslog_token: { environment: MOSS_SYSLOG_TOKEN }
 
 volumes:
   pgdata:

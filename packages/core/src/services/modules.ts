@@ -6,8 +6,8 @@ import { writeAudit } from "../store/audit-store.js";
 import { INTEGRATIONS } from "../integrations/registry.js";
 import type { Actor } from "./assets.js";
 
-/** Integrations: Home Assistant (its own pages) and the ones in the integrations registry. */
-export const MODULE_KEYS: string[] = ["home_assistant", "telegram", "discord", "slack", ...INTEGRATIONS.map((d) => d.key)];
+/** Integrations: Home Assistant (its own pages), device logs (syslog), and the ones in the integrations registry. */
+export const MODULE_KEYS: string[] = ["home_assistant", "telegram", "discord", "slack", "syslog", ...INTEGRATIONS.map((d) => d.key)];
 export type ModuleKey = string;
 /** What each integration is called on screen (and in Moss's docs, which a test checks). */
 export const MODULE_NAMES: Record<ModuleKey, string> = {
@@ -15,6 +15,7 @@ export const MODULE_NAMES: Record<ModuleKey, string> = {
   telegram: "Telegram",
   discord: "Discord",
   slack: "Slack",
+  syslog: "Device logs",
   ...Object.fromEntries(INTEGRATIONS.map((d) => [d.key, d.name])),
 };
 

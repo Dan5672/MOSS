@@ -6,6 +6,7 @@ import {
   createMonitorSource,
   deleteMonitor,
   deleteMonitorSource,
+  isModuleEnabled,
   monitorTargetWarning,
   setMonitorEnabled,
   setMonitorSourceEnabled,
@@ -14,6 +15,7 @@ import {
   writeAudit,
 } from "@moss/core";
 import { monitors } from "@moss/db";
+import { parseRange } from "@moss/policy";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -179,6 +181,7 @@ export async function createSourceAction(_: SourceCreated, form: FormData): Prom
   const state = await act(async () => {
     const user = await requirePermission("monitoring.manage");
     const f = formObject(form);
+    if (f.kind === "syslog" && !(await isModuleEnabled(db(), user.orgId, "syslog"))) throw new Error("Switch on Device logs in Settings → Integrations first.");
     const { source, token } = await createMonitorSource(
       db(),
       user.orgId,
@@ -189,6 +192,19 @@ export async function createSourceAction(_: SourceCreated, form: FormData): Prom
     return `Created ${source.name}. Copy the token now: it is not shown again.`;
   });
   return { ...state, ...created };
+}
+
+/** Syslog senders accepted besides the allowed networks (Monitoring, Logs). */
+export async function saveLogSendersAction(_: ActionState, form: FormData): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("monitoring.manage");
+    const senders = [...new Set(String(form.get("senders") ?? "").split(/[\s,]+/).filter(Boolean))].slice(0, 50);
+    for (const s of senders) if (!parseRange(s)) throw new Error(`"${s}" isn't an address or a CIDR`);
+    await setSetting(db(), user.orgId, "logs.allowed_senders", senders);
+    await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "setting.update", targetType: "setting", targetId: "logs.allowed_senders", details: { senders } });
+    revalidatePath("/monitoring/logs");
+    return "Accepted senders saved.";
+  });
 }
 
 export async function setSourceEnabledAction(sourceId: string, enabled: boolean): Promise<ActionState> {

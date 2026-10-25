@@ -6,13 +6,14 @@ import { SelectField, TextField } from "@/components/field";
 import { Button } from "@/components/ui/button";
 import { createSourceAction, type SourceCreated } from "../actions";
 
-type Kind = "uptime_kuma" | "beszel" | "alertmanager" | "generic";
+type Kind = "uptime_kuma" | "beszel" | "alertmanager" | "generic" | "syslog";
 
 const KIND_OPTIONS: { value: Kind; label: string }[] = [
   { value: "uptime_kuma", label: "Uptime Kuma" },
   { value: "beszel", label: "Beszel" },
   { value: "alertmanager", label: "Prometheus Alertmanager" },
   { value: "generic", label: "Generic JSON (scripts, cron jobs, anything else)" },
+  { value: "syslog", label: "Device logs (syslog, through MOSS's collector)" },
 ];
 
 export function Snippet({ children }: { children: string }) {
@@ -33,7 +34,7 @@ export function Snippet({ children }: { children: string }) {
 }
 
 /** Setup steps for each sender, with the URL and token filled in. */
-export function SetupInstructions({ kind, url, token }: { kind: Kind; url: string; token: string }) {
+export function SetupInstructions({ kind, url, token, sourceId }: { kind: Kind; url: string; token: string; sourceId: string }) {
   const host = url.replace(/^https?:\/\//, "");
   switch (kind) {
     case "uptime_kuma":
@@ -92,6 +93,29 @@ export function SetupInstructions({ kind, url, token }: { kind: Kind; url: strin
           <li>Send status up when it recovers. Several alerts can go in one request as {"{\"alerts\": [...]}"}.</li>
         </ol>
       );
+    case "syslog":
+      return (
+        <ol className="list-decimal space-y-2 pl-5 text-sm">
+          <li>
+            On the MOSS host, add these to deploy/.env (keep the profiles already in COMPOSE_PROFILES, comma-separated):
+            <Snippet>{`COMPOSE_PROFILES=https,syslog
+MOSS_SYSLOG_SOURCE=${sourceId}
+MOSS_SYSLOG_TOKEN=${token}`}</Snippet>
+          </li>
+          <li>
+            Start the collector from the deploy folder: <Snippet>docker compose up -d</Snippet>
+          </li>
+          <li>
+            Point each device&apos;s remote syslog at <strong>{host.replace(/:\d+$/, "")}</strong>, port 514. Use TCP where the device offers
+            it: a UDP sender&apos;s address can be faked, so UDP lines are marked unverified and aren&apos;t linked to a device.
+          </li>
+          <li>
+            Lines are kept only from devices inside an allowed network (Settings → Networks) or listed under Accepted senders on Monitoring →
+            Logs, where you&apos;ll find them.
+          </li>
+          <li>To let an agent read them, give it the Device Logs skill.</li>
+        </ol>
+      );
   }
 }
 
@@ -114,7 +138,7 @@ export function NewSourceForm({ baseUrl, agents }: { baseUrl: string; agents: { 
           <span className="font-medium">Token</span>
           <Snippet>{state.token}</Snippet>
         </div>
-        <SetupInstructions kind={kind} url={url} token={state.token} />
+        <SetupInstructions kind={kind} url={url} token={state.token} sourceId={state.sourceId} />
       </div>
     );
   }

@@ -2,5 +2,8 @@
 (moss) {
 	encode gzip
 	header Strict-Transport-Security "max-age=31536000"
+	# Only the log collector posts device logs, straight to web on its own network; through here a token holder
+	# could claim any sender address.
+	respond /api/hooks/logs/* 404
 	reverse_proxy web:3000
 }

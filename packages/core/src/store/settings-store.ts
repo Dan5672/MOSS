@@ -9,6 +9,12 @@ export const SETTING_DEFAULTS = {
   /** Hours an approved change without its own window may run, from its approval. */
   "changes.window_hours": 24,
   "monitoring.retention_days": 14,
+  /** Days of device logs (syslog) kept. */
+  "logs.retention_days": 7,
+  /** The most device log lines kept; the oldest go first. */
+  "logs.max_rows": 1_000_000,
+  /** Extra syslog senders (CIDRs) accepted besides the allowed networks, without letting agents act on them. */
+  "logs.allowed_senders": [] as string[],
   /** A remote tools catalog (https URL of its index); empty for the bundled catalog only. */
   "tools.catalog_url": "" as string,
   /** vuln_scan's "cve" profile sends service names and versions to vulners.com, so it is off until allowed. */
@@ -96,6 +102,9 @@ export const SETTING_DESCRIPTIONS = {
   "changes.allow_emergency": "Lets agents raise emergency changes that run straight away and are reviewed afterwards. Off by default.",
   "changes.require_separate_approver": "Requires a change to be approved by someone other than the person who asked for it.",
   "changes.window_hours": "How many hours after its approval a change without a window of its own may be carried out (24 by default). After that it has to be raised again.",
+  "logs.allowed_senders": "Syslog senders (addresses or CIDRs) accepted as well as the allowed networks, without letting agents scan or act on them. On Docker Desktop every sender shows as Docker's own address, so that one goes here. Off-limits networks are still refused.",
+  "logs.max_rows": "The most device log lines kept (1,000,000 by default, about a gigabyte); the oldest are deleted first, every hour.",
+  "logs.retention_days": "How many days of device logs (syslog, through the collector) are kept. 7 by default; busy firewalls send a lot.",
   "monitoring.retention_days": "How many days of individual monitor check results are kept. Graphs go further back from rollups: 5-minute ones for 90 days and hourly ones for 2 years.",
   "tools.catalog_url": "An optional remote tools catalog (an https URL of its index). Empty means only the bundled catalog.",
   "tools.allow_vulners": "Allows vuln_scan's cve profile, which sends service names and versions to vulners.com. Off by default.",

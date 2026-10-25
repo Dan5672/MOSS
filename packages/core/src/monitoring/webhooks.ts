@@ -1,9 +1,9 @@
 // Parsers for monitoring webhooks. Every field here comes from outside MOSS and is untrusted:
 // it is length-capped, stripped of control characters, and only ever stored and displayed as data.
 
-export type SourceKind = "uptime_kuma" | "beszel" | "alertmanager" | "generic" | "home_assistant";
+export type SourceKind = "uptime_kuma" | "beszel" | "alertmanager" | "generic" | "home_assistant" | "syslog";
 /** Kinds people can create on the Monitoring page; home_assistant sources belong to the Home Assistant module. */
-export const SOURCE_KINDS: SourceKind[] = ["uptime_kuma", "beszel", "alertmanager", "generic"];
+export const SOURCE_KINDS: SourceKind[] = ["uptime_kuma", "beszel", "alertmanager", "generic", "syslog"];
 
 export interface ParsedAlert {
   /** Stable identity of the external check; one MOSS monitor per key. */
@@ -24,6 +24,8 @@ export type ParseOutcome = { ok: true; alerts: ParsedAlert[]; test?: boolean } |
 export function cleanText(value: unknown, max: number): string {
   if (value === undefined || value === null) return "";
   return String(value)
+    // Cf: zero-width, bidi and tag characters, invisible on screen but read by a model.
+    .replace(/\p{Cf}+/gu, "")
     .replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim()
@@ -180,5 +182,7 @@ export function parseWebhook(kind: SourceKind, body: unknown): ParseOutcome {
       return parseGeneric(b);
     case "home_assistant":
       return parseHomeAssistant(b);
+    case "syslog":
+      return { ok: false, error: "Syslog sources post to /api/hooks/logs" };
   }
 }
