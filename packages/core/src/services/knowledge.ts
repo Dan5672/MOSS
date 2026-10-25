@@ -3,7 +3,7 @@
 // versions. Everything an agent writes here is model output and may quote untrusted network data, so it
 // is stored as text and only ever rendered as text (Markdown without HTML).
 import { assets, knowledgeNotes, knowledgeRevisions, type Database } from "@moss/db";
-import { and, asc, desc, eq, ilike, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, ne, or, sql } from "drizzle-orm";
 import { writeAudit } from "../store/audit-store.js";
 import { getSetting } from "../store/settings-store.js";
 import type { Actor } from "./assets.js";
@@ -74,6 +74,18 @@ export async function searchNotes(db: Database, orgId: string, f: { query?: stri
     .where(and(...conds))
     .orderBy(desc(knowledgeNotes.updatedAt))
     .limit(Math.min(Math.max(f.limit ?? 20, 1), 100));
+}
+
+/** Published notes whose subject is one of these hosts or addresses (case-insensitive), newest first. */
+export async function notesAbout(db: Database, orgId: string, subjects: string[], limit = 5) {
+  const wanted = [...new Set(subjects.map((s) => s.trim().toLowerCase()).filter(Boolean))];
+  if (!wanted.length) return [];
+  return db
+    .select()
+    .from(knowledgeNotes)
+    .where(and(eq(knowledgeNotes.orgId, orgId), eq(knowledgeNotes.draft, false), inArray(sql`lower(${knowledgeNotes.subject})`, wanted)))
+    .orderBy(desc(knowledgeNotes.updatedAt))
+    .limit(limit);
 }
 
 export async function getNote(db: Pick<Database, "select">, orgId: string, id: string) {

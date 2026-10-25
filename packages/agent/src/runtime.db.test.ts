@@ -1,5 +1,5 @@
 // Agent runtime against Postgres with a scripted LLM and a fake gate. Run with MOSS_TEST_DATABASE_URL set.
-import { approveChange, bootstrapOrg, createChangeRequest, createNote, getChange, getIncident, getNote, setNetworkStatus, setSetting } from "@moss/core";
+import { approveChange, bootstrapOrg, createChangeRequest, createNote, getChange, getIncident, getNote, saveModule, setNetworkStatus, setSetting } from "@moss/core";
 import { agentRuns, agents, agentSkills, agentToolOverrides, assets, budgets, models, notifications, providers, runSteps, skills, tokenUsage, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { MockAdapter, type ScriptedTurn } from "@moss/llm";
@@ -269,6 +269,54 @@ describe.skipIf(!TEST_DATABASE_URL)("agent runtime (postgres)", () => {
     ];
     await runAgent(deps(), { agentId: sam.id, task: "Edit the printer note.", trigger: "manual" });
     expect((await getNote(db, actor.orgId, mine.id))!.body).toBe("Leave the printer's open ports alone.");
+  });
+
+  it("attaches published notes about the hosts a network tool touched, once per run", async () => {
+    const nina = await hire();
+    await createNote(db, actor.orgId, { title: "Honeypot", body: "192.168.1.20 is my honeypot; its open ports are expected.", subject: "192.168.1.20" }, { type: "user", id: actor.userId });
+    await createNote(db, actor.orgId, { title: "NAS port", body: "DSM is on 5001.", subject: "NAS.lan" }, { type: "user", id: actor.userId });
+    const scan = (id: string) => ({ toolCalls: [{ id, name: "nmap_scan", input: { targets: ["192.168.1.0/24"], profile: "ping" } }] });
+    script = [
+      scan("a"),
+      {
+        ...scan("b"),
+        expect: (input) => {
+          const [r] = "toolResults" in input ? input.toolResults : [];
+          // From the scan's hosts, not just its arguments; the NAS note's subject is a hostname, not an address.
+          expect(data(r!.content).teamNotes).toEqual([expect.objectContaining({ subject: "192.168.1.20", title: "Honeypot", by: "person" })]);
+        },
+      },
+      {
+        toolCalls: [{ id: "c", name: "nmap_scan", input: { targets: ["192.168.1.10"], url: "https://nas.lan:5000/" } }],
+        expect: (input) => {
+          const [r] = "toolResults" in input ? input.toolResults : [];
+          expect(data(r!.content).teamNotes).toBeUndefined(); // already shown this run
+        },
+      },
+      {
+        text: "done",
+        expect: (input) => {
+          const [r] = "toolResults" in input ? input.toolResults : [];
+          expect(data(r!.content).teamNotes).toEqual([expect.objectContaining({ title: "NAS port" })]); // a URL's host, case-insensitive
+        },
+      },
+    ];
+    expect((await runAgent(deps(), { agentId: nina.id, task: "Scan.", trigger: "manual" })).status).toBe("succeeded");
+  });
+
+  it("logs_search works only while the Device logs module is on", async () => {
+    const nina = await hire();
+    const [skill] = await db.select().from(skills).where(and(eq(skills.orgId, actor.orgId), eq(skills.key, "device-logs")));
+    await db.insert(agentSkills).values({ agentId: nina.id, skillId: skill!.id });
+    const search = (expected: (d: unknown) => void): ScriptedTurn[] => [
+      { toolCalls: [{ id: "l", name: "logs_search", input: {} }] },
+      { text: "done", expect: (input) => expected(data(("toolResults" in input ? input.toolResults : [])[0]!.content)) },
+    ];
+    script = search((d) => expect(d).toMatchObject({ error: expect.stringMatching(/switched off/) }));
+    await runAgent(deps(), { agentId: nina.id, task: "Logs?", trigger: "manual" });
+    await saveModule(db, actor.orgId, "syslog", { enabled: true }, { type: "user", id: actor.userId });
+    script = search((d) => expect(d).toEqual([]));
+    expect((await runAgent(deps(), { agentId: nina.id, task: "Logs?", trigger: "manual" })).status).toBe("succeeded");
   });
 
   it("leaves out MOSS tools removed by a per-agent override, and refuses them if called", async () => {

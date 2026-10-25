@@ -5,7 +5,7 @@
 //   - API providers: MOSS drives the model turn by turn (runApiLoop, below).
 //   - Claude subscription: the Claude Code CLI drives the model, and calls MOSS's tools through a
 //     local MCP server that runs the same execute() path (see claude-code.ts).
-import { agentToolGrants, effectivePermissions, emitEvent, getBudgetStatus, getSetting, ingestDiscoveredHosts, writeAudit, type DiscoveredHost } from "@moss/core";
+import { agentToolGrants, effectivePermissions, emitEvent, getBudgetStatus, getSetting, ingestDiscoveredHosts, notesAbout, writeAudit, type DiscoveredHost } from "@moss/core";
 import {
   agentRuns,
   agents,
@@ -114,6 +114,17 @@ function stableKey(value: unknown): string {
 /** A tool result as the model sees it: inside markers carrying the run's random id (see OPERATING_RULES). */
 export function toolData(boundary: string, tool: string, text: string): string {
   return `<tool-data run="${boundary}" tool="${tool}">\n${text}\n</tool-data run="${boundary}">`;
+}
+
+/** The hosts a network tool call names: each string argument, any IPv4 address in it, and a URL's host. */
+function hostsIn(value: unknown, out: string[] = []): string[] {
+  if (typeof value === "string") {
+    out.push(value, ...(value.match(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g) ?? []));
+    if (URL.canParse(value)) out.push(new URL(value).hostname);
+  } else if (value && typeof value === "object") {
+    for (const v of Object.values(value)) hostsIn(v, out);
+  }
+  return out;
 }
 
 function truncate(text: string): string {
@@ -253,6 +264,7 @@ async function prepareRun(deps: RunDeps, input: RunInput): Promise<PreparedRun |
   };
 
   const callCounts = new Map<string, number>();
+  const shownNotes = new Set<string>();
 
   // A random id per run marks where each tool result starts and ends, so text from a device can't pretend to close it.
   const boundary = randomBytes(8).toString("hex");
@@ -280,6 +292,15 @@ async function prepareRun(deps: RunDeps, input: RunInput): Promise<PreparedRun |
         const hosts = ((res.result as { hosts?: DiscoveredHost[] })?.hosts ?? []).filter((h) => (h as { status?: string }).status !== "down");
         const ingest = await ingestDiscoveredHosts(db, orgId, hosts, `agent:${agent.id}`);
         content = { ...(res.result as object), inventory: { newAssets: ingest.created.length, updatedAssets: ingest.updated.length } };
+      }
+      // What the team wrote about these hosts (a port, a role, "that's my honeypot"), so an agent that didn't
+      // search the knowledge base first still sees it. Each note once per run; first, so truncation keeps it.
+      const subjects = hostsIn(call.input).concat(res.ok && DISCOVERY_TOOLS.has(call.name) ? ((res.result as { hosts?: DiscoveredHost[] })?.hosts ?? []).map((h) => h.ip) : []);
+      const notes = (await notesAbout(db, orgId, subjects.slice(0, 300))).filter((n) => !shownNotes.has(n.id));
+      if (notes.length) {
+        for (const n of notes) shownNotes.add(n.id);
+        const teamNotes = notes.map((n) => ({ subject: n.subject, title: n.title, body: n.body.slice(0, 600), by: n.updatedByAgentId ? "agent" : "person" }));
+        content = { teamNotes, ...(content && typeof content === "object" && !Array.isArray(content) ? content : { result: content }) };
       }
     } else {
       const tool = PLATFORM_TOOL_MAP.get(call.name);
