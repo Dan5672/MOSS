@@ -26,6 +26,7 @@ import {
 } from "../actions";
 import { AlertsForm } from "./alerts-form";
 import { TokenForm } from "./token-form";
+import { Masonry } from "@/components/masonry";
 
 export const metadata = { title: "Home Assistant" };
 
@@ -110,7 +111,7 @@ export default async function HomeAssistantModulePage() {
         </p>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <Masonry gap={24} className="lg:grid-cols-2">
         <Card id="connection" className="scroll-mt-6 lg:col-span-2">
           <CardHeader>
             <CardTitle>Connection</CardTitle>
@@ -366,7 +367,7 @@ export default async function HomeAssistantModulePage() {
             </p>
           )}
         </Feature>
-      </div>
+      </Masonry>
       {!connected && <p className="mt-6 text-sm text-muted-foreground">Set up the connection first: every feature needs it.</p>}
     </>
   );

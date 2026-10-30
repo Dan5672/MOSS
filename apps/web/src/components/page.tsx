@@ -49,3 +49,7 @@ export function timeAgo(date: Date | string | null | undefined): string {
 export function formatUsd(n: number): string {
   return n < 1 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`;
 }
+
+export function formatTokens(n: number): string {
+  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${Math.round(n / 1_000)}k` : String(Math.round(n));
+}

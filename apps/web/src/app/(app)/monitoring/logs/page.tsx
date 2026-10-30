@@ -72,7 +72,8 @@ export default async function LogsPage({ searchParams }: PageProps<"/monitoring/
       {!status.lastBatchAt && (
         <>
           <Snippet>{`logger -n ${host} -P ${port} -T "hello from $(hostname)"`}</Snippet>
-          <Snippet>{`$u = New-Object Net.Sockets.UdpClient; $b = [Text.Encoding]::ASCII.GetBytes("<13>moss-test: hello from $env:COMPUTERNAME"); [void]$u.Send($b, $b.Length, "${host}", ${port}); $u.Close()`}</Snippet>
+          {/* The collector only takes whole syslog lines: priority, timestamp and hostname before the message. */}
+          <Snippet>{`$t = (Get-Date).ToString("MMM dd HH:mm:ss", [Globalization.CultureInfo]::InvariantCulture); $u = New-Object Net.Sockets.UdpClient; $b = [Text.Encoding]::ASCII.GetBytes("<13>$t $env:COMPUTERNAME moss-test: hello"); [void]$u.Send($b, $b.Length, "${host}", ${port}); $u.Close()`}</Snippet>
           <p className="text-muted-foreground">
             The first is for Linux and macOS (TCP), the second for Windows PowerShell (UDP). Reload this page after sending. Still nothing? Check that MOSS&apos;s
             collector is running (docker compose ps vector) and that nothing else on the host uses port {port}.

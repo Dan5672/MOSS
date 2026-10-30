@@ -20,7 +20,7 @@ Stored per install; most are switched on the Settings page.
 | changes.emergency_tools | [] | The only tools an emergency change may use, when emergency changes are allowed. Empty means any tool. |
 | changes.require_separate_approver | false | Requires a change to be approved by someone other than the person who asked for it. |
 | changes.window_hours | 24 | How many hours after its approval a change without a window of its own may be carried out (24 by default). After that it has to be raised again. |
-| general.time_zone | "" | The time zone recurring tasks run in and MOSS shows times in (Settings → Time zone). Empty means the computer MOSS runs on: TZ in deploy/.env, which the installer sets from the host. |
+| general.time_zone | "" | The time zone MOSS shows every time in, counts "today" and "this month" in, and runs recurring tasks in (Settings → Time zone). Empty means the computer MOSS runs on: TZ in deploy/.env, which the installer sets from the host. |
 | homeassistant.allow_resume | false | Whether the Home Assistant integration may resume paused agents (pausing is always allowed). |
 | https.certificate | {} | The certificate uploaded in Settings → HTTPS, if any: who it's for, when it expires and its fingerprint. Moss reminds everyone in #general 30 and 7 days before it runs out. Empty when MOSS uses its own certificate authority. |
 | knowledge.agent_drafts | false | Makes what agents write in the wiki a draft: other agents don't see it until a person reads it and publishes it, so a note an agent was tricked into writing can't mislead the rest. Off by default. |

@@ -215,6 +215,11 @@ export async function applyHomeAssistantDevices(db: Database, orgId: string, dev
 
 // --- MOSS's sensors in Home Assistant ----------------------------------------------------------
 
+/**
+ * Pushed through Home Assistant's REST API. The first two share their entity ids with the MOSS integration's
+ * sensors (custom_components/moss/sensor.py), so they carry its state_class too: without it, Home Assistant's
+ * long-term statistics raise a "no longer has a state class" repair.
+ */
 export interface MossSensorState {
   entity: string;
   state: string;
@@ -234,17 +239,17 @@ export async function mossSensorStates(db: Database, orgId: string): Promise<Mos
     {
       entity: "sensor.moss_open_incidents",
       state: String(openIncidents.length),
-      attributes: { friendly_name: "MOSS open incidents", unit_of_measurement: "incidents", icon: "mdi:alert-circle-outline", highest_priority: highest },
+      attributes: { friendly_name: "MOSS open incidents", unit_of_measurement: "incidents", state_class: "measurement", icon: "mdi:alert-circle-outline", highest_priority: highest },
     },
     {
       entity: "sensor.moss_monitors_down",
       state: String(down.length),
-      attributes: { friendly_name: "MOSS monitors down", unit_of_measurement: "monitors", icon: "mdi:lan-disconnect", down: list(down.map((m) => m.name)).slice(0, 200) },
+      attributes: { friendly_name: "MOSS monitors down", unit_of_measurement: "monitors", state_class: "measurement", icon: "mdi:lan-disconnect", down: list(down.map((m) => m.name)).slice(0, 200) },
     },
     {
       entity: "sensor.moss_changes_pending",
       state: String(pending?.n ?? 0),
-      attributes: { friendly_name: "MOSS changes waiting for approval", unit_of_measurement: "changes", icon: "mdi:clipboard-check-outline" },
+      attributes: { friendly_name: "MOSS changes waiting for approval", unit_of_measurement: "changes", state_class: "measurement", icon: "mdi:clipboard-check-outline" },
     },
     { entity: "binary_sensor.moss_agents_paused", state: paused ? "on" : "off", attributes: { friendly_name: "MOSS agents paused", icon: "mdi:pause-octagon" } },
   ];

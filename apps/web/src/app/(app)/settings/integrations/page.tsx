@@ -21,6 +21,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { setSyslogEnabledAction } from "./actions";
+import { Masonry } from "@/components/masonry";
 
 export const metadata = { title: "Integrations" };
 
@@ -51,7 +52,7 @@ export default async function ModulesPage() {
     <>
       <PageHeader title="Settings" />
       <p className="mb-4 text-sm text-muted-foreground">Connections to the other systems in your home. An integration that is off does nothing, and agents can&apos;t use its tools.</p>
-      <div className="grid gap-6 lg:grid-cols-2">
+      <Masonry gap={24} className="lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -111,7 +112,7 @@ export default async function ModulesPage() {
           .map(({ def, it }) => (
             <IntegrationCard key={def.key} def={def} it={it} />
           ))}
-      </div>
+      </Masonry>
       {business.length > 0 && (
         <section aria-labelledby="business" className="mt-10 grid gap-4">
           <div className="grid gap-1">
@@ -133,7 +134,7 @@ export default async function ModulesPage() {
               )}
             </p>
           </div>
-          <div className="grid gap-6 lg:grid-cols-2">
+          <Masonry gap={24} className="lg:grid-cols-2">
             {chats
               .filter(({ p }) => CHAT_PLAN[p] === "business")
               .map(({ p, it }) => (
@@ -142,7 +143,7 @@ export default async function ModulesPage() {
             {business.map(({ def, it }) => (
               <IntegrationCard key={def.key} def={def} it={it} locked={!integrationAllowed(def, licence)} />
             ))}
-          </div>
+          </Masonry>
         </section>
       )}
     </>

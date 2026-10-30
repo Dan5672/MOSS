@@ -14,6 +14,7 @@ import { weakens } from "./hardening";
 import { HttpsCard } from "./https-card";
 import { SignInAccounts } from "./sign-in-accounts";
 import { unlinkMyChatAction } from "./integrations/chat/actions";
+import { Masonry } from "@/components/masonry";
 
 export const metadata = { title: "Settings" };
 
@@ -124,7 +125,7 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
           <AlertDescription>The password policy requires it for your account. Use the Two-factor authentication card below; it takes a minute with an authenticator app.</AlertDescription>
         </Alert>
       )}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <Masonry gap={24} className="lg:grid-cols-2">
         <HttpsCard orgId={user.orgId} canManage={user.permissions.has("settings.manage")} />
         <SignInAccounts user={user} linked={typeof q.sso_linked === "string" ? q.sso_linked : undefined} error={typeof q.sso_error === "string" ? q.sso_error.slice(0, 300) : undefined} />
         {(chatOn.length > 0 || myLinks.length > 0) && (
@@ -215,7 +216,7 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
           <Card id="time-zone">
             <CardHeader>
               <CardTitle>Time zone</CardTitle>
-              <CardDescription>When recurring tasks run, and the times MOSS shows for them.</CardDescription>
+              <CardDescription>The times MOSS shows everywhere, when &quot;today&quot; and &quot;this month&quot; start, and when recurring tasks run.</CardDescription>
             </CardHeader>
             <CardContent>
               <ActionForm action={saveTimeZoneAction} submitLabel="Save">
@@ -298,7 +299,7 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
             )}
           </CardContent>
         </Card>
-      </div>
+      </Masonry>
     </>
   );
 }

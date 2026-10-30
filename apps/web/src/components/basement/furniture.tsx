@@ -1,6 +1,8 @@
 // The Basement's static furniture: everything in the room except the people and their desks. One server
 // component, positioned on the 1280×720 stage. Positions and colours follow the basement mockup.
 import type { CSSProperties, ReactNode } from "react";
+import { HolidayDecorations } from "./decorations";
+import type { Holiday } from "./holidays";
 import { ledColours } from "./layout";
 
 const MONO = "var(--font-plex-mono), monospace";
@@ -46,7 +48,7 @@ function Racks({ alarm }: { alarm: boolean }) {
   );
 }
 
-export function BasementFurniture({ alarm }: { alarm: boolean }) {
+export function BasementFurniture({ alarm, holiday = null }: { alarm: boolean; holiday?: Holiday | null }) {
   return (
     <>
       {/* Floor and stains */}
@@ -256,6 +258,8 @@ export function BasementFurniture({ alarm }: { alarm: boolean }) {
 
       {/* Beanbag */}
       <At x={1050} y={666} w={170} h={50} style={{ background: "#b03a2e", border: "4px solid #5e1b16", borderRadius: "26px 26px 6px 6px", zIndex: 8 }} />
+
+      {holiday && <HolidayDecorations holiday={holiday} />}
     </>
   );
 }

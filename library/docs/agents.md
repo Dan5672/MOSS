@@ -20,7 +20,7 @@ Ollama, OpenRouter, any OpenAI-compatible endpoint, or a Claude Pro/Max subscrip
 
 ## Recurring tasks
 Work an agent does on a timetable (Agents > Recurring tasks, or the agent's page): hourly, every few
-hours, daily, weekdays, weekly, monthly or a custom cron. Times are in the server's time zone. Each can
+hours, daily, weekdays, weekly, monthly or a custom cron. Times are in Settings > Time zone. Each can
 be turned off, edited or deleted.
 
 ## Talking to agents
@@ -39,4 +39,7 @@ Other agents can ask Moss about MOSS with ask_moss and get the answer in the sam
 ## The Basement
 A live scene of the team: who is working (at a desk) and who is on a break, and an alarm when a monitor
 is down. Click an agent for its current run and a message box. It refreshes every 15 seconds.
-Animations follow the device's reduced-motion setting, or Settings > Display > Motion.
+Animations follow the device's reduced-motion setting, or Settings > Display > Motion. From 5 days before
+Australia Day, Valentine's Day, St Patrick's Day, Easter, Star Wars Day (4 May), Oktoberfest (its whole run),
+Halloween and Christmas, the Basement is decorated for it (Santa hats at Christmas). Add ?holiday=christmas
+(or easter, halloween, valentines, st_patricks, star_wars, oktoberfest, australia_day) to the address to preview one.

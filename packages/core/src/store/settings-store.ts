@@ -78,11 +78,24 @@ export async function getSetting<K extends SettingKey>(db: Database, orgId: stri
 }
 
 /** The server's own time zone: TZ in deploy/.env, which the installer sets to the host computer's. */
-export const serverTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+// The zone this process started in (TZ), before applyOrgTimeZone changed it.
+const STARTED_IN = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+export const serverTimeZone = () => STARTED_IN;
 
 /** The time zone recurring tasks run in and times are shown in: Settings' choice, or the server's own. */
 export async function orgTimeZone(db: Database, orgId: string): Promise<string> {
   return (await getSetting(db, orgId, "general.time_zone")) || serverTimeZone();
+}
+
+/**
+ * Makes this process's local time the org's zone, so every date MOSS shows, and every "today" and "this month"
+ * it counts, is in the zone people chose in Settings. Node applies a change of TZ straight away.
+ * shortcut: one zone per process, fine with one org per install; several orgs would need a zone passed to each format.
+ */
+export async function applyOrgTimeZone(db: Database, orgId: string): Promise<string> {
+  const zone = await orgTimeZone(db, orgId);
+  if (process.env.TZ !== zone) process.env.TZ = zone;
+  return zone;
 }
 
 export async function setSetting<K extends SettingKey>(db: Database, orgId: string, key: K, value: SettingValue<K>) {
@@ -144,7 +157,7 @@ export const SETTING_DESCRIPTIONS = {
     "Scheduled MOSS backups (Settings → Backups): off, daily or weekly at an hour in the install's time zone, and how many archives to keep (10 by default). Archives go to deploy/backups on the host, the same as deploy/backup.sh makes.",
   "backups.last_scheduled": "When the last scheduled MOSS backup started (or the schedule was saved), so each slot runs once.",
   "general.time_zone":
-    "The time zone recurring tasks run in and MOSS shows times in (Settings → Time zone). Empty means the computer MOSS runs on: TZ in deploy/.env, which the installer sets from the host.",
+    "The time zone MOSS shows every time in, counts \"today\" and \"this month\" in, and runs recurring tasks in (Settings → Time zone). Empty means the computer MOSS runs on: TZ in deploy/.env, which the installer sets from the host.",
   "ups.shutdown_plan":
     "The UPS shutdown plan (Settings > Integrations > UPS): what to switch off, in order, when a UPS on battery runs low; who carries it out; and whether it asks for approval each time or was approved in advance with a two-factor code.",
   "ups.shutdown_run": "The shutdown MOSS raised in the current power cut, so it isn't raised twice and can be cancelled if the power comes back.",

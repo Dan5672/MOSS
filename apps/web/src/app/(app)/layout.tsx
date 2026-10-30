@@ -1,4 +1,4 @@
-import { getLicenceStatus, getSetting, listConversations } from "@moss/core";
+import { applyOrgTimeZone, getLicenceStatus, getSetting, listConversations } from "@moss/core";
 import { changeRequests, incidents, monitors, notifications } from "@moss/db";
 import { and, count, eq, isNull, notInArray } from "drizzle-orm";
 import Link from "next/link";
@@ -18,6 +18,7 @@ function initials(name: string) {
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const user = await requireUser({ unblocks: "any" });
+  await applyOrgTimeZone(db(), user.orgId);
   const [killSwitch, [pending], [unread], [down], [open], chats, licence] = await Promise.all([
     getSetting(db(), user.orgId, "agents.kill_switch"),
     db()

@@ -16,6 +16,7 @@ import { PagerdutyApiKeyCard } from "./pagerduty-card";
 import { SsoCard } from "./sso-card";
 import { UpsPlanCard } from "./ups-plan";
 import { saveIntegrationConnectionAction, saveIntegrationFeaturesAction, setIntegrationEnabledAction, syncIntegrationFeatureAction, testIntegrationAction } from "./actions";
+import { Masonry } from "@/components/masonry";
 
 /** One integration's settings: its connection and credential, its features, and how each last ran. */
 export default async function IntegrationSettingsPage({ params }: PageProps<"/settings/integrations/[key]">) {
@@ -56,7 +57,7 @@ export default async function IntegrationSettingsPage({ params }: PageProps<"/se
         </p>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <Masonry gap={24} className="lg:grid-cols-2">
         <Card id="connection" className="scroll-mt-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -240,7 +241,7 @@ export default async function IntegrationSettingsPage({ params }: PageProps<"/se
             </CardContent>
           </Card>
         )}
-      </div>
+      </Masonry>
     </>
   );
 }

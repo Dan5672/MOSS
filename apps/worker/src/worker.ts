@@ -25,6 +25,7 @@ import {
   changeRef,
   dispatchEvents,
   getSetting,
+  applyOrgTimeZone,
   orgTimeZone,
   incidentRef,
   parseBackupSchedule,
@@ -79,6 +80,9 @@ export async function syncSchedules(db: Database, boss: PgBoss): Promise<{ added
     .from(agentSchedules)
     .innerJoin(agents, eq(agentSchedules.agentId, agents.id))
     .where(and(eq(agentSchedules.enabled, true), eq(agents.status, "active")));
+  // The worker's own dates (messages, "today" for budgets) follow Settings' time zone too.
+  const [org] = await db.select({ id: orgs.id }).from(orgs).limit(1);
+  if (org) await applyOrgTimeZone(db, org.id);
   // Each org's tasks run in its time zone (Settings), so changing it reschedules them.
   const zones = new Map<string, string>();
   for (const orgId of new Set(rows.map((r) => r.orgId))) zones.set(orgId, await orgTimeZone(db, orgId));
