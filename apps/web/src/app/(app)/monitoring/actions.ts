@@ -6,7 +6,8 @@ import {
   createMonitorSource,
   deleteMonitor,
   deleteMonitorSource,
-  isModuleEnabled,
+  forgetRefusedSender,
+  getSetting,
   monitorTargetWarning,
   setMonitorEnabled,
   setMonitorSourceEnabled,
@@ -181,7 +182,8 @@ export async function createSourceAction(_: SourceCreated, form: FormData): Prom
   const state = await act(async () => {
     const user = await requirePermission("monitoring.manage");
     const f = formObject(form);
-    if (f.kind === "syslog" && !(await isModuleEnabled(db(), user.orgId, "syslog"))) throw new Error("Switch on Device logs in Settings → Integrations first.");
+    // The log collector has its own source, made when Device logs is switched on (Monitoring → Logs).
+    if (f.kind === "syslog") throw new Error("Device logs are set up on Monitoring → Logs.");
     const { source, token } = await createMonitorSource(
       db(),
       user.orgId,
@@ -194,16 +196,35 @@ export async function createSourceAction(_: SourceCreated, form: FormData): Prom
   return { ...state, ...created };
 }
 
+async function saveLogSenders(user: CurrentUser, input: string[]) {
+  const senders = [...new Set(input)].slice(0, 50);
+  for (const s of senders) {
+    const r = parseRange(s);
+    if (!r) throw new Error(`"${s}" isn't an address or a CIDR`);
+    if (r.end - r.start >= BigInt(2) ** BigInt(r.version === 4 ? 16 : 80)) throw new Error(`"${s}" is too wide: at most a /16 (IPv4) or /48 (IPv6)`);
+  }
+  await setSetting(db(), user.orgId, "logs.allowed_senders", senders);
+  await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "setting.update", targetType: "setting", targetId: "logs.allowed_senders", details: { senders } });
+  revalidatePath("/monitoring/logs");
+}
+
 /** Syslog senders accepted besides the allowed networks (Monitoring, Logs). */
 export async function saveLogSendersAction(_: ActionState, form: FormData): Promise<ActionState> {
   return act(async () => {
-    const user = await requirePermission("monitoring.manage");
-    const senders = [...new Set(String(form.get("senders") ?? "").split(/[\s,]+/).filter(Boolean))].slice(0, 50);
-    for (const s of senders) if (!parseRange(s)) throw new Error(`"${s}" isn't an address or a CIDR`);
-    await setSetting(db(), user.orgId, "logs.allowed_senders", senders);
-    await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "setting.update", targetType: "setting", targetId: "logs.allowed_senders", details: { senders } });
-    revalidatePath("/monitoring/logs");
+    // Which senders MOSS trusts is a network decision, like Settings → Networks.
+    const user = await requirePermission("networks.manage");
+    await saveLogSenders(user, String(form.get("senders") ?? "").split(/[\s,]+/).filter(Boolean));
     return "Accepted senders saved.";
+  });
+}
+
+/** Accepts one sender the collector refused (Monitoring → Logs). */
+export async function acceptLogSenderAction(ip: string): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("networks.manage");
+    await saveLogSenders(user, [...(await getSetting(db(), user.orgId, "logs.allowed_senders")), ip]);
+    await forgetRefusedSender(db(), user.orgId, ip);
+    return `${ip} accepted: its next lines are kept.`;
   });
 }
 

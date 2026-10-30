@@ -17,8 +17,8 @@
     "@moss/policy": "workspace:*",
     "@moss/tools": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "fastify": "^5.0.0",
-    "zod": "^4.6.5"
+    "fastify": "^5.12.6",
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@moss/llm": "workspace:*"

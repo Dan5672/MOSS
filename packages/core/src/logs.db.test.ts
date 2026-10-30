@@ -3,7 +3,7 @@ import { assets, logEntries, networks, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parseLogBatch } from "./monitoring/syslog.js";
-import { ingestLogs, pruneLogs, searchLogs } from "./services/logs.js";
+import { forgetRefusedSender, ingestLogs, pruneLogs, searchLogs, syslogSource, syslogStatus } from "./services/logs.js";
 import { authenticateMonitorSource, createMonitorSource } from "./services/monitors.js";
 import { bootstrapOrg } from "./store/bootstrap.js";
 import { setSetting } from "./store/settings-store.js";
@@ -40,6 +40,12 @@ describe.skipIf(!TEST_DATABASE_URL)("device logs (postgres)", () => {
     );
     if (!batch.ok) throw new Error(batch.error);
     expect(await ingestLogs(db, authed!, batch.lines)).toEqual({ stored: 3, refused: ["192.168.1.200", "10.0.0.5"] });
+    // The Logs page lists refused senders to accept; accepting one takes it off the list.
+    expect((await syslogStatus(db, orgId)).refused.map((r) => r.ip)).toEqual(["192.168.1.200", "10.0.0.5"]);
+    await forgetRefusedSender(db, orgId, "10.0.0.5");
+    expect((await syslogStatus(db, orgId)).refused.map((r) => r.ip)).toEqual(["192.168.1.200"]);
+    // The collector's lines go to the org's first syslog source.
+    expect((await syslogSource(db, orgId)).id).toBe(source.id);
 
     const all = await searchLogs(db, orgId);
     expect(all.map((l) => [l.message, l.assetName])).toEqual(

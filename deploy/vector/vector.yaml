@@ -1,10 +1,10 @@
-# Vector: receives syslog from your devices and hands it to MOSS in batches (the "syslog" compose profile).
-# MOSS stores lines only from senders inside an allowed network (Settings → Networks) or its accepted senders
-# (Monitoring → Logs); everything in a line except the sender's address is untrusted, and over UDP so is that. Set MOSS_SYSLOG_SOURCE and MOSS_SYSLOG_TOKEN in deploy/.env from the
-# syslog source made in Monitoring → Webhook sources.
+# Vector: receives syslog from your devices and hands it to MOSS in batches. Always running; MOSS refuses the
+# batches until Device logs is switched on (Monitoring → Logs). MOSS stores lines only from senders inside an
+# allowed network (Settings → Networks) or its accepted senders (Monitoring → Logs); everything in a line except
+# the sender's address is untrusted, and over UDP so is that.
 data_dir: /tmp/vector
 
-# MOSS_SYSLOG_SOURCE and MOSS_SYSLOG_TOKEN, as compose secrets.
+# syslog_token (deploy/secrets/syslog.token, made by init.sh), as a compose secret.
 secret:
   moss:
     type: directory
@@ -73,7 +73,7 @@ sinks:
   moss:
     type: http
     inputs: [total]
-    uri: "http://web:3000/api/hooks/logs/SECRET[moss.syslog_source]"
+    uri: "http://web:3000/api/hooks/logs"
     method: post
     auth:
       strategy: bearer

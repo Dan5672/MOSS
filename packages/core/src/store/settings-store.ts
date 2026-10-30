@@ -103,7 +103,7 @@ export const SETTING_DESCRIPTIONS = {
   "changes.require_separate_approver": "Requires a change to be approved by someone other than the person who asked for it.",
   "changes.window_hours": "How many hours after its approval a change without a window of its own may be carried out (24 by default). After that it has to be raised again.",
   "logs.allowed_senders": "Syslog senders (addresses or CIDRs) accepted as well as the allowed networks, without letting agents scan or act on them. On Docker Desktop every sender shows as Docker's own address, so that one goes here. Off-limits networks are still refused.",
-  "logs.max_rows": "The most device log lines kept (1,000,000 by default, about a gigabyte); the oldest are deleted first, every hour.",
+  "logs.max_rows": "The most device log lines kept (1,000,000 by default: about half a gigabyte of typical lines, up to 2.5 GB if every line is long); the oldest are deleted first, every 5 minutes.",
   "logs.retention_days": "How many days of device logs (syslog, through the collector) are kept. 7 by default; busy firewalls send a lot.",
   "monitoring.retention_days": "How many days of individual monitor check results are kept. Graphs go further back from rollups: 5-minute ones for 90 days and hourly ones for 2 years.",
   "tools.catalog_url": "An optional remote tools catalog (an https URL of its index). Empty means only the bundled catalog.",

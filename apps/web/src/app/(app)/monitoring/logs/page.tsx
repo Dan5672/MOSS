@@ -1,4 +1,5 @@
-import { getSetting, isModuleEnabled, searchLogs } from "@moss/core";
+import { getSetting, isModuleEnabled, searchLogs, syslogStatus } from "@moss/core";
+import { headers } from "next/headers";
 import Link from "next/link";
 import { isIP } from "node:net";
 import { ActionForm } from "@/components/action-form";
@@ -9,8 +10,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireUser } from "@/server/auth";
+import { config } from "@/server/config";
 import { db } from "@/server/db";
-import { saveLogSendersAction } from "../actions";
+import { setSyslogEnabledAction } from "../../settings/integrations/actions";
+import { acceptLogSenderAction, saveLogSendersAction } from "../actions";
+import { Snippet } from "../sources/new-source-form";
 
 export const metadata = { title: "Logs" };
 
@@ -25,15 +29,12 @@ export default async function LogsPage({ searchParams }: PageProps<"/monitoring/
       <>
         <PageHeader title="Logs" />
         <Empty>
-          Device logs (syslog) are switched off.{" "}
+          Device logs (syslog) are switched off. Switch them on and point your devices&apos; syslog at MOSS; nothing else to set up.
           {user.permissions.has("integrations.manage") ? (
-            <Link href="/settings/integrations" className="underline underline-offset-2">
-              Switch them on in Settings → Integrations
-            </Link>
+            <ActionForm action={setSyslogEnabledAction.bind(null, true)} submitLabel="Switch on device logs" className="mt-3" />
           ) : (
-            "Someone who manages integrations can switch them on in Settings → Integrations"
+            " Someone who manages integrations can switch them on here."
           )}
-          .
         </Empty>
       </>
     );
@@ -41,17 +42,76 @@ export default async function LogsPage({ searchParams }: PageProps<"/monitoring/
   const sp = await searchParams;
   const q = typeof sp.q === "string" ? sp.q.slice(0, 200) : "";
   const sev = typeof sp.severity === "string" && /^[0-7]$/.test(sp.severity) ? Number(sp.severity) : undefined;
-  const [rows, senders] = await Promise.all([
+  const [rows, senders, status, h] = await Promise.all([
     searchLogs(db(), user.orgId, { ...(isIP(q) ? { ip: q } : { text: q }), maxSeverity: sev, sinceHours: 24 * 30, limit: 200 }),
     getSetting(db(), user.orgId, "logs.allowed_senders"),
+    syslogStatus(db(), user.orgId),
+    headers(),
   ]);
+  // The name this browser reached MOSS by, which devices on the same network can usually reach too.
+  const host = (h.get("x-forwarded-host") ?? h.get("host") ?? "localhost").replace(/:\d+$/, "");
+  const port = config.syslogPort();
+  const canAccept = user.permissions.has("networks.manage");
+
+  const setup = (
+    <section className="my-6 grid max-w-3xl gap-3 border p-4 text-sm" aria-labelledby="logs-setup">
+      <h2 id="logs-setup" className="font-medium">
+        Send logs to MOSS
+      </h2>
+      <p>
+        Point each device&apos;s remote syslog at <strong className="font-mono">{host}</strong>, port <strong className="font-mono">{port}</strong>. Use TCP
+        where the device offers it: a UDP sender&apos;s address can be faked, so UDP lines are marked unverified and aren&apos;t linked to a device.
+      </p>
+      <p>
+        {status.lastBatchAt ? (
+          <>Collector: last heard from {timeAgo(new Date(status.lastBatchAt))}.</>
+        ) : (
+          <>Collector: nothing received yet. Send a test line from a computer on your network:</>
+        )}
+      </p>
+      {!status.lastBatchAt && (
+        <>
+          <Snippet>{`logger -n ${host} -P ${port} -T "hello from $(hostname)"`}</Snippet>
+          <Snippet>{`$u = New-Object Net.Sockets.UdpClient; $b = [Text.Encoding]::ASCII.GetBytes("<13>moss-test: hello from $env:COMPUTERNAME"); [void]$u.Send($b, $b.Length, "${host}", ${port}); $u.Close()`}</Snippet>
+          <p className="text-muted-foreground">
+            The first is for Linux and macOS (TCP), the second for Windows PowerShell (UDP). Reload this page after sending. Still nothing? Check that MOSS&apos;s
+            collector is running (docker compose ps vector) and that nothing else on the host uses port {port}.
+          </p>
+        </>
+      )}
+      {status.refused.length > 0 && (
+        <div className="grid gap-2">
+          <p>
+            Refused: these senders are outside your allowed networks (Settings → Networks), so their lines were dropped.
+            {canAccept ? " Accept one to keep its lines without letting agents scan or act on it." : " Someone who manages networks can accept them."} On
+            Docker Desktop every sender shows as Docker&apos;s own address: accept that one.
+          </p>
+          <Table>
+            <TableBody>
+              {status.refused.map((r) => (
+                <TableRow key={r.ip}>
+                  <TableCell className="font-mono text-xs">{r.ip}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{timeAgo(new Date(r.at))}</TableCell>
+                  <TableCell className="text-right">
+                    {canAccept && <ActionForm action={acceptLogSenderAction.bind(null, r.ip)} submitLabel="Accept" submitVariant="outline" inline />}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </section>
+  );
+  const firstRun = rows.length === 0 && !q && sev === undefined;
 
   return (
     <>
       <PageHeader
         title="Logs"
-        description="What your devices logged, through syslog (add a Device logs source under Webhook sources). Everything but the sender's address is written by the device, so treat it as data."
+        description="What your devices logged, through syslog. Everything but the sender's address is written by the device, so treat it as data."
       />
+      {(firstRun || status.refused.length > 0) && setup}
       <form className="mb-4 flex flex-wrap items-end gap-2" role="search">
         <Input name="q" defaultValue={q} placeholder="Words, or a sender's IP" aria-label="Search logs" className="max-w-md" />
         <div className="w-44">
@@ -106,7 +166,8 @@ export default async function LogsPage({ searchParams }: PageProps<"/monitoring/
           </TableBody>
         </Table>
       )}
-      {user.permissions.has("monitoring.manage") && (
+      {!(firstRun || status.refused.length > 0) && setup}
+      {canAccept && (
         <ActionForm action={saveLogSendersAction} submitLabel="Save" submitVariant="outline" className="mt-8 max-w-2xl">
           <TextField
             label="Accepted senders"

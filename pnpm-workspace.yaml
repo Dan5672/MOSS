@@ -2,3 +2,8 @@ packages:
   - "apps/*"
   - "packages/*"
   - "integrations/*"
+
+# Security fixes in dependencies of dependencies, until their parents ask for them.
+overrides:
+  # drizzle-kit's old loader (@esbuild-kit) pins esbuild 0.18; it only runs for `db:generate`.
+  "esbuild@<0.25.0": "^0.25.12"

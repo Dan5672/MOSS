@@ -53,12 +53,12 @@ each alert becomes a monitor in MOSS. The Home Assistant module has its own sour
 ## The Device logs integration
 Devices that can send syslog (firewalls, switches, NAS boxes, Proxmox, ESXi) can send it to MOSS, so
 agents can read what a device logged without holding a credential for it. It is off until someone with
-integrations.manage switches it on in Settings > Integrations > Device logs; while it's off, MOSS refuses
-the collector's lines, the Logs tab says so, and `logs_search` returns nothing (lines already stored are
-kept until they age out). Once it's on, add a "Device logs" source in
-Webhook sources, put the three lines it shows in deploy/.env, and run `docker compose up -d` in deploy:
-that starts the collector (Vector), which listens on port 514, UDP and TCP, of the MOSS host. Then point
-each device's remote syslog at that host. The Logs tab shows what arrived.
+integrations.manage switches it on, on the Logs tab (or Settings > Integrations > Device logs); while it's
+off, MOSS refuses the collector's lines and `logs_search` returns nothing (lines already stored are kept
+until they age out). MOSS's collector (Vector) always runs and listens on port 514, UDP and TCP, of the
+MOSS host (MOSS_SYSLOG_PORT in deploy/.env moves it), so switching it on is the only setup in MOSS. Then
+point each device's remote syslog at that host. The Logs tab shows the address and port, when the
+collector last posted, a test command, and the senders it refused; it lists what arrived.
 - Lines are kept only from senders inside an allowed network (Settings > Networks), or listed under
   "Accepted senders" on the Logs tab, and never from an off-limits network. Accepted senders don't let
   agents scan or act on those addresses.
@@ -76,8 +76,8 @@ each device's remote syslog at that host. The Logs tab shows what arrived.
   go first).
 - Syslog over UDP can lose lines, and a device that stops logging looks the same as a quiet one: keep
   monitors for up and down.
-- Docker Desktop (Windows and Mac) shows every sender as Docker's own address (`docker compose logs web`
-  names refused senders). Add that one address to Accepted senders, not to
+- Docker Desktop (Windows and Mac) shows every sender as Docker's own address (it appears under Refused
+  on the Logs tab). Accept that one address there, rather than adding it to
   Networks; every device then looks the same, so none are linked to the inventory. On Linux, Docker
   keeps the real sender's address.
 

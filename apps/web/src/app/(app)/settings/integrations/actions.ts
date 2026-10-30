@@ -110,7 +110,8 @@ export async function setSyslogEnabledAction(enabled: boolean): Promise<ActionSt
     const user = await requirePermission("integrations.manage");
     await saveModule(db(), user.orgId, "syslog", { enabled }, actor(user));
     revalidatePath("/settings/integrations");
-    return enabled ? "Device logs switched on. Add a Device logs source in Monitoring → Webhook sources." : "Device logs switched off: new lines are refused, and agents can't search them.";
+    revalidatePath("/monitoring/logs");
+    return enabled ? "Device logs switched on. Point your devices' syslog at MOSS (Monitoring → Logs)." : "Device logs switched off: new lines are refused, and agents can't search them.";
   });
 }
 

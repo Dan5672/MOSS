@@ -88,11 +88,7 @@ export default async function ModulesPage() {
             <p>
               {syslog ? (
                 <>
-                  On. Add a Device logs source in{" "}
-                  <Link href="/monitoring/sources" className="underline underline-offset-2">
-                    Monitoring → Webhook sources
-                  </Link>
-                  , and read them in{" "}
+                  On. Set up your devices and read their logs in{" "}
                   <Link href="/monitoring/logs" className="underline underline-offset-2">
                     Monitoring → Logs
                   </Link>

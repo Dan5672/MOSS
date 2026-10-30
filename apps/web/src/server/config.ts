@@ -33,6 +33,10 @@ export const config = {
   /** The backup service (MOSS backups), and its token. Absent on installs without it. */
   backupUrl: () => process.env.BACKUP_URL ?? null,
   backupToken: () => secretFromEnv("BACKUP_TOKEN") ?? "",
+  /** What the log collector (vector) signs in with. Empty: no collector, so its posts are refused. */
+  syslogToken: () => secretFromEnv("SYSLOG_TOKEN") ?? "",
+  /** The host port devices send syslog to (MOSS_SYSLOG_PORT), shown on Monitoring → Logs. */
+  syslogPort: () => process.env.MOSS_SYSLOG_PORT || "514",
   /** The one-time code deploy/init.sh made (install.sh prints a link with it), needed to set MOSS up (unset: no code, e.g. development). */
   setupCode: () => secretFromEnv("MOSS_SETUP_CODE") ?? null,
   libraryDir: () => process.env.MOSS_LIBRARY_DIR ?? resolve(process.cwd(), "../../library"),

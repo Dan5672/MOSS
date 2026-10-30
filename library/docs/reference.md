@@ -27,7 +27,7 @@ Stored per install; most are switched on the Settings page.
 | licence.key | "" | The business licence (Settings → About): a signed key, checked offline. Business integrations work only while it's valid, or for 14 days after it expires. |
 | licence.reminded | {} | Which reminders about the business licence's expiry have been sent (30 and 7 days before, on expiry, and when it stops). |
 | logs.allowed_senders | [] | Syslog senders (addresses or CIDRs) accepted as well as the allowed networks, without letting agents scan or act on them. On Docker Desktop every sender shows as Docker's own address, so that one goes here. Off-limits networks are still refused. |
-| logs.max_rows | 1000000 | The most device log lines kept (1,000,000 by default, about a gigabyte); the oldest are deleted first, every hour. |
+| logs.max_rows | 1000000 | The most device log lines kept (1,000,000 by default: about half a gigabyte of typical lines, up to 2.5 GB if every line is long); the oldest are deleted first, every 5 minutes. |
 | logs.retention_days | 7 | How many days of device logs (syslog, through the collector) are kept. 7 by default; busy firewalls send a lot. |
 | monitoring.dependencies | false | Monitor dependencies (Monitoring → Map). A monitor can depend on another, such as a VM on its Proxmox host. While a monitor it depends on is down or failing, its own outages raise no incident or notification, so one dead host is one alert. Off by default. |
 | monitoring.quiet_until | "" | Maintenance mode: until this time, monitors keep checking but raise no incidents. Set from Home Assistant. |

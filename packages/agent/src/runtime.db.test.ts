@@ -1,5 +1,5 @@
 // Agent runtime against Postgres with a scripted LLM and a fake gate. Run with MOSS_TEST_DATABASE_URL set.
-import { approveChange, bootstrapOrg, createChangeRequest, createNote, getChange, getIncident, getNote, saveModule, setNetworkStatus, setSetting } from "@moss/core";
+import { approveChange, bootstrapOrg, createChangeRequest, createMonitorSource, createNote, ingestLogs, getChange, getIncident, getNote, saveModule, setNetworkStatus, setSetting } from "@moss/core";
 import { agentRuns, agents, agentSkills, agentToolOverrides, assets, budgets, models, notifications, providers, runSteps, skills, tokenUsage, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { MockAdapter, type ScriptedTurn } from "@moss/llm";
@@ -315,7 +315,20 @@ describe.skipIf(!TEST_DATABASE_URL)("agent runtime (postgres)", () => {
     script = search((d) => expect(d).toMatchObject({ error: expect.stringMatching(/switched off/) }));
     await runAgent(deps(), { agentId: nina.id, task: "Logs?", trigger: "manual" });
     await saveModule(db, actor.orgId, "syslog", { enabled: true }, { type: "user", id: actor.userId });
-    script = search((d) => expect(d).toEqual([]));
+    script = search((d) => expect(d).toEqual({ lines: [] }));
+    expect((await runAgent(deps(), { agentId: nina.id, task: "Logs?", trigger: "manual" })).status).toBe("succeeded");
+
+    // Long lines: whole ones up to the budget, and a note saying how many were left out.
+    const { source } = await createMonitorSource(db, actor.orgId, { name: "Syslog", kind: "syslog", defaultPriority: "P3", defaultResponderAgentId: null }, { type: "user", id: actor.userId });
+    const lines = Array.from({ length: 10 }, (_, i) => ({ ip: "192.168.1.10", transport: "tcp" as const, message: `${i} ${"x".repeat(1500)}` }));
+    expect((await ingestLogs(db, source, lines)).stored).toBe(10);
+    script = search((d) => {
+      const r = d as { lines: { message: string }[]; truncated: string };
+      expect(r.lines.length).toBeGreaterThan(0);
+      expect(r.lines.length).toBeLessThan(10);
+      expect(r.lines.every((l) => l.message.length === 1502)).toBe(true);
+      expect(r.truncated).toMatch(new RegExp(`^${10 - r.lines.length} more`));
+    });
     expect((await runAgent(deps(), { agentId: nina.id, task: "Logs?", trigger: "manual" })).status).toBe("succeeded");
   });
 
