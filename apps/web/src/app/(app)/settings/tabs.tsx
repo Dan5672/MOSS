@@ -1,4 +1,6 @@
 import { SectionTabs } from "@/components/section-tabs";
+import { settingsIndex } from "./search-index";
+import { SettingsSearch } from "./settings-search";
 
 export const SETTINGS_TABS = [
   { href: "/settings", label: "General" },
@@ -11,5 +13,10 @@ export const SETTINGS_TABS = [
   { href: "/settings/about", label: "About" },
 ] as const;
 
-/** Sub-navigation for Settings (rendered by the layouts of Settings, Networks and Users). */
-export const SettingsTabs = () => <SectionTabs label="Settings" tabs={SETTINGS_TABS} />;
+/** Sub-navigation for Settings, with its search (rendered by the layouts of Settings, Networks and Users). */
+export const SettingsTabs = () => (
+  <>
+    <SettingsSearch index={settingsIndex()} />
+    <SectionTabs label="Settings" tabs={SETTINGS_TABS} />
+  </>
+);
