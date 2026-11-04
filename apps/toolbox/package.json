@@ -14,7 +14,7 @@
     "@moss/policy": "workspace:*",
     "@moss/tools": "workspace:*",
     "fast-xml-parser": "^5.11.2",
-    "fastify": "^5.12.5",
+    "fastify": "^5.12.6",
     "ssh2": "^1.17.0"
   },
   "devDependencies": {
