@@ -13,7 +13,7 @@ import { requireUser } from "@/server/auth";
 import { config } from "@/server/config";
 import { db } from "@/server/db";
 import { setSyslogEnabledAction } from "../../settings/integrations/actions";
-import { acceptLogSenderAction, saveLogSendersAction } from "../actions";
+import { acceptLogSenderAction, removeLogSenderAction, saveLogSendersAction } from "../actions";
 import { Snippet } from "../sources/new-source-form";
 
 export const metadata = { title: "Logs" };
@@ -102,6 +102,45 @@ export default async function LogsPage({ searchParams }: PageProps<"/monitoring/
           </Table>
         </div>
       )}
+      <div className="grid gap-2">
+        <h3 className="font-medium">Accepted senders</h3>
+        {senders.length === 0 ? (
+          <p className="text-muted-foreground">None. Only senders inside your allowed networks (Settings → Networks) are kept.</p>
+        ) : (
+          <Table>
+            <TableBody>
+              {senders.map((s) => (
+                <TableRow key={s}>
+                  <TableCell className="font-mono text-xs">{s}</TableCell>
+                  <TableCell className="text-right">
+                    {canAccept && (
+                      <ActionForm
+                        action={removeLogSenderAction.bind(null, s)}
+                        submitLabel="Remove"
+                        submitVariant="outline"
+                        inline
+                        confirm={`Stop accepting logs from ${s}?`}
+                      />
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        {canAccept && (
+          // Keyed by the list, so the box shows the saved list again after Accept or Remove.
+          <ActionForm key={senders.join(",")} action={saveLogSendersAction} submitLabel="Save" submitVariant="outline">
+            <TextField
+              label="Edit accepted senders"
+              name="senders"
+              defaultValue={senders.join(", ")}
+              placeholder="172.17.0.1, 192.168.50.0/24"
+              hint="Addresses or CIDRs whose logs are kept as well as those from allowed networks, without letting agents scan or act on them. On Docker Desktop every sender shows as Docker's own address: put that here. Off-limits networks are still refused."
+            />
+          </ActionForm>
+        )}
+      </div>
     </section>
   );
   const firstRun = rows.length === 0 && !q && sev === undefined;
@@ -168,17 +207,6 @@ export default async function LogsPage({ searchParams }: PageProps<"/monitoring/
         </Table>
       )}
       {!(firstRun || status.refused.length > 0) && setup}
-      {canAccept && (
-        <ActionForm action={saveLogSendersAction} submitLabel="Save" submitVariant="outline" className="mt-8 max-w-2xl">
-          <TextField
-            label="Accepted senders"
-            name="senders"
-            defaultValue={senders.join(", ")}
-            placeholder="172.17.0.1, 192.168.50.0/24"
-            hint="Addresses or CIDRs whose logs are kept as well as those from allowed networks (Settings → Networks), without letting agents scan or act on them. On Docker Desktop every sender shows as Docker's own address: put that here. Off-limits networks are still refused."
-          />
-        </ActionForm>
-      )}
     </>
   );
 }

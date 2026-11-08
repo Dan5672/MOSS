@@ -228,6 +228,15 @@ export async function acceptLogSenderAction(ip: string): Promise<ActionState> {
   });
 }
 
+/** Stops accepting one sender (Monitoring → Logs). */
+export async function removeLogSenderAction(sender: string): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("networks.manage");
+    await saveLogSenders(user, (await getSetting(db(), user.orgId, "logs.allowed_senders")).filter((s) => s !== sender));
+    return `${sender} removed: its lines are refused again.`;
+  });
+}
+
 export async function setSourceEnabledAction(sourceId: string, enabled: boolean): Promise<ActionState> {
   return act(async () => {
     const user = await requirePermission("monitoring.manage");
