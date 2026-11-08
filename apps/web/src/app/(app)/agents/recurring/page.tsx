@@ -16,7 +16,7 @@ import { describeCron } from "@/lib/schedule";
 import { readSort, sortRows } from "@/lib/sort";
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
-import { addRecurringTaskAction, deleteScheduleAction, setScheduleEnabledAction, updateScheduleAction } from "../actions";
+import { addRecurringTaskAction, deleteScheduleAction, runScheduleNowAction, setScheduleEnabledAction, updateScheduleAction } from "../actions";
 import { ScheduleFields } from "../[id]/schedule-fields";
 
 export const metadata = { title: "Recurring tasks" };
@@ -159,6 +159,7 @@ export default async function RecurringTasksPage({ searchParams }: PageProps<"/a
                 {canManage && (
                   <TableCell>
                     <div className="flex flex-wrap justify-end gap-2">
+                      <ActionForm action={runScheduleNowAction.bind(null, t.agentId, t.id)} submitLabel="Run now" submitVariant="outline" />
                       <FormDialog label="Edit" title="Edit recurring task" description={`${t.agent.name}: ${describeCron(t.cron)}`} variant="outline">
                         <ActionForm action={updateScheduleAction.bind(null, t.agentId, t.id)} submitLabel="Save recurring task">
                           <ScheduleFields cron={t.cron} task={t.task} />

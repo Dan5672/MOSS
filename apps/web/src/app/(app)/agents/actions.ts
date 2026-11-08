@@ -231,6 +231,19 @@ export async function deleteScheduleAction(agentId: string, scheduleId: string, 
   });
 }
 
+/** Runs a recurring task now, as its schedule would (so it counts as its last run), on or off. */
+export async function runScheduleNowAction(agentId: string, scheduleId: string, _: ActionState): Promise<ActionState> {
+  return act(async () => {
+    const user = await requirePermission("agents.manage");
+    const agent = await ownAgent(user.orgId, agentId);
+    const s = await ownSchedule(user.orgId, agentId, scheduleId);
+    if (agent.status !== "active") throw new Error(`${agent.name} is ${agent.status}`);
+    const job = await queueRun({ agentId, task: s.task, trigger: "schedule", triggerRef: s.id, requestedByUserId: user.id });
+    await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "schedule.run_now", targetType: "schedule", targetId: scheduleId, details: { agentId } });
+    return job ? `${agent.name} will start shortly.` : `${agent.name} already has a run waiting; this one was not queued.`;
+  });
+}
+
 /** "New recurring task" on the Recurring tasks page, where the agent is chosen in the form. */
 export async function addRecurringTaskAction(prev: ActionState, form: FormData): Promise<ActionState> {
   const agentId = String(form.get("agentId") ?? "");

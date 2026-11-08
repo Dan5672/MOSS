@@ -1,4 +1,5 @@
-// Holidays the Basement decorates for: from 5 days before until the day itself (Oktoberfest: until it ends).
+// Holidays the Basement decorates for: from 5 days before until the day itself (Oktoberfest: until it ends;
+// Christmas: from mid November).
 // Dates are local to the server, which runs in the org's time zone (Settings).
 
 export const HOLIDAYS = ["australia_day", "valentines", "st_patricks", "easter", "star_wars", "oktoberfest", "halloween", "christmas"] as const;
@@ -46,7 +47,8 @@ function spans(year: number): [Holiday, Date, Date][] {
     one("star_wars", 4, 4),
     ["oktoberfest", ...oktoberfest(year)],
     one("halloween", 9, 31),
-    one("christmas", 11, 25),
+    // Up from mid November: 20 November plus the lead-in makes the 15th.
+    ["christmas", new Date(year, 10, 20), new Date(year, 11, 25)],
   ];
 }
 

@@ -1,7 +1,7 @@
 // Worker against Postgres + pg-boss with a scripted LLM and a fake gate. Run with MOSS_TEST_DATABASE_URL set.
 import { chatSnapshot, unansweredConversations, hireCustom, hireFromTemplate, loadLibrary, openQueue, pauseAgent, syncBuiltInSkills, type GateClient } from "@moss/agent";
 import { addChangeComment, addIncidentComment, createChannel, openDm, postMessage, approveChange, bootstrapOrg, createChangeRequest, createIncident, createMonitor, type CheckResult } from "@moss/core";
-import { agentRuns, agents, applyServiceRoles, conversationMessages, createDb, incidentComments, incidents, models, monitors, providers, SERVICE_ROLES, type Database } from "@moss/db";
+import { agentRuns, agents, applyServiceRoles, changeNotes, conversationMessages, createDb, incidentComments, incidents, models, monitors, providers, SERVICE_ROLES, type Database } from "@moss/db";
 import { createTestDb, TEST_DATABASE_URL } from "@moss/db/testing";
 import { MockAdapter } from "@moss/llm";
 import { and, desc, eq } from "drizzle-orm";
@@ -167,12 +167,18 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", { timeout: 30
     await waitFor(async () => ((await runsFor(inc.id)) === 2 ? true : undefined));
     const [answerRun] = await db.select().from(agentRuns).where(eq(agentRuns.triggerRef, inc.id)).orderBy(desc(agentRuns.startedAt)).limit(1);
     expect(answerRun).toMatchObject({ agentId: nina.id, trigger: "ticket" });
+    // The mock model answers in its final message without calling incident_comment: the worker posts it on the ticket.
+    const ninaSaid = () => db.select().from(incidentComments).where(and(eq(incidentComments.incidentId, inc.id), eq(incidentComments.authorAgentId, nina.id)));
+    expect((await waitFor(async () => ((await ninaSaid()).length === 2 ? ninaSaid() : undefined))).map((c) => c.body)).toEqual(["All good.", "All good."]);
     await addIncidentComment(db, actor.orgId, inc.id, "Checking the toner now.", { type: "agent", id: nina.id });
     await new Promise((r) => setTimeout(r, 800));
     expect(await runsFor(inc.id)).toBe(2);
 
     await addChangeComment(db, actor.orgId, cr.id, "Can this wait until tonight?", { type: "user", id: actor.userId });
     await waitFor(async () => ((await runsFor(cr.id)) === 2 ? true : undefined));
+    // Likewise on a change: the reply the model wrote as its final message lands on the change (once per run).
+    const ninaNotes = () => db.select().from(changeNotes).where(and(eq(changeNotes.changeId, cr.id), eq(changeNotes.authorAgentId, nina.id)));
+    expect((await waitFor(async () => ((await ninaNotes()).length === 2 ? ninaNotes() : undefined))).map((n) => n.body)).toEqual(["All good.", "All good."]);
 
     // An @mentioned agent gets a task too, alongside the assignee.
     const pip = await hireFromTemplate(db, actor, { template: lib.templates.get("network-admin")!, modelId, name: "Pip" });

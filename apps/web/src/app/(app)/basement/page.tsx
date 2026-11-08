@@ -13,7 +13,7 @@ export const metadata = { title: "The Basement" };
 export default async function BasementPage({ searchParams }: PageProps<"/basement">) {
   const user = await requireUser();
   const b = await basement(user.orgId);
-  // ?holiday=christmas previews a holiday's decorations; otherwise they go up 5 days before it.
+  // ?holiday=christmas previews a holiday's decorations; otherwise holidays.ts says when they go up.
   const preview = (await searchParams).holiday;
   const holiday = HOLIDAYS.includes(preview as Holiday) ? (preview as Holiday) : holidayOn(new Date());
   const alarm = b.down.length > 0;
