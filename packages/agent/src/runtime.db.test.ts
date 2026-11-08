@@ -102,14 +102,14 @@ describe.skipIf(!TEST_DATABASE_URL)("agent runtime (postgres)", () => {
     expect(nina).toMatchObject({ name: "Nina", title: "Network Admin", templateKey: "network-admin", effort: "medium", maxStepsPerRun: 30 });
     expect(nina.reportsToAgentId).toBe(manager.id);
     expect(manager.reportsToUserId).toBe(actor.userId);
-    expect(await db.select().from(agentSkills).where(eq(agentSkills.agentId, nina.id))).toHaveLength(12); // 4 from the template, 8 core
+    expect(await db.select().from(agentSkills).where(eq(agentSkills.agentId, nina.id))).toHaveLength(13); // 5 from the template, 8 core
     // Core skills can't be taken away, and anything missing one gets it back.
     await expect(removeSkill(db, actor, nina.id, "incident-management")).rejects.toThrow(/every agent has it/);
     await removeSkill(db, actor, nina.id, "unifi-actions");
     const [core] = await db.select().from(skills).where(eq(skills.key, "team-memory"));
     await db.delete(agentSkills).where(and(eq(agentSkills.agentId, nina.id), eq(agentSkills.skillId, core!.id)));
     expect(await ensureCoreSkills(db, actor.orgId)).toBe(1);
-    expect(await db.select().from(agentSkills).where(eq(agentSkills.agentId, nina.id))).toHaveLength(11);
+    expect(await db.select().from(agentSkills).where(eq(agentSkills.agentId, nina.id))).toHaveLength(12);
   });
 
   it("runs a discovery task end to end: scan, denial, inventory, classification", async () => {
@@ -192,6 +192,7 @@ describe.skipIf(!TEST_DATABASE_URL)("agent runtime (postgres)", () => {
       "inventory_update",
       "kb_search",
       "kb_write",
+      "logs_search",
       "monitor_check_now",
       "monitor_get",
       "monitor_list",
@@ -305,9 +306,7 @@ describe.skipIf(!TEST_DATABASE_URL)("agent runtime (postgres)", () => {
   });
 
   it("logs_search works only while the Device logs module is on", async () => {
-    const nina = await hire();
-    const [skill] = await db.select().from(skills).where(and(eq(skills.orgId, actor.orgId), eq(skills.key, "device-logs")));
-    await db.insert(agentSkills).values({ agentId: nina.id, skillId: skill!.id });
+    const nina = await hire(); // the network admin template includes Device Logs
     const search = (expected: (d: unknown) => void): ScriptedTurn[] => [
       { toolCalls: [{ id: "l", name: "logs_search", input: {} }] },
       { text: "done", expect: (input) => expected(data(("toolResults" in input ? input.toolResults : [])[0]!.content)) },

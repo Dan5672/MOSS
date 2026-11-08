@@ -574,9 +574,9 @@ Tools: m365_users, m365_devices, m365_service_health, gworkspace_users, gworkspa
 | Home Automation Specialist | Hana | service-health, device-power, homelab-integrations, home-dns-actions, config-backups |
 | IT Manager | Morgan | none |
 | MOSS Expert | Moss | moss-expert |
-| Network Admin | Nina | network-discovery, device-power, unifi-actions, config-backups |
-| Security Admin | Sid | security-baseline, vulnerability-scanning |
-| Systems Admin | Sam | service-health, server-checks, server-actions, homelab-integrations, config-backups |
+| Network Admin | Nina | network-discovery, device-power, unifi-actions, config-backups, device-logs |
+| Security Admin | Sid | security-baseline, vulnerability-scanning, device-logs |
+| Systems Admin | Sam | service-health, server-checks, server-actions, homelab-integrations, config-backups, device-logs |
 
 ## Roles
 Built-in roles and their permissions (Settings → Users).
