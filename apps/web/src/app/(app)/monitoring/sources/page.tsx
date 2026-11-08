@@ -68,7 +68,7 @@ export default async function SourcesPage() {
                     {KIND_LABEL[s.kind]} · default <PriorityBadge priority={s.defaultPriority} />
                   </div>
                 </TableCell>
-                <TableCell className="max-w-xs truncate font-mono text-xs">{s.kind === "syslog" ? `collector: MOSS_SYSLOG_SOURCE=${s.id}` : `${base}/api/hooks/monitoring/${s.id}`}</TableCell>
+                <TableCell className="max-w-xs truncate font-mono text-xs">{s.kind === "syslog" ? "MOSS's log collector (Monitoring → Logs)" : `${base}/api/hooks/monitoring/${s.id}`}</TableCell>
                 <TableCell className="tabular-nums">{s.monitorCount}</TableCell>
                 <TableCell className="font-mono text-sm">{s.lastReceivedAt ? timeAgo(s.lastReceivedAt) : "never"}</TableCell>
                 {canManage && (

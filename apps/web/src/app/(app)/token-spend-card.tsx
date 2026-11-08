@@ -1,14 +1,15 @@
 import Link from "next/link";
-import { formatUsd, Section } from "@/components/page";
+import { formatTokens as tokens, formatUsd, Section } from "@/components/page";
 import type { tokenSpend } from "@/server/queries";
 
 type Spend = Awaited<ReturnType<typeof tokenSpend>>;
 
-const tokens = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${Math.round(n / 1_000)}k` : String(Math.round(n)));
-
 /** Token use and cost: today and this month, a 30-day chart, and this month by agent and by model. */
 export function TokenSpendCard({ t, cap }: { t: Spend; cap: number | null }) {
-  const max = Math.max(...t.days.map((d) => d.usd), 0.000001);
+  // A subscription costs nothing per token: chart tokens when there's been no spend in dollars.
+  const byUsd = t.days.some((d) => d.usd > 0);
+  const amount = (d: Spend["days"][number]) => (byUsd ? d.usd : d.tokens);
+  const max = Math.max(...t.days.map(amount), 0.000001);
   const barW = 100 / t.days.length;
   const top = (list: Spend["byAgent"]) => list.slice(0, 5);
   return (
@@ -42,26 +43,26 @@ export function TokenSpendCard({ t, cap }: { t: Spend; cap: number | null }) {
             {Math.round((100 * t.month.usd) / cap)}% of the {formatUsd(cap)} monthly cap.
           </p>
         )}
-        {t.days.every((d) => d.usd === 0) ? (
-          <p className="text-xs text-muted-foreground">No spend in the last 30 days.</p>
+        {t.days.every((d) => amount(d) === 0) ? (
+          <p className="text-xs text-muted-foreground">No tokens used in the last 30 days.</p>
         ) : (
           <figure className="grid gap-1">
             <svg
               viewBox="0 0 100 30"
               preserveAspectRatio="none"
               role="img"
-              aria-label={`Cost per day for the last 30 days, up to ${formatUsd(max)} a day`}
+              aria-label={byUsd ? `Cost per day for the last 30 days, up to ${formatUsd(max)} a day` : `Tokens per day for the last 30 days, up to ${tokens(max)} a day`}
               className="h-16 w-full"
             >
               {t.days.map((d, i) => {
-                const h = (d.usd / max) * 28;
+                const h = (amount(d) / max) * 28;
                 return (
                   <rect
                     key={d.day}
                     x={i * barW + barW * 0.15}
-                    y={30 - Math.max(h, d.usd > 0 ? 0.6 : 0)}
+                    y={30 - Math.max(h, amount(d) > 0 ? 0.6 : 0)}
                     width={barW * 0.7}
-                    height={Math.max(h, d.usd > 0 ? 0.6 : 0)}
+                    height={Math.max(h, amount(d) > 0 ? 0.6 : 0)}
                     className="fill-phosphor"
                   >
                     <title>{`${d.day}: ${formatUsd(d.usd)}, ${tokens(d.tokens)} tokens`}</title>

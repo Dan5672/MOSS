@@ -10,6 +10,7 @@ import { dashboard, setupProgress, tokenSpend } from "@/server/queries";
 import { DASHBOARD_WIDGETS, DEFAULT_DASHBOARD, readLayout } from "@/components/widgets/registry";
 import { WidgetGrid } from "@/components/widgets/widget-grid";
 import { saveDashboardLayoutAction } from "./dashboard-actions";
+import { SpendStat } from "./spend-stat";
 import { TokenSpendCard } from "./token-spend-card";
 import { SetupChecklist } from "./setup-checklist";
 
@@ -199,11 +200,15 @@ export default async function DashboardPage() {
     "stat-assets": <Stat label="Assets" value={d.assets.total} href="/assets" sub={`${d.assets.newThisWeek} new this week`} />,
     "stat-agents": <Stat label="Agents" value={d.agents.active} href="/agents" sub={d.agents.paused ? `${d.agents.paused} paused` : "All active"} />,
     "stat-spend": (
-      <Stat label="Spend this month" value={formatUsd(d.spend.month)} href="/agents" sub={`${formatUsd(d.spend.today)} today`}>
-        {d.monthlyCapUsd !== null && (
-          <SegmentBar ratio={d.spend.month / d.monthlyCapUsd} label={`${formatUsd(d.spend.month)} of the ${formatUsd(d.monthlyCapUsd)} monthly cap`} />
-        )}
-      </Stat>
+      <SpendStat
+        usd={d.spend}
+        tokens={{ today: spend.today.input + spend.today.output, month: spend.month.input + spend.month.output }}
+        bar={
+          d.monthlyCapUsd !== null && (
+            <SegmentBar ratio={d.spend.month / d.monthlyCapUsd} label={`${formatUsd(d.spend.month)} of the ${formatUsd(d.monthlyCapUsd)} monthly cap`} />
+          )
+        }
+      />
     ),
     "token-spend": <TokenSpendCard t={spend} cap={d.monthlyCapUsd} />,
     team: (

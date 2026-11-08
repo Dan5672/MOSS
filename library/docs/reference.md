@@ -20,14 +20,14 @@ Stored per install; most are switched on the Settings page.
 | changes.emergency_tools | [] | The only tools an emergency change may use, when emergency changes are allowed. Empty means any tool. |
 | changes.require_separate_approver | false | Requires a change to be approved by someone other than the person who asked for it. |
 | changes.window_hours | 24 | How many hours after its approval a change without a window of its own may be carried out (24 by default). After that it has to be raised again. |
-| general.time_zone | "" | The time zone recurring tasks run in and MOSS shows times in (Settings → Time zone). Empty means the computer MOSS runs on: TZ in deploy/.env, which the installer sets from the host. |
+| general.time_zone | "" | The time zone MOSS shows every time in, counts "today" and "this month" in, and runs recurring tasks in (Settings → Time zone). Empty means the computer MOSS runs on: TZ in deploy/.env, which the installer sets from the host. |
 | homeassistant.allow_resume | false | Whether the Home Assistant integration may resume paused agents (pausing is always allowed). |
 | https.certificate | {} | The certificate uploaded in Settings → HTTPS, if any: who it's for, when it expires and its fingerprint. Moss reminds everyone in #general 30 and 7 days before it runs out. Empty when MOSS uses its own certificate authority. |
 | knowledge.agent_drafts | false | Makes what agents write in the wiki a draft: other agents don't see it until a person reads it and publishes it, so a note an agent was tricked into writing can't mislead the rest. Off by default. |
 | licence.key | "" | The business licence (Settings → About): a signed key, checked offline. Business integrations work only while it's valid, or for 14 days after it expires. |
 | licence.reminded | {} | Which reminders about the business licence's expiry have been sent (30 and 7 days before, on expiry, and when it stops). |
 | logs.allowed_senders | [] | Syslog senders (addresses or CIDRs) accepted as well as the allowed networks, without letting agents scan or act on them. On Docker Desktop every sender shows as Docker's own address, so that one goes here. Off-limits networks are still refused. |
-| logs.max_rows | 1000000 | The most device log lines kept (1,000,000 by default, about a gigabyte); the oldest are deleted first, every hour. |
+| logs.max_rows | 1000000 | The most device log lines kept (1,000,000 by default: about half a gigabyte of typical lines, up to 2.5 GB if every line is long); the oldest are deleted first, every 5 minutes. |
 | logs.retention_days | 7 | How many days of device logs (syslog, through the collector) are kept. 7 by default; busy firewalls send a lot. |
 | monitoring.dependencies | false | Monitor dependencies (Monitoring → Map). A monitor can depend on another, such as a VM on its Proxmox host. While a monitor it depends on is down or failing, its own outages raise no incident or notification, so one dead host is one alert. Off by default. |
 | monitoring.quiet_until | "" | Maintenance mode: until this time, monitors keep checking but raise no incidents. Set from Home Assistant. |

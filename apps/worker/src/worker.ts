@@ -25,6 +25,7 @@ import {
   changeRef,
   dispatchEvents,
   getSetting,
+  applyOrgTimeZone,
   orgTimeZone,
   incidentRef,
   parseBackupSchedule,
@@ -39,7 +40,7 @@ import { and, desc, eq, gt, inArray, notInArray } from "drizzle-orm";
 import { PgBoss } from "pg-boss";
 import { notifyIncident, runHomeAssistantTick, type HaCaller } from "./home-assistant.js";
 import { pagerdutyIncident, runIntegrationsTick, type IntegrationCaller } from "./integrations.js";
-import { handleMonitorEvent, pruneAllMonitorResults, runDueChecks, type MonitorChecker } from "./monitor-runner.js";
+import { handleMonitorEvent, pruneAllLogs, pruneAllMonitorResults, runDueChecks, type MonitorChecker } from "./monitor-runner.js";
 
 export { enqueueRun, RUN_QUEUE, SCHEDULE_QUEUE };
 
@@ -79,6 +80,9 @@ export async function syncSchedules(db: Database, boss: PgBoss): Promise<{ added
     .from(agentSchedules)
     .innerJoin(agents, eq(agentSchedules.agentId, agents.id))
     .where(and(eq(agentSchedules.enabled, true), eq(agents.status, "active")));
+  // The worker's own dates (messages, "today" for budgets) follow Settings' time zone too.
+  const [org] = await db.select({ id: orgs.id }).from(orgs).limit(1);
+  if (org) await applyOrgTimeZone(db, org.id);
   // Each org's tasks run in its time zone (Settings), so changing it reschedules them.
   const zones = new Map<string, string>();
   for (const orgId of new Set(rows.map((r) => r.orgId))) zones.set(orgId, await orgTimeZone(db, orgId));
@@ -382,6 +386,18 @@ export async function startWorker(cfg: WorkerConfig) {
       (err) => log("monitor prune failed", { error: (err as Error).message }),
     );
   const pruneTimer = setInterval(prune, 60 * 60_000);
+  let pruningLogs = false;
+  const pruneLogsTick = () => {
+    if (pruningLogs) return;
+    pruningLogs = true;
+    pruneAllLogs(db)
+      .then(
+        (n) => n && log("device logs pruned", { deleted: n }),
+        (err) => log("log prune failed", { error: (err as Error).message }),
+      )
+      .finally(() => (pruningLogs = false));
+  };
+  const logPruneTimer = setInterval(pruneLogsTick, 5 * 60_000);
   // History for graphs: 5-minute and hourly rollups of the checks.
   const rollUp = () =>
     rollUpMonitorResults(db).then(
@@ -425,6 +441,7 @@ export async function startWorker(cfg: WorkerConfig) {
       clearInterval(eventTimer);
       clearInterval(monitorTimer);
       clearInterval(pruneTimer);
+      clearInterval(logPruneTimer);
       clearInterval(rollupTimer);
       clearInterval(haTimer);
       clearInterval(integrationsTimer);

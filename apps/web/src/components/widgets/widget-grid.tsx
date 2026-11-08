@@ -3,6 +3,7 @@
 import { startTransition, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Masonry } from "@/components/masonry";
 import { cn } from "@/lib/utils";
 import { SIZE_CLASS, type WidgetInfo, type WidgetLayoutItem, type WidgetSize } from "./registry";
 
@@ -95,7 +96,7 @@ export function WidgetGrid({
         )}
       </div>
       {layout.length === 0 && <p className="border-2 border-dashed p-8 text-center text-sm text-muted-foreground">No cards. Customise to add some.</p>}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-6">
+      <Masonry gap={12} className="grid-cols-2 md:grid-cols-4 lg:grid-cols-6">
         {layout.map((item, i) => (
           <div key={item.id} className={cn("relative min-w-0", SIZE_CLASS[item.size], editing && "outline-2 outline-offset-2 outline-dashed outline-dim")}>
             {editing && (
@@ -150,7 +151,7 @@ export function WidgetGrid({
             <div className={cn("h-full", editing && "pointer-events-none opacity-80")}>{cards[item.id]}</div>
           </div>
         ))}
-      </div>
+      </Masonry>
     </section>
   );
 }

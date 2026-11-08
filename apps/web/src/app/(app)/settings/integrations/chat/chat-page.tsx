@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { saveChatSettingsAction, saveChatTokenAction, setChatEnabledAction, unlinkChatAction } from "./actions";
+import { Masonry } from "@/components/masonry";
 
 const SETUP: Record<ChatPlatform, React.ReactNode> = {
   telegram: (
@@ -105,7 +106,7 @@ export async function ChatIntegrationPage({ platform }: { platform: ChatPlatform
           />
         }
       />
-      <div className="grid gap-6 lg:grid-cols-2">
+      <Masonry gap={24} className="lg:grid-cols-2">
         <Card id="bot">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -182,7 +183,7 @@ export async function ChatIntegrationPage({ platform }: { platform: ChatPlatform
             )}
           </CardContent>
         </Card>
-      </div>
+      </Masonry>
     </>
   );
 }

@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { requireUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { changePasswordAction, hostPinAction, savePasswordPolicyAction } from "./actions";
+import { Masonry } from "@/components/masonry";
 
 export const metadata = { title: "Security" };
 
@@ -34,7 +35,7 @@ export default async function SecurityPage({ searchParams }: PageProps<"/setting
           <AlertDescription>Your password is older than the policy allows. Change it below to carry on.</AlertDescription>
         </Alert>
       )}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <Masonry gap={24} className="lg:grid-cols-2">
         <Card id="password">
           <CardHeader>
             <CardTitle>Change your password</CardTitle>
@@ -128,7 +129,7 @@ export default async function SecurityPage({ searchParams }: PageProps<"/setting
             </CardContent>
           </Card>
         )}
-      </div>
+      </Masonry>
     </>
   );
 }

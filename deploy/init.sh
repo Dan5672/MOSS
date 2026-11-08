@@ -65,7 +65,7 @@ if [ ! -f secrets/master.key ]; then
   echo "Generated deploy/secrets/master.key."
   echo "BACK THIS FILE UP. Without it, stored secrets cannot be recovered or restored."
 fi
-for token in gate llm toolbox web backup backup-run bridge; do
+for token in gate llm toolbox web backup backup-run bridge syslog; do
   if [ ! -f "secrets/$token.token" ]; then
     openssl rand -hex 32 > "secrets/$token.token"
     echo "Generated deploy/secrets/$token.token."

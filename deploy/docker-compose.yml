@@ -107,6 +107,9 @@ services:
       # MOSS backups (Settings → Backups): start, list, delete, and download encrypted.
       BACKUP_URL: http://backup:7090
       BACKUP_TOKEN_FILE: /run/secrets/backup_token
+      # What the log collector (vector) signs in with, and the port devices send syslog to (shown on Monitoring → Logs).
+      SYSLOG_TOKEN_FILE: /run/secrets/syslog_token
+      MOSS_SYSLOG_PORT: ${MOSS_SYSLOG_PORT:-514}
       # false: no backup downloads from Settings (docs/hardening.md); the backup service refuses them too.
       MOSS_BACKUP_DOWNLOADS: ${MOSS_BACKUP_DOWNLOADS:-true}
       # The addresses people open MOSS at, comma-separated (docs/hardening.md). Empty: taken from each request.
@@ -117,7 +120,7 @@ services:
       MOSS_HTTPS_HOSTS: ${MOSS_HTTPS_HOSTS:-}
       # Same zone as the worker, which runs agent schedules in it, so times on screen match.
       TZ: ${TZ:-UTC}
-    secrets: [web_token, app_key, backup_token, setup_code]
+    secrets: [web_token, app_key, backup_token, setup_code, syslog_token]
     volumes:
       # Settings → HTTPS writes an uploaded certificate here for the https service, and reloads it through
       # the admin socket there with the HTTPS config (read-only).
@@ -205,27 +208,27 @@ services:
     security_opt: ["no-new-privileges:true"]
     depends_on: [web]
 
-  # Syslog from your devices, so agents can read what a device logged without a credential for it. Enable with the
-  # syslog profile (add syslog to COMPOSE_PROFILES) and MOSS_SYSLOG_SOURCE and MOSS_SYSLOG_TOKEN from a syslog source
-  # (Monitoring → Webhook sources). Listens on port 514 (UDP and TCP) of this host: the one port MOSS opens to the LAN.
-  # Reaches the web app directly on the internal syslog network; no database, no secrets beyond that source's token.
-  # syslog_in only carries the published port (an internal network can't publish one); nothing else is on it.
+  # Syslog from your devices, so agents can read what a device logged without a credential for it. Always running,
+  # so switching Device logs on (Monitoring → Logs) is the whole setup; while it's off, web refuses what it posts.
+  # Listens on port 514 (UDP and TCP) of this host: the one port MOSS opens to the LAN (MOSS_SYSLOG_PORT moves it).
+  # Reaches the web app directly on the internal syslog network; no database, no secret but the syslog token.
+  # syslog_in only carries the published port (an internal network can't publish one); nothing else is on it, but
+  # it's a normal bridge, so Vector itself could reach the internet. Its config sends only to web; it's pinned by digest.
   vector:
     image: timberio/vector:0.59.0-distroless-static@sha256:2138c72ef15477d3a60126da851407a198ec61d2ff4cd600a4e69db5f6a29ff7
-    profiles: [syslog]
     restart: unless-stopped
     command: ["--config", "/etc/vector/vector.yaml"]
     # Read by vector.yaml's secret backend (the files in /run/secrets), not the environment.
-    secrets: [syslog_source, syslog_token]
+    secrets: [syslog_token]
     volumes:
       - ./vector:/etc/vector:ro
     ports:
       - "${MOSS_SYSLOG_BIND:-0.0.0.0}:${MOSS_SYSLOG_PORT:-514}:5514/udp"
       - "${MOSS_SYSLOG_BIND:-0.0.0.0}:${MOSS_SYSLOG_PORT:-514}:5514/tcp"
     networks: [syslog, syslog_in]
-    # Not read_only: compose can't hand environment secrets to a read-only container. As nobody it can't write
-    # the image's files anyway.
-    user: "65534:65534"
+    read_only: true
+    # The same user as MOSS's own services, so it can read the syslog token (mode 600, owned by the deploy user).
+    user: "1000:1000"
     tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
@@ -327,9 +330,7 @@ secrets:
   backup_run_token: { file: ./secrets/backup-run.token }
   bridge_token: { file: ./secrets/bridge.token }
   setup_code: { file: ./secrets/setup.code }
-  # From deploy/.env, for the syslog profile.
-  syslog_source: { environment: MOSS_SYSLOG_SOURCE }
-  syslog_token: { environment: MOSS_SYSLOG_TOKEN }
+  syslog_token: { file: ./secrets/syslog.token }
 
 volumes:
   pgdata:

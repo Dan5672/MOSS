@@ -4,6 +4,9 @@ import { checkMonitorNow, getMonitor, isModuleEnabled, listMonitors, searchLogs 
 import { z } from "zod";
 import type { PlatformTool } from "./platform-tools.js";
 
+/** About 2,000 tokens of log lines per logs_search call. */
+const MAX_LOG_TEXT = 8_000;
+
 const state = z.enum(["pending", "up", "degraded", "down", "paused"]);
 
 export const MONITOR_TOOLS: PlatformTool[] = [
@@ -88,18 +91,19 @@ export const MONITOR_TOOLS: PlatformTool[] = [
       sinceHours: z.number().min(0.1).max(24 * 30).default(24),
       limit: z.number().int().min(1).max(100).default(20),
     }),
-    run: async ({ db, orgId }, args) =>
-      !(await isModuleEnabled(db, orgId, "syslog"))
-        ? { error: "Device logs are switched off (Settings → Integrations). Ask the owner to switch them on." }
-        : (await searchLogs(db, orgId, args)).map((l) => ({
-        at: l.receivedAt.toISOString(),
-        from: l.sourceIp,
-        verified: l.transport === "tcp",
-        asset: l.assetName,
-        hostname: l.hostname,
-        app: l.app,
-        severity: l.severity,
-        message: l.message,
-      })),
+    run: async ({ db, orgId }, args) => {
+      if (!(await isModuleEnabled(db, orgId, "syslog"))) return { error: "Device logs are switched off (Settings → Integrations). Ask the owner to switch them on." };
+      const rows = await searchLogs(db, orgId, args);
+      // Whole lines up to a budget: less device-written text in the model's context, and none cut mid-line.
+      const lines = [];
+      let size = 0;
+      for (const l of rows) {
+        const line = { at: l.receivedAt.toISOString(), from: l.sourceIp, verified: l.transport === "tcp", asset: l.assetName, hostname: l.hostname, app: l.app, severity: l.severity, message: l.message };
+        size += JSON.stringify(line).length;
+        if (size > MAX_LOG_TEXT && lines.length) break;
+        lines.push(line);
+      }
+      return lines.length < rows.length ? { lines, truncated: `${rows.length - lines.length} more line(s) left out; narrow the search` } : { lines };
+    },
   },
 ];

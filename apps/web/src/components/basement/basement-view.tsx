@@ -6,6 +6,8 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { MascotSvg } from "@/components/mascot-svg";
+import { HolidayHat } from "./decorations";
+import type { Holiday } from "./holidays";
 import { agentGlow, agentMascot } from "@/lib/agent-look";
 import { motionAllowed } from "@/lib/motion";
 import { AgentPanelDialog } from "./agent-panel";
@@ -101,12 +103,14 @@ export function BasementView({
   responderId,
   seed: initialSeed,
   furniture,
+  holiday = null,
 }: {
   team: BasementAgent[];
   down: { id: string; name: string }[];
   responderId: string | null;
   seed: number;
   furniture: ReactNode;
+  holiday?: Holiday | null;
 }) {
   // Fixed for this visit: later refreshes pass a new seed, but the first one is kept.
   const [seed] = useState(initialSeed);
@@ -272,6 +276,7 @@ export function BasementView({
                   </span>
                 )}
                 <MascotSvg variant={agentMascot(a)} size={80} glow={agentGlow(a)} />
+                <HolidayHat holiday={holiday} />
                 {p?.book && <span style={{ position: "absolute", left: 18, top: 56, width: 44, height: 24, background: "#e0483e", border: "3px solid #14110f", boxSizing: "border-box" }} />}
                 {p?.pad && <span style={{ position: "absolute", left: 22, top: 62, width: 36, height: 14, background: "#2b2b2b", border: "2px solid #14110f", boxSizing: "border-box" }} />}
                 {p?.mug && <span style={{ position: "absolute", left: 54, top: 58, width: 14, height: 16, background: "#f5f1e6", border: "2px solid #14110f", boxSizing: "border-box" }} />}

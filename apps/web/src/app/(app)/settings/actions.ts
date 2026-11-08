@@ -1,8 +1,9 @@
 "use server";
 
-import { generateTotpSecret, getPasswordPolicy, getSetting, mustEnrolTotp, serverTimeZone, setSetting, verifyTotp, writeAudit, type SettingKey } from "@moss/core";
+import { applyOrgTimeZone, generateTotpSecret, getPasswordPolicy, getSetting, mustEnrolTotp, serverTimeZone, setSetting, verifyTotp, writeAudit, type SettingKey } from "@moss/core";
 import { roles, userRoles, users } from "@moss/db";
 import { eq } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { act, type ActionState } from "@/server/action";
@@ -63,7 +64,9 @@ export async function saveTimeZoneAction(_: ActionState, form: FormData): Promis
     if (zone && !Intl.supportedValuesOf("timeZone").includes(zone)) throw new Error("Choose a time zone from the list");
     await setSetting(db(), user.orgId, "general.time_zone", zone);
     await writeAudit(db(), { orgId: user.orgId, actorType: "user", actorId: user.id, action: "setting.update", targetType: "setting", targetId: "general.time_zone", details: { value: zone } });
-    return `Time zone saved: ${zone || `this computer's (${serverTimeZone()})`}. Recurring tasks follow it within a minute.`;
+    await applyOrgTimeZone(db(), user.orgId);
+    revalidatePath("/", "layout");
+    return `Time zone saved: ${zone || `this computer's (${serverTimeZone()})`}. Times on screen use it now; recurring tasks within a minute.`;
   });
 }
 

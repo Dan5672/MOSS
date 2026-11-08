@@ -1,10 +1,42 @@
 // Device logs (syslog through Vector): stored per "syslog" source, linked to the inventory device at the sender's
 // address, searched by people and agents, and pruned by the logs.retention_days setting.
 import { assets, logEntries, monitorSources, networks, type Database } from "@moss/db";
-import { and, desc, eq, gte, ilike, inArray, lt, lte, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, lt, lte, or } from "drizzle-orm";
 import { senderAllowed, type LogLine } from "../monitoring/syslog.js";
 import { getSetting } from "../store/settings-store.js";
-import { deleteInChunks, type MonitorSource } from "./monitors.js";
+import { loadModule, updateModuleState } from "./modules.js";
+import { createMonitorSource, deleteInChunks, type MonitorSource } from "./monitors.js";
+
+/** The org's syslog source, made on first use. The collector signs in with the install's own token, not a source's. */
+export async function syslogSource(db: Database, orgId: string): Promise<MonitorSource> {
+  const [s] = await db
+    .select()
+    .from(monitorSources)
+    .where(and(eq(monitorSources.orgId, orgId), eq(monitorSources.kind, "syslog")))
+    .orderBy(asc(monitorSources.createdAt))
+    .limit(1);
+  return s ?? (await createMonitorSource(db, orgId, { name: "Device logs", kind: "syslog" }, { type: "system", id: null })).source;
+}
+
+/** What Monitoring → Logs shows about the collector: when it last posted, and the senders it refused lately. */
+export interface SyslogStatus {
+  lastBatchAt: string | null;
+  refused: { ip: string; at: string }[];
+}
+
+export async function syslogStatus(db: Database, orgId: string): Promise<SyslogStatus> {
+  const { state } = await loadModule(db, orgId, "syslog");
+  return {
+    lastBatchAt: typeof state.lastBatchAt === "string" ? state.lastBatchAt : null,
+    refused: Array.isArray(state.refused) ? (state.refused as SyslogStatus["refused"]) : [],
+  };
+}
+
+/** Drops a sender from the refused list, once it has been accepted. */
+export async function forgetRefusedSender(db: Database, orgId: string, ip: string) {
+  const { refused } = await syslogStatus(db, orgId);
+  await updateModuleState(db, orgId, "syslog", { refused: refused.filter((r) => r.ip !== ip) });
+}
 
 /**
  * Stores the lines whose sender is inside an allowed network or the logs.allowed_senders setting (syslog has no
@@ -43,6 +75,11 @@ export async function ingestLogs(db: Database, source: MonitorSource, lines: Log
     );
     await db.update(monitorSources).set({ lastReceivedAt: now }).where(eq(monitorSources.id, source.id));
   }
+  // The newest 20 refused senders, so the owner can accept one from the Logs page (e.g. Docker Desktop's gateway).
+  const at = now.toISOString();
+  const keptIps = new Set(kept.map((l) => l.ip));
+  const before = (await syslogStatus(db, source.orgId)).refused.filter((r) => !refused.includes(r.ip) && !keptIps.has(r.ip));
+  await updateModuleState(db, source.orgId, "syslog", { lastBatchAt: at, refused: [...refused.map((ip) => ({ ip, at })), ...before].slice(0, 20) });
   return { stored: kept.length, refused };
 }
 

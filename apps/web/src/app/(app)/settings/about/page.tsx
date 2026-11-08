@@ -12,6 +12,7 @@ import { config } from "@/server/config";
 import { db } from "@/server/db";
 import { checkForUpdatesAction } from "./actions";
 import { LicenceCard } from "./licence-card";
+import { Masonry } from "@/components/masonry";
 
 export const metadata = { title: "About MOSS" };
 
@@ -54,7 +55,7 @@ export default async function AboutPage() {
   return (
     <>
       <PageHeader title="About MOSS" description="The version running here, whether there's a newer one, and your licence." />
-      <div className="grid gap-6 lg:grid-cols-2">
+      <Masonry gap={24} className="lg:grid-cols-2">
         <Card id="version">
           <CardHeader>
             <CardTitle className="flex flex-wrap items-center gap-2">
@@ -129,7 +130,7 @@ export default async function AboutPage() {
             </CardContent>
           </Card>
         )}
-      </div>
+      </Masonry>
     </>
   );
 }
