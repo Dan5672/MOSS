@@ -11,8 +11,6 @@ describe("Basement holidays", () => {
   });
 
   it("decorates from 5 days before until the day itself", () => {
-    expect(on(2026, 12, 19)).toBeNull();
-    expect(on(2026, 12, 20)).toBe("christmas");
     expect(on(2026, 12, 25)).toBe("christmas");
     expect(on(2026, 12, 26)).toBeNull();
     expect(on(2026, 10, 30)).toBe("halloween");
@@ -28,6 +26,12 @@ describe("Basement holidays", () => {
     expect(on(2026, 9, 14)).toBe("oktoberfest");
     expect(on(2026, 10, 4)).toBe("oktoberfest");
     expect(on(2026, 10, 5)).toBeNull();
+  });
+
+  it("puts Christmas up from mid November", () => {
+    expect(on(2026, 11, 14)).toBeNull();
+    expect(on(2026, 11, 15)).toBe("christmas");
+    expect(on(2026, 12, 1)).toBe("christmas");
   });
 
   it("picks the sooner holiday where two overlap", () => {

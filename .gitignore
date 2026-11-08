@@ -19,3 +19,6 @@ skills-lock.json
 .claude/settings.local.json
 # The marketing site is kept out of the repository.
 site/
+
+# DEV-HARNESS lifecycle state (local to this machine)
+.harness/

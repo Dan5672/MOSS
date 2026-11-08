@@ -41,5 +41,5 @@ A live scene of the team: who is working (at a desk) and who is on a break, and 
 is down. Click an agent for its current run and a message box. It refreshes every 15 seconds.
 Animations follow the device's reduced-motion setting, or Settings > Display > Motion. From 5 days before
 Australia Day, Valentine's Day, St Patrick's Day, Easter, Star Wars Day (4 May), Oktoberfest (its whole run),
-Halloween and Christmas, the Basement is decorated for it (Santa hats at Christmas). Add ?holiday=christmas
+Halloween and Christmas (from 15 November), the Basement is decorated for it (Santa hats at Christmas). Add ?holiday=christmas
 (or easter, halloween, valentines, st_patricks, star_wars, oktoberfest, australia_day) to the address to preview one.
