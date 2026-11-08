@@ -21,6 +21,8 @@ import {
 } from "@moss/agent";
 import {
   actorName,
+  addChangeComment,
+  addIncidentComment,
   backupDue,
   changeRef,
   dispatchEvents,
@@ -140,6 +142,41 @@ async function commentRun(
         : `${who} mentioned you in a comment on ${ref}:${said}${reply} to answer them. It isn't assigned to you: help with ` +
           "what they asked, and leave the rest to the assignee.",
   };
+}
+
+/**
+ * A run about an incident or change request that finished without writing on it: post its final answer there,
+ * so the person sees it. Models sometimes write the reply as their last message instead of calling
+ * incident_comment / change_comment.
+ */
+export async function recordTicketReply(db: Database, input: RunInput, outcome: { runId: string | null; status: string; summary?: string }) {
+  const body = outcome.summary?.trim();
+  const ref = input.triggerRef;
+  if (!ref || !outcome.runId || outcome.status !== "succeeded" || !body || body === "Done.") return;
+  if (input.trigger !== "ticket" && input.trigger !== "event") return;
+  const [run] = await db.select({ orgId: agentRuns.orgId, startedAt: agentRuns.startedAt }).from(agentRuns).where(eq(agentRuns.id, outcome.runId));
+  if (!run) return;
+  const actor = { type: "agent" as const, id: input.agentId };
+
+  if (input.trigger === "ticket") {
+    const [said] = await db
+      .select({ id: incidentComments.id })
+      .from(incidentComments)
+      .where(and(eq(incidentComments.incidentId, ref), eq(incidentComments.authorAgentId, input.agentId), gt(incidentComments.createdAt, run.startedAt)))
+      .limit(1);
+    if (!said) await addIncidentComment(db, run.orgId, ref, body, actor);
+    return;
+  }
+  // "event" runs also come from monitors and consultations; only those about a change request belong on one.
+  const [cr] = await db.select({ id: changeRequests.id }).from(changeRequests).where(eq(changeRequests.id, ref));
+  if (!cr) return;
+  // Any note counts: executing or completing a change writes its own.
+  const [said] = await db
+    .select({ id: changeNotes.id })
+    .from(changeNotes)
+    .where(and(eq(changeNotes.changeId, ref), eq(changeNotes.authorAgentId, input.agentId), gt(changeNotes.createdAt, run.startedAt)))
+    .limit(1);
+  if (!said) await addChangeComment(db, run.orgId, ref, body, actor);
 }
 
 /**
@@ -294,6 +331,7 @@ export async function startWorker(cfg: WorkerConfig) {
     const outcome = await runAgent({ db, gate: cfg.gate, providerFor: cfg.providerFor, claudeCode: cfg.claudeCode }, input);
     log("run finished", { agentId: input.agentId, runId: outcome.runId, status: outcome.status });
     if (chat) await recordChatReply(db, input.triggerRef!, input.agentId, outcome, chat.cutoff);
+    await recordTicketReply(db, input, outcome).catch((err) => log("ticket reply failed", { runId: outcome.runId, error: (err as Error).message }));
     // Messages sent while the agent was busy (one run per agent at a time): answer them now.
     for (const conversationId of await unansweredConversations(db, input.agentId)) {
       await enqueueRun(boss, { agentId: input.agentId, trigger: "chat", triggerRef: conversationId, task: "Reply in chat" });
