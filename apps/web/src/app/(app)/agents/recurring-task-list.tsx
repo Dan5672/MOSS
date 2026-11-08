@@ -3,7 +3,7 @@ import { ActionForm } from "@/components/action-form";
 import { Pill } from "@/components/badges";
 import { timeAgo } from "@/components/page";
 import { describeCron } from "@/lib/schedule";
-import { addScheduleAction, deleteScheduleAction, setScheduleEnabledAction, updateScheduleAction } from "./actions";
+import { addScheduleAction, deleteScheduleAction, runScheduleNowAction, setScheduleEnabledAction, updateScheduleAction } from "./actions";
 import { ScheduleFields } from "./[id]/schedule-fields";
 
 type Task = typeof agentSchedules.$inferSelect;
@@ -37,6 +37,7 @@ export function RecurringTaskList({
             <p className="font-mono text-xs text-dim">{last ? `Last ran ${timeAgo(last)}` : "Hasn't run yet"}</p>
             {canManage && (
               <div className="flex flex-wrap items-start gap-2">
+                <ActionForm action={runScheduleNowAction.bind(null, agentId, s.id)} submitLabel="Run now" submitVariant="outline" />
                 <ActionForm action={setScheduleEnabledAction.bind(null, agentId, s.id, !s.enabled)} submitLabel={s.enabled ? "Turn off" : "Turn on"} submitVariant="outline" />
                 <ActionForm
                   action={deleteScheduleAction.bind(null, agentId, s.id)}
