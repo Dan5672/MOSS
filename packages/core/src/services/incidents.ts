@@ -131,8 +131,9 @@ export async function addIncidentComment(db: Database, orgId: string, incidentId
   return db.transaction(async (tx) => {
     const [comment] = await tx.insert(incidentComments).values({ incidentId, body, mentions, ...authorFields(actor) }).returning();
     await notifyMentioned(tx, orgId, mentions, { ...actor, name: author }, { ref: incidentRef(incident.number), link: `/incidents/${incidentId}`, body });
-    // A person's comment gets the assigned agent's attention; an agent's own comments never trigger anything.
-    if (actor.type === "user") await emitEvent(tx, orgId, { type: "incident.commented", payload: { incidentId, commentId: comment!.id } });
+    // A person's comment gets the assigned agent's attention; an agent's comment only the agent that raised the
+    // incident (the worker decides who answers, and never wakes an agent for its own comment).
+    if (actor.type === "user" || actor.type === "agent") await emitEvent(tx, orgId, { type: "incident.commented", payload: { incidentId, commentId: comment!.id } });
     return comment!;
   });
 }

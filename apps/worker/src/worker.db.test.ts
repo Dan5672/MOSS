@@ -270,6 +270,31 @@ describe.skipIf(!TEST_DATABASE_URL)("worker (postgres + pg-boss)", { timeout: 30
     expect(await unansweredIncidentComments(db, ivy!.id)).toEqual([]); // worked on since
   });
 
+  it("the agent that raised an incident hears about comments on it, from people and from other agents", async () => {
+    const rex = await hireCustom(db, actor, { name: "Rex", title: "Security Admin", systemPrompt: "You look after security and nothing else.", skills: [], modelId });
+    const ola = await hireCustom(db, actor, { name: "Ola", title: "Network Admin", systemPrompt: "You look after the network and nothing else.", skills: [], modelId });
+    const inc = await createIncident(db, actor.orgId, { type: "security", title: "RDP open on the NUC" }, { type: "agent", id: rex.id });
+    expect(inc.raisedByAgentId).toBe(rex.id);
+    const runs = (agentId: string) => db.select().from(agentRuns).where(and(eq(agentRuns.triggerRef, inc.id), eq(agentRuns.agentId, agentId)));
+
+    // A person's comment, unassigned and untagged: Rex answers, on the ticket.
+    await addIncidentComment(db, actor.orgId, inc.id, "Which ports exactly?", { type: "user", id: actor.userId });
+    const [first] = await waitFor(async () => ((await runs(rex.id)).some((r) => r.status === "succeeded") ? runs(rex.id) : undefined));
+    expect(first).toMatchObject({ trigger: "ticket" });
+    await waitFor(async () => (await db.select().from(incidentComments).where(and(eq(incidentComments.incidentId, inc.id), eq(incidentComments.authorAgentId, rex.id))))[0]);
+
+    // Another agent's comment wakes Rex too (not as a ticket run: he needn't reply); Rex's own comments wake nobody.
+    await addIncidentComment(db, actor.orgId, inc.id, "I can close 3389 on the gateway.", { type: "agent", id: ola.id });
+    const fromOla = await waitFor(async () => (await runs(rex.id)).find((r) => r.trigger === "event" && r.status === "succeeded"));
+    expect(fromOla.task).toContain("which you raised");
+    expect(await runs(ola.id)).toHaveLength(0);
+    const before = (await runs(rex.id)).length;
+    await addIncidentComment(db, actor.orgId, inc.id, "Thanks Ola.", { type: "agent", id: rex.id });
+    await new Promise((r) => setTimeout(r, 800));
+    expect(await runs(rex.id)).toHaveLength(before);
+    expect(await runs(ola.id)).toHaveLength(0);
+  });
+
   it("never hits a write its database role refuses", () => {
     expect(logged.filter((l) => /permission denied|moss: /.test(l))).toEqual([]);
   });

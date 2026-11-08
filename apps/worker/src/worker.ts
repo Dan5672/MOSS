@@ -38,7 +38,7 @@ import {
 } from "@moss/core";
 import { agentRuns, agents, agentSchedules, changeNotes, changeRequests, incidentComments, incidents, orgs, type Database } from "@moss/db";
 import { createProvider } from "@moss/llm";
-import { and, desc, eq, gt, inArray, notInArray } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, notInArray, or } from "drizzle-orm";
 import { PgBoss } from "pg-boss";
 import { notifyIncident, runHomeAssistantTick, type HaCaller } from "./home-assistant.js";
 import { pagerdutyIncident, runIntegrationsTick, type IntegrationCaller } from "./integrations.js";
@@ -119,27 +119,38 @@ async function activeAgents(db: Database, ids: (string | null)[]): Promise<strin
   return unique.filter((id) => rows.some((r) => r.id === id && r.status === "active"));
 }
 
-/** A run that answers a person's comment on an incident: for the assignee, or for an agent they @mentioned. */
+/** Who answers a comment on an incident. A person's: the assignee, the agent that raised it, and any agent they
+ * @mentioned. Another agent's: only the agent that raised it, so two agents can't keep waking each other. */
+function commentAnswerers(inc: typeof incidents.$inferSelect, comment: typeof incidentComments.$inferSelect): (string | null)[] {
+  if (comment.authorUserId) return [inc.assignedAgentId, inc.raisedByAgentId, ...agentMentions(comment.mentions)];
+  return comment.authorAgentId && inc.raisedByAgentId !== comment.authorAgentId ? [inc.raisedByAgentId] : [];
+}
+
+/** A run that answers a comment on an incident: for the assignee, the agent that raised it, or an agent @mentioned. */
 async function commentRun(
   db: Database,
   inc: typeof incidents.$inferSelect,
   comment: typeof incidentComments.$inferSelect,
   agentId: string,
 ): Promise<RunInput> {
-  const who = await actorName(db, { type: "user", id: comment.authorUserId });
+  const who = await actorName(db, comment.authorAgentId ? { type: "agent", id: comment.authorAgentId } : { type: "user", id: comment.authorUserId });
   const said = `\n\n"${comment.body.slice(0, 2000)}"\n\n`;
   const ref = `incident ${incidentRef(inc.number)} (id ${inc.id})`;
   const reply = "Read the incident with incident_get, then reply with incident_comment";
   return {
     agentId,
-    trigger: "ticket",
+    // "event" for another agent's comment: the raiser may have nothing to add, so recordTicketReply doesn't post for it.
+    trigger: comment.authorAgentId ? "event" : "ticket",
     triggerRef: inc.id,
     requestedByUserId: comment.authorUserId ?? undefined,
     task:
       agentId === inc.assignedAgentId
         ? `${who} commented on ${ref}, which is assigned to you:${said}${reply}: answer their question, or say what you'll do next. ` +
           "If they asked for something, do it (anything that changes a system needs a change request)."
-        : `${who} mentioned you in a comment on ${ref}:${said}${reply} to answer them. It isn't assigned to you: help with ` +
+        : agentId === inc.raisedByAgentId && !agentMentions(comment.mentions).includes(agentId)
+          ? `${who} commented on ${ref}, which you raised:${said}${reply} if they asked you something or you have something to ` +
+            "add; otherwise there's no need to reply. Leave the work itself to the assignee, if there is one."
+          : `${who} mentioned you in a comment on ${ref}:${said}${reply} to answer them. It isn't assigned to you: help with ` +
           "what they asked, and leave the rest to the assignee.",
   };
 }
@@ -180,18 +191,18 @@ export async function recordTicketReply(db: Database, input: RunInput, outcome: 
 }
 
 /**
- * Open incidents assigned to this agent whose newest comment is a person's, written after the agent last
- * worked on the incident: a comment that arrived while a run was already waiting (one queued run per agent).
+ * Open incidents assigned to or raised by this agent whose newest comment is one it should answer, written after
+ * the agent last worked on the incident: a comment that arrived while a run was already waiting (one queued run per agent).
  */
 export async function unansweredIncidentComments(db: Database, agentId: string) {
   const open = await db
     .select()
     .from(incidents)
-    .where(and(eq(incidents.assignedAgentId, agentId), notInArray(incidents.status, ["resolved", "closed"])));
+    .where(and(or(eq(incidents.assignedAgentId, agentId), eq(incidents.raisedByAgentId, agentId)), notInArray(incidents.status, ["resolved", "closed"])));
   const out: { inc: typeof incidents.$inferSelect; comment: typeof incidentComments.$inferSelect }[] = [];
   for (const inc of open) {
     const [latest] = await db.select().from(incidentComments).where(eq(incidentComments.incidentId, inc.id)).orderBy(desc(incidentComments.createdAt)).limit(1);
-    if (!latest?.authorUserId) continue;
+    if (!latest || !commentAnswerers(inc, latest).includes(agentId)) continue;
     const [since] = await db
       .select({ id: agentRuns.id })
       .from(agentRuns)
@@ -251,7 +262,7 @@ export async function handleEvent(
       const [inc] = await db.select().from(incidents).where(eq(incidents.id, p.incidentId));
       const [comment] = await db.select().from(incidentComments).where(eq(incidentComments.id, p.commentId));
       if (!inc || !comment || inc.status === "closed") return;
-      for (const agentId of await activeAgents(db, [inc.assignedAgentId, ...agentMentions(comment.mentions)])) {
+      for (const agentId of await activeAgents(db, commentAnswerers(inc, comment))) {
         await enqueueRun(boss, await commentRun(db, inc, comment, agentId));
       }
       return;
